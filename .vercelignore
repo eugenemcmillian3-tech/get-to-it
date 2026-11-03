@@ -1,0 +1,11 @@
+# Never upload local secrets, generated output or local tooling.
+.env
+.env.*
+!.env.example
+.next
+.vercel
+node_modules
+*.tsbuildinfo
+.apt
+artifacts
+.git

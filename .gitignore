@@ -1,0 +1,31 @@
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+
+# next.js
+/.next/
+/out/
+next-env.d.ts
+*.tsbuildinfo
+
+# local environment (never commit secrets)
+.env
+.env.*
+!.env.example
+
+# misc
+.DS_Store
+*.pem
+npm-debug.log*
+/coverage
+
+# Isolated restore drill data
+.restore-data/
+.vercel
+.env*
+
+# Local tooling and generated artifacts
+.apt/
+artifacts/

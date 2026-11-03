@@ -1,0 +1,118 @@
+{
+  "scenarios": [
+    {
+      "kind": "favorable",
+      "title": "Favorable conditions",
+      "assumptions": [
+        { "text": "The two current clients renew in the first quarter.", "label": "assumption" },
+        { "text": "I can hire one person by March.", "label": "assumption" },
+        { "text": "My fixed costs stay where they are this year.", "label": "user" }
+      ],
+      "developments": [
+        { "text": "A steady contract covers the fixed costs.", "label": "ai" },
+        { "text": "Hiring frees two days a week for the new work.", "label": "ai" }
+      ],
+      "opportunities": [
+        { "text": "Take one larger project instead of many small ones.", "label": "ai" },
+        { "text": "Build a small buffer for a quiet month.", "label": "assumption" }
+      ],
+      "risks": [
+        { "text": "A new hire needs more support than expected.", "label": "assumption" },
+        { "text": "The larger project slips past the quarter.", "label": "ai" }
+      ],
+      "signals": [
+        { "text": "Two signed renewals arrive before February.", "label": "unknown" },
+        { "text": "A shortlist of two candidates is ready.", "label": "assumption" }
+      ],
+      "actions": [
+        { "text": "Keep the current client work running while testing one new project.", "label": "ai" },
+        { "text": "Write down the weekly minimum revenue the plan needs.", "label": "assumption" }
+      ],
+      "first_steps": [
+        { "text": "Ask the two clients about renewal dates this week.", "label": "user" },
+        { "text": "Draft a one-page role description before advertising.", "label": "ai" }
+      ],
+      "change_conditions": [
+        { "text": "Renewals do not arrive by the end of the quarter.", "label": "unknown" },
+        { "text": "Fixed costs rise by more than the contract covers.", "label": "assumption" }
+      ]
+    },
+    {
+      "kind": "expected",
+      "title": "Expected working assumptions",
+      "assumptions": [
+        { "text": "One client renews and one keeps talking.", "label": "assumption" },
+        {
+          "text": "The trade body lists day rates between 400 and 600.",
+          "label": "retrieved",
+          "source_url": "https://example.org/rates"
+        }
+      ],
+      "developments": [
+        { "text": "Work stays steady without a second hire.", "label": "ai" },
+        { "text": "There is a 70% chance the client renews.", "label": "ai" },
+        { "text": "The contract starts a month later than hoped.", "label": "assumption" }
+      ],
+      "opportunities": [
+        { "text": "Raise the day rate on the next small project.", "label": "ai" },
+        { "text": "Keep one afternoon free for the work I want next.", "label": "assumption" }
+      ],
+      "risks": [
+        { "text": "The delayed contract creates a thin month.", "label": "assumption" },
+        { "text": "Two small projects land in the same week.", "label": "ai" }
+      ],
+      "signals": [
+        { "text": "The renewal conversation moves to terms.", "label": "unknown" },
+        { "text": "The pipeline has one live conversation at a time.", "label": "assumption" }
+      ],
+      "actions": [
+        { "text": "Keep the current work visible and on schedule.", "label": "ai" },
+        { "text": "Set aside one hour a week to review the numbers.", "label": "assumption" }
+      ],
+      "first_steps": [
+        { "text": "Ask one client what would make renewal easy.", "label": "user" },
+        { "text": "List the three costs that would make hiring impossible.", "label": "ai" }
+      ],
+      "change_conditions": [
+        { "text": "Both clients pause at the same time.", "label": "unknown" },
+        { "text": "The delayed contract becomes uncertain too.", "label": "assumption" }
+      ]
+    },
+    {
+      "kind": "difficult",
+      "title": "Difficult conditions",
+      "assumptions": [
+        { "text": "Both clients delay their decisions.", "label": "assumption" },
+        { "text": "No new project arrives this quarter.", "label": "assumption" }
+      ],
+      "developments": [
+        { "text": "Income drops while the fixed costs stay the same.", "label": "ai" },
+        { "text": "Hiring is no longer possible this year.", "label": "assumption" }
+      ],
+      "opportunities": [
+        { "text": "Use the quieter month to finish the work already started.", "label": "ai" },
+        { "text": "Test a smaller offer before committing to a hire.", "label": "assumption" }
+      ],
+      "risks": [
+        { "text": "A thin month turns into a thin quarter.", "label": "ai" },
+        { "text": "The buffer is spent before the next contract starts.", "label": "assumption" }
+      ],
+      "signals": [
+        { "text": "Two invoices go unpaid past their date.", "label": "unknown" },
+        { "text": "The pipeline is empty for three weeks.", "label": "assumption" }
+      ],
+      "actions": [
+        { "text": "Keep the smallest reliable offer running.", "label": "ai" },
+        { "text": "Review the fixed costs before taking on anything new.", "label": "assumption" }
+      ],
+      "first_steps": [
+        { "text": "List the costs that could be paused this month.", "label": "user" },
+        { "text": "Ask one past client whether they need anything small.", "label": "ai" }
+      ],
+      "change_conditions": [
+        { "text": "The buffer falls below one month of costs.", "label": "unknown" },
+        { "text": "Two clients confirm they are pausing.", "label": "assumption" }
+      ]
+    }
+  ]
+}

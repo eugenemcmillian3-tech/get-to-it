@@ -1,0 +1,262 @@
+{
+  "planner": {
+    "summary": "The contract works if the current client keeps its two days and the new work is scoped to fixed deliverables rather than open-ended support.",
+    "assumptions": [
+      "The current client keeps needing two days a week.",
+      "One part-time assistant can cover the routine part of the new contract.",
+      "The contract has a fixed scope rather than unlimited revisions."
+    ],
+    "options": [
+      {
+        "title": "Take the contract with a capped scope",
+        "description": "Sign for six months, name the deliverables, and keep the current client at two days."
+      },
+      {
+        "title": "Take a three-month trial",
+        "description": "Ask for a shorter initial term so the arrangement can be reviewed before hiring."
+      }
+    ],
+    "evidence": [
+      {
+        "text": "The person has three months of savings, which covers a short ramp-up.",
+        "basis": "context"
+      },
+      {
+        "text": "A supplied rate card lists day rates for this kind of work.",
+        "basis": "user_source",
+        "source_url": "https://example.org/rates"
+      }
+    ],
+    "counterarguments": [
+      "A capped scope may be unacceptable to the client.",
+      "Hiring before the first invoice arrives puts the savings buffer at risk."
+    ],
+    "disagreements": [
+      "Whether to hire before or after the first contract payment."
+    ],
+    "missing_info": [
+      "The contract's payment terms and notice period.",
+      "How much of the new work the assistant can actually take on."
+    ],
+    "experiment": {
+      "title": "Run one paid trial deliverable",
+      "steps": [
+        "Agree one small paid deliverable with the client.",
+        "Deliver it without hiring anyone.",
+        "Record how many hours it actually took."
+      ],
+      "success_signal": "The deliverable is paid on time and takes less than the estimate.",
+      "stop_signal": "It takes more than twice the estimated hours or the client delays payment."
+    },
+    "questions": [
+      "Can you ask for a three-month initial term without losing the offer?",
+      "What would you need to see before offering someone a job?"
+    ],
+    "tradeoffs": [],
+    "recommendation": null
+  },
+  "critic": {
+    "summary": "The plan fails if the current client's two days expand, if the contract's scope is open-ended, or if hiring happens before the first payment lands.",
+    "assumptions": [
+      "The current client's workload stays at two days a week.",
+      "The assistant can be found and trained within a month."
+    ],
+    "options": [
+      {
+        "title": "Delay hiring until the first invoice is paid",
+        "description": "Take the contract alone, then hire once cash has arrived."
+      }
+    ],
+    "evidence": [
+      {
+        "text": "The person named three months of savings as the available resource.",
+        "basis": "context"
+      }
+    ],
+    "counterarguments": [
+      "Delaying the hire may mean missing the contract's first deadline.",
+      "The savings buffer may not cover both a slow month and a hiring cost."
+    ],
+    "disagreements": [
+      "Whether the savings buffer is large enough to hire before payment."
+    ],
+    "missing_info": [
+      "The total cost of hiring, including any equipment.",
+      "Whether the current client has already signalled a change in hours."
+    ],
+    "experiment": {
+      "title": "Two-week solo stress test",
+      "steps": [
+        "Do the new work alone for two weeks while keeping the current client.",
+        "Log every hour against the plan.",
+        "Compare the log with the contract's deadline."
+      ],
+      "success_signal": "The work fits inside the hours you actually have.",
+      "stop_signal": "You are more than a day behind within the first two weeks."
+    },
+    "questions": [
+      "What is the first sign that the current client wants more than two days?",
+      "How many weeks of savings are you willing to spend on the ramp-up?"
+    ],
+    "tradeoffs": [],
+    "recommendation": null
+  },
+  "research": {
+    "summary": "Most of the plan rests on the person's own context. The contract terms, the assistant's cost and the client's renewal are all unsupported by anything supplied.",
+    "assumptions": [
+      "The supplied rate card is relevant to this kind of contract.",
+      "The person's savings figure is current."
+    ],
+    "options": [
+      {
+        "title": "Gather the four missing facts before signing",
+        "description": "Treat the contract as provisional until terms, costs and renewal are written down."
+      }
+    ],
+    "evidence": [
+      {
+        "text": "The rate card is the only supplied source and covers day rates, not contract terms.",
+        "basis": "user_source",
+        "source_url": "https://example.org/rates"
+      },
+      {
+        "text": "Nothing supplied describes the contract's payment schedule.",
+        "basis": "unknown"
+      }
+    ],
+    "counterarguments": [
+      "Waiting for perfect information may lose the offer.",
+      "The rate card may be out of date."
+    ],
+    "disagreements": [
+      "How much missing information is enough to decide."
+    ],
+    "missing_info": [
+      "Written payment terms and notice period.",
+      "The real all-in cost of a part-time assistant.",
+      "Whether the current client has renewed for next year."
+    ],
+    "experiment": {
+      "title": "Ask for the terms in writing",
+      "steps": [
+        "Request the contract's payment schedule and notice period in writing.",
+        "Ask two people who have hired part-time help what it cost.",
+        "Write down the answers next to the plan."
+      ],
+      "success_signal": "The terms and costs are written down and fit the savings buffer.",
+      "stop_signal": "The client will not put terms in writing."
+    },
+    "questions": [
+      "Which single missing fact would change your decision most?",
+      "Who could confirm the real cost of part-time help?"
+    ],
+    "tradeoffs": [],
+    "recommendation": null
+  },
+  "human_impact": {
+    "summary": "The arrangement affects the current client, a future assistant and the people sharing the person's time. The assistant carries the most risk if the contract ends early.",
+    "assumptions": [
+      "The assistant would depend on these hours for income.",
+      "The current client would notice reduced availability."
+    ],
+    "options": [
+      {
+        "title": "Hire with a clear trial period",
+        "description": "Offer a short, explicit trial so the assistant is not exposed to an open-ended commitment."
+      },
+      {
+        "title": "Stay solo and reduce the contract scope",
+        "description": "Protect the current client's time and avoid taking on someone else's income risk."
+      }
+    ],
+    "evidence": [
+      {
+        "text": "The person listed time with family among their priorities.",
+        "basis": "context"
+      }
+    ],
+    "counterarguments": [
+      "A trial period can still feel insecure to the person hired.",
+      "Staying solo may mean turning down work the person wants."
+    ],
+    "disagreements": [
+      "Whether it is fair to hire someone before the contract is secure."
+    ],
+    "missing_info": [
+      "Whether the assistant would have other income.",
+      "How the current client would be told about reduced availability."
+    ],
+    "experiment": {
+      "title": "Talk to one potential assistant before deciding",
+      "steps": [
+        "Describe the six-month scope and the trial period honestly.",
+        "Ask what security they would need.",
+        "Write down their answer before making an offer."
+      ],
+      "success_signal": "The expectations on both sides are explicit and written down.",
+      "stop_signal": "You would need to hide the contract's uncertainty to make the offer."
+    },
+    "questions": [
+      "Who carries the cost if the contract ends in month two?",
+      "Which relationship are you least willing to strain?"
+    ],
+    "tradeoffs": [],
+    "recommendation": null
+  },
+  "synthesizer": {
+    "summary": "The real choice is not contract versus no contract. It is how much risk to place on the assistant and the savings buffer before the first payment arrives.",
+    "assumptions": [
+      "The contract is real but its terms are not yet written down.",
+      "The current client's two days are not negotiable in the short term."
+    ],
+    "options": [
+      {
+        "title": "Contract first, hire after payment",
+        "description": "Accept the scope, deliver the first milestone alone, then hire with clearer cash."
+      },
+      {
+        "title": "Contract with a trial hire",
+        "description": "Hire on an explicit short trial with hours that the savings buffer can cover."
+      },
+      {
+        "title": "Decline and protect the current work",
+        "description": "Keep the two days and revisit when the current client renews."
+      }
+    ],
+    "evidence": [
+      {
+        "text": "The rate card is the only supplied source and does not cover contract terms.",
+        "basis": "user_source",
+        "source_url": "https://example.org/rates"
+      },
+      {
+        "text": "The payment schedule is unknown, which is the largest unresolved fact.",
+        "basis": "unknown"
+      }
+    ],
+    "counterarguments": [
+      "Waiting for payment may cost the contract.",
+      "A trial hire may not be enough capacity for the first deadline."
+    ],
+    "disagreements": [
+      "The planner and critic disagree on whether to hire before the first payment.",
+      "The human-impact reviewer would accept a trial; the critic treats any early hire as the main risk."
+    ],
+    "missing_info": [
+      "Written payment terms.",
+      "The assistant's real cost.",
+      "Whether the current client renews."
+    ],
+    "experiment": null,
+    "questions": [
+      "Which risk can you actually afford: a delayed payment or a delayed hire?",
+      "What would make you reject all three options?"
+    ],
+    "tradeoffs": [
+      "Cash safety versus delivery capacity in the first month.",
+      "The assistant's security versus your savings buffer.",
+      "Keeping the current client's trust versus taking the larger contract."
+    ],
+    "recommendation": "Ask for written terms and take the contract, but delay the hire until the first payment arrives or the scope is confirmed in writing."
+  }
+}
