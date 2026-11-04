@@ -85,6 +85,29 @@ Authentication → Providers → Email.
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run lint` | ESLint (Next.js config) |
 | `npm test` | Vitest unit tests |
+| `npm run test:e2e` | Authenticated HTTP crawl against a running app; creates and deletes a disposable Supabase user |
+
+### Authenticated HTTP E2E
+
+`npm run test:e2e` exercises the signed-in application over HTTP: it creates a
+confirmed disposable Supabase account, signs in, seeds one goal, task and app
+project, crawls the workspace routes (including Connections, Integration Studio,
+Design, Build Room and Releases), checks the API contracts, then deletes the
+seeded rows and the account. It needs the app running at
+`http://127.0.0.1:3100` (override with `E2E_BASE_URL`) and every migration applied.
+
+The runner needs a Supabase service-role key in its process environment:
+
+```bash
+E2E_SERVICE_ROLE_KEY=... npm run test:e2e
+```
+
+Pass the key only to this command or to your CI secret store. The runner does
+not read it from `.env.local`, and the application must never receive it. Use a
+dedicated test project: the service-role key bypasses Row Level Security, and
+the runner deletes the account it created. Without the key it exits with a setup
+message instead of touching the project. This is an HTTP and API check, not a
+browser visual or keyboard-accessibility test.
 
 ## AI help (Ollama)
 

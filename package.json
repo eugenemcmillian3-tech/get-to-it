@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:restore": "node scripts/restore-check.mjs",
+    "test:e2e": "node scripts/e2e-http.mjs",
     "test:preview": "PREVIEW_RUNNER_TEST=1 vitest run tests/preview-runner.integration.test.ts",
     "check:secrets": "node scripts/secrets-check.mjs",
     "release:check": "node scripts/release-check.mjs"
