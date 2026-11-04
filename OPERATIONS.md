@@ -318,6 +318,11 @@ audit, and passing it does not mean the deployment is secure.
 
 ## Known operational limitations
 
+- Branch protection and repository rulesets are unavailable on the current
+  private repository plan. `main` is unprotected, so the `Quality checks` and
+  `Authenticated E2E` workflows are advisory. After upgrading to GitHub Pro or
+  making the repository public, require the `checks` status before merging.
+  Leave `authenticated-e2e` unrequired because it skips fork pull requests.
 - No down migrations; rollback is restore-based.
 - One database, no read replica and no point-in-time recovery beyond what the host
   provides.
