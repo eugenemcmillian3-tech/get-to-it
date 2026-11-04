@@ -27,6 +27,12 @@ export function apiSupabase(): ApiSupabase {
   });
 }
 
+/**
+ * API tokens contain 32 random bytes (256 bits), so a fast deterministic digest
+ * is intentional. The database looks the token up by this value; a slow
+ * password KDF would add per-request cost without making a 256-bit random
+ * secret easier to guess. Do not reuse this helper for user-chosen passwords.
+ */
 export function hashApiToken(token: string): string {
   return crypto.createHash("sha256").update(token, "utf8").digest("hex");
 }

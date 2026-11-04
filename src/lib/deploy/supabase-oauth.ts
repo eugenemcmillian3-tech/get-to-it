@@ -75,6 +75,11 @@ export function sha256Base64Url(value: string): string {
   return crypto.createHash("sha256").update(value).digest("base64url");
 }
 
+/**
+ * OAuth state is 32 random bytes (256 bits), not a password. The callback looks
+ * it up by this deterministic digest. A slow password KDF would add latency
+ * without improving resistance to guessing a 256-bit single-use nonce.
+ */
 export function stateHash(value: string): string {
   return crypto.createHash("sha256").update(value).digest("hex");
 }

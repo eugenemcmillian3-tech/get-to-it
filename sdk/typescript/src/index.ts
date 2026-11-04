@@ -145,6 +145,14 @@ export function newIdempotencyKey(): string {
   return `idem_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
 }
 
+function stripTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charAt(end - 1) === "/") {
+    end -= 1;
+  }
+  return value.slice(0, end);
+}
+
 export class GettiClient {
   private readonly apiKey: string;
   private readonly baseUrl: string;
@@ -157,7 +165,7 @@ export class GettiClient {
       throw new Error("A project API key starting with gti_ is required.");
     }
     this.apiKey = options.apiKey;
-    this.baseUrl = (options.baseUrl ?? "http://localhost:3000").replace(/\/+$/, "");
+    this.baseUrl = stripTrailingSlashes(options.baseUrl ?? "http://localhost:3000");
     this.fetchImpl = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.timeoutMs = options.timeoutMs ?? 30_000;
     this.apiVersion = options.apiVersion ?? API_VERSION;
