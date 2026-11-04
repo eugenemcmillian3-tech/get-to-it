@@ -12,6 +12,7 @@
     "test": "vitest run",
     "test:restore": "node scripts/restore-check.mjs",
     "test:e2e": "node scripts/e2e-http.mjs",
+    "test:functional": "node scripts/e2e-functional.mjs",
     "test:preview": "PREVIEW_RUNNER_TEST=1 vitest run tests/preview-runner.integration.test.ts",
     "check:secrets": "node scripts/secrets-check.mjs",
     "release:check": "node scripts/release-check.mjs"
@@ -35,6 +36,7 @@
     "embedded-postgres": "^18.6.0-beta.19",
     "eslint": "9.39.1",
     "eslint-config-next": "16.4.3",
+    "playwright": "1.64.1",
     "tailwindcss": "4.3.3",
     "typescript": "6.0.3",
     "vitest": "5.0.5"
