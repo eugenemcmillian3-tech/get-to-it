@@ -115,8 +115,12 @@ browser visual or keyboard-accessibility test.
 `npm run test:functional` drives the signed-in browser through the workflow input
 server action, reopens a completed task, downloads a JSON export, imports it into
 a second disposable account, and checks that the two accounts' rows stay
-separate. It stops before the AI draft, so it needs no `OLLAMA_API_KEY` and
-spends no AI request.
+separate. By default it stops before the AI draft, so it needs no
+`OLLAMA_API_KEY` and spends no AI request.
+
+Set `E2E_FULL_WORKFLOW=1` to continue through the AI draft, review and
+checkpoint. The running app must have `OLLAMA_API_KEY`, and the run spends one AI
+request.
 
 Install Chromium once with `npx playwright install --with-deps chromium`. The app
 must be running, every migration must be applied, and the same
@@ -131,8 +135,10 @@ Two workflows run on pushes to `main` and pull requests:
   audit at high severity and the secret scan. It needs no secrets and also runs
   for fork pull requests.
 - `.github/workflows/e2e.yml` runs the authenticated crawl and the browser
-  functional smoke test. It also supports manual dispatches, and skips fork and
-  Dependabot pull requests because GitHub withholds secrets from them.
+  functional smoke test. A manual dispatch can set `full_workflow: true` to run
+  the AI draft/review/checkpoint path when `OLLAMA_API_KEY` is configured. It
+  skips fork and Dependabot pull requests because GitHub withholds secrets from
+  them.
 
 Branch protection requires a pull request and the `checks` status for `main`.
 Administrators are subject to the rule, so a direct push or admin merge cannot
@@ -153,6 +159,7 @@ Add these repository secrets before enabling the E2E workflow:
 | `E2E_SUPABASE_URL` | URL of the dedicated test project |
 | `E2E_SUPABASE_ANON_KEY` | Its anon key |
 | `E2E_SUPABASE_SERVICE_ROLE_KEY` | Its service-role key |
+| `OLLAMA_API_KEY` | Optional; required only for a `full_workflow` manual dispatch |
 
 Apply every migration to that project first. The workflow builds and starts the
 app on port 3100, then runs the crawl and the browser smoke test. The app process

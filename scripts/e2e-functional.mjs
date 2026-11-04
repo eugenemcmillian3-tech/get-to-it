@@ -4,7 +4,7 @@
  *
  * Exercises the browser path that unit tests and an HTTP crawl cannot:
  * saving a workflow step through a server action, reopening a completed task,
- * downloading an export, and importing it into a second account. It deliberately
+ * downloading an export, and importing it into a second account. By default it
  * stops before the AI draft, so it needs no provider key and spends no AI request.
  *
  * Required environment:
@@ -14,6 +14,9 @@
  *
  * Optional:
  *   E2E_BASE_URL          Defaults to http://127.0.0.1:3100.
+ *   E2E_FULL_WORKFLOW=1   Continue through the AI draft, review and checkpoint.
+ *                         The running app must have OLLAMA_API_KEY; this spends
+ *                         one AI request.
  *   NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY
  *                         Read from the process or .env.local.
  *
@@ -40,6 +43,7 @@ const ANON_KEY =
 const SERVICE_KEY =
   process.env.E2E_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
 
+const FULL_WORKFLOW = process.env.E2E_FULL_WORKFLOW === "1";
 const stamp = `${Date.now()}.${randomBytes(3).toString("hex")}`;
 const goalTitle = `Functional export goal ${stamp}`;
 const checks = [];
@@ -198,7 +202,7 @@ async function seedGoal(sessionA, accountA) {
   return { goal, task };
 }
 
-async function runWorkflowInput(sessionA, accountA, page) {
+async function runWorkflow(sessionA, accountA, page) {
   const steps = [
     { kind: "user_input", title: "Collect input", instructions: "", retry_policy: "manual", config: {} },
     {
@@ -256,6 +260,52 @@ async function runWorkflowInput(sessionA, accountA, page) {
     throw new Error(`Saving workflow input did not advance the run.${detail ? ` ${detail}` : ""}`);
   }
   check("workflow input server action advances to the draft step", true);
+
+  if (!FULL_WORKFLOW) return;
+
+  await page.getByRole("button", { name: "Generate the draft" }).click();
+  try {
+    await page.locator("#workflow-draft").waitFor({ timeout: 90_000 });
+  } catch {
+    const alerts = await page
+      .locator('[role="alert"]')
+      .allTextContents()
+      .catch(() => []);
+    const detail = alerts.filter(Boolean).join(" | ").slice(0, 500);
+    throw new Error(`The AI draft did not produce reviewable text.${detail ? ` ${detail}` : ""}`);
+  }
+  check("AI draft produces reviewable text", true);
+
+  await page
+    .locator("#workflow-draft")
+    .fill("Full workflow smoke draft approved by the disposable owner.");
+  await page.getByRole("button", { name: "Approve this text" }).click();
+  try {
+    await page.getByRole("button", { name: "Mark this run complete" }).waitFor({ timeout: 20_000 });
+  } catch {
+    const alerts = await page
+      .locator('[role="alert"]')
+      .allTextContents()
+      .catch(() => []);
+    const detail = alerts.filter(Boolean).join(" | ").slice(0, 500);
+    throw new Error(`Approving the draft did not reach the checkpoint.${detail ? ` ${detail}` : ""}`);
+  }
+  check("approved draft advances to the checkpoint", true);
+
+  await page.getByRole("button", { name: "Mark this run complete" }).click();
+  try {
+    await page
+      .getByText("Every step succeeded and you confirmed the checkpoint.")
+      .waitFor({ timeout: 20_000 });
+  } catch {
+    const alerts = await page
+      .locator('[role="alert"]')
+      .allTextContents()
+      .catch(() => []);
+    const detail = alerts.filter(Boolean).join(" | ").slice(0, 500);
+    throw new Error(`Confirming the checkpoint did not complete the run.${detail ? ` ${detail}` : ""}`);
+  }
+  check("confirmed checkpoint completes the workflow run", true);
 }
 
 async function exportGoal(page) {
@@ -376,7 +426,7 @@ async function main() {
   check("second account signs in through the UI", true);
 
   const { goal, task } = await seedGoal(sessionA, accountA);
-  await runWorkflowInput(sessionA, accountA, pageA);
+  await runWorkflow(sessionA, accountA, pageA);
   const exportPath = await exportGoal(pageA);
   await importGoal(pageB, exportPath);
   await verifyIsolation(sessionA, sessionB, goal);
