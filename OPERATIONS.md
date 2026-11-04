@@ -306,8 +306,10 @@ the one that affected `minimatch`.
 The browser smoke test (`npm run test:functional`) automates the workflow-input
 server action, task reopen and the export/import isolation check. Set
 `E2E_FULL_WORKFLOW=1` with `OLLAMA_API_KEY` available to the app to run the AI
-draft, review and checkpoint path as well; that spends one AI request. The full
-workflow item below remains a manual check for the release record.
+draft, review and checkpoint path as well; that spends one AI request. The weekly
+scheduled E2E run enables this mode automatically, and a manual dispatch can
+request it with `full_workflow: true`. The full workflow item below remains a
+manual check for the release record.
 
 Then check by hand, and record the result rather than assuming it:
 

@@ -1,6 +1,9 @@
 name: Authenticated E2E
 
 on:
+  schedule:
+    # Every Monday at 06:17 UTC.
+    - cron: "17 6 * * 1"
   workflow_dispatch:
     inputs:
       full_workflow:
@@ -61,12 +64,12 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Verify full workflow configuration
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.full_workflow }}
+        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.full_workflow) }}
         env:
           OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
         run: |
           if [ -z "$OLLAMA_API_KEY" ]; then
-            echo "::error::full_workflow requires the OLLAMA_API_KEY repository secret."
+            echo "::error::The full workflow run requires the OLLAMA_API_KEY repository secret."
             exit 1
           fi
 
@@ -104,7 +107,7 @@ jobs:
       - name: Run browser functional smoke
         env:
           E2E_SERVICE_ROLE_KEY: ${{ secrets.E2E_SUPABASE_SERVICE_ROLE_KEY }}
-          E2E_FULL_WORKFLOW: ${{ github.event_name == 'workflow_dispatch' && inputs.full_workflow && '1' || '' }}
+          E2E_FULL_WORKFLOW: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.full_workflow)) && '1' || '' }}
         run: npm run test:functional
 
       - name: Stop app

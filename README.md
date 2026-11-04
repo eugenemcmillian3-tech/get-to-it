@@ -120,7 +120,8 @@ separate. By default it stops before the AI draft, so it needs no
 
 Set `E2E_FULL_WORKFLOW=1` to continue through the AI draft, review and
 checkpoint. The running app must have `OLLAMA_API_KEY`, and the run spends one AI
-request.
+request. The weekly CI schedule enables this mode automatically; pull request and
+push runs keep the default.
 
 Install Chromium once with `npx playwright install --with-deps chromium`. The app
 must be running, every migration must be applied, and the same
@@ -129,16 +130,17 @@ exit path. This is not a visual or keyboard-accessibility audit.
 
 ### CI
 
-Two workflows run on pushes to `main` and pull requests:
+Two workflows cover pushes to `main`, pull requests and a weekly E2E check:
 
 - `.github/workflows/ci.yml` runs typecheck, lint, unit tests, a dependency
   audit at high severity and the secret scan. It needs no secrets and also runs
   for fork pull requests.
 - `.github/workflows/e2e.yml` runs the authenticated crawl and the browser
-  functional smoke test. A manual dispatch can set `full_workflow: true` to run
-  the AI draft/review/checkpoint path when `OLLAMA_API_KEY` is configured. It
-  skips fork and Dependabot pull requests because GitHub withholds secrets from
-  them.
+  functional smoke test. Its Monday 06:17 UTC schedule runs the AI
+  draft/review/checkpoint path. A manual dispatch can request the same path with
+  `full_workflow: true`. Both full-workflow paths need `OLLAMA_API_KEY` and spend
+  one AI request. It skips fork and Dependabot pull requests because GitHub
+  withholds secrets from them.
 
 Branch protection requires a pull request and the `checks` status for `main`.
 Administrators are subject to the rule, so a direct push or admin merge cannot
@@ -159,7 +161,7 @@ Add these repository secrets before enabling the E2E workflow:
 | `E2E_SUPABASE_URL` | URL of the dedicated test project |
 | `E2E_SUPABASE_ANON_KEY` | Its anon key |
 | `E2E_SUPABASE_SERVICE_ROLE_KEY` | Its service-role key |
-| `OLLAMA_API_KEY` | Optional; required only for a `full_workflow` manual dispatch |
+| `OLLAMA_API_KEY` | Required for the weekly full-workflow run and a `full_workflow` manual dispatch; otherwise optional |
 
 Apply every migration to that project first. The workflow builds and starts the
 app on port 3100, then runs the crawl and the browser smoke test. The app process
