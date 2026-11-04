@@ -180,6 +180,13 @@ export default async function AppProjectPage({
             </span>
           </div>
           <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted">{project.purpose}</p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Link href={`/build/${project.id}/room`} className={secondaryButton}>Build Room</Link>
+            <Link href={`/build/${project.id}/design`} className={secondaryButton}>Design Workspace</Link>
+            <Link href={`/build/${project.id}/integrations`} className={secondaryButton}>Integration Studio</Link>
+            <Link href={`/build/${project.id}/connections`} className={secondaryButton}>Connections</Link>
+            <Link href={`/build/${project.id}/api`} className={secondaryButton}>Developer API</Link>
+          </div>
         </header>
 
         <section aria-labelledby="intake-heading" className={`${cardClass} mt-6`}>
@@ -289,6 +296,9 @@ export default async function AppProjectPage({
             <h2 id="files-heading" className="text-xl font-bold">Project files</h2>
             {files.length > 0 ? (
               <div className="flex flex-wrap gap-2">
+                <Link href={`/build/${project.id}/room`} className={secondaryButton}>
+                  Build Room
+                </Link>
                 <Link href={`/build/${project.id}/workspace`} className={secondaryButton}>
                   Preview workspace
                 </Link>
@@ -300,6 +310,12 @@ export default async function AppProjectPage({
                 </Link>
                 <Link href={`/build/${project.id}/deploy`} className={secondaryButton}>
                   Deploy
+                </Link>
+                <Link href={`/build/${project.id}/releases`} className={secondaryButton}>
+                  Releases
+                </Link>
+                <Link href={`/build/${project.id}/integrations`} className={secondaryButton}>
+                  Integrations
                 </Link>
                 <a
                   href={`/build/${project.id}/download`}

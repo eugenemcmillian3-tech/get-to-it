@@ -1081,6 +1081,65 @@ export type AppVersion = {
   created_at: string;
 };
 
+export type AppIntegrationStatus = "draft" | "connected" | "error" | "disconnected";
+export type AppIntegrationTestStatus = "never" | "passed" | "failed";
+
+export type AppDesignProfile = {
+  id: string;
+  project_id: string;
+  user_id: string;
+  brief: string;
+  config: import("@/lib/design").DesignConfig;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AppDesignAsset = {
+  id: string;
+  project_id: string;
+  user_id: string;
+  kind: "screenshot" | "wireframe" | "asset";
+  name: string;
+  mime: "image/png" | "image/jpeg" | "image/webp";
+  bytes: number;
+  sha256: string;
+  content_base64: string;
+  attribution: string;
+  license_note: string;
+  permission_confirmed: boolean;
+  created_at: string;
+};
+
+export type AppDesignVersion = {
+  id: string;
+  project_id: string;
+  user_id: string;
+  version: number;
+  config: import("@/lib/design").DesignConfig;
+  summary: string;
+  diff: string;
+  created_at: string;
+};
+
+export type AppIntegration = {
+  id: string;
+  project_id: string;
+  user_id: string;
+  kind: "openapi_http" | "postgres";
+  name: string;
+  status: AppIntegrationStatus;
+  config: import("@/lib/integrations/registry").IntegrationConfig;
+  allowed_operations: string[];
+  mapping: import("@/lib/integrations/registry").IntegrationMapping[];
+  last_tested_at: string | null;
+  last_test_status: AppIntegrationTestStatus;
+  last_test_note: string | null;
+  connected_at: string | null;
+  disconnected_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type AppWorkspaceStatus =
   | "stopped"
   | "checking"

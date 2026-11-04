@@ -5,6 +5,7 @@ import { Client } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildExportBundle, type ExportSource } from "@/lib/export";
 import { parseImportFile, importRows } from "@/lib/import";
+import { inspectPostgresSchema, testPostgresConnection } from "@/lib/integrations/database";
 
 /**
  * Restore and authorization drill against an ISOLATED database.
@@ -26,7 +27,7 @@ const connectionString = process.env.RESTORE_TEST_DATABASE_URL;
 
 const describeRestore = connectionString ? describe : describe.skip;
 
-const EXPECTED_CORE_TABLES = 51;
+const EXPECTED_CORE_TABLES = 84;
 
 type Seeded = {
   userId: string;
@@ -380,8 +381,21 @@ describeRestore("isolated restore and authorization drill", () => {
                              'app_team_runs','app_team_tasks','app_team_integrations',
                              'app_team_events','app_provider_connections','app_env_values',
                              'app_deployments','app_deployment_events','app_project_memory',
+                             'app_integrations',
+                             'app_design_profiles','app_design_assets','app_design_versions',
                              'app_change_requests','app_change_events','app_skills',
                              'app_observability_settings','app_error_events','app_change_evaluations',
+                             'app_project_members','app_build_tasks','app_changesets',
+                             'app_changeset_reviews','app_build_comments','app_presence','app_share_links',
+                             'app_releases','app_release_check_configs','app_release_check_runs',
+                             'app_release_incidents','app_incident_events','app_release_automation',
+                             'app_release_automation_events',
+                             'app_api_keys','app_api_key_projects','app_api_rate_windows','app_api_usage',
+                             'app_api_jobs','app_api_idempotency','app_api_webhooks',
+                             'app_api_webhook_deliveries',
+                             'app_composio_auth_attempts','app_composio_connections',
+                             'app_composio_sessions','app_composio_tools','app_composio_tool_grants',
+                             'app_composio_actions','app_composio_usage',
                              'supabase_account_connections','supabase_oauth_states')`,
     );
     expect(Number(tables.rows[0].count)).toBe(EXPECTED_CORE_TABLES);
@@ -811,6 +825,908 @@ describeRestore("isolated restore and authorization drill", () => {
     });
   });
 
+  it("enforces developer API scopes, revocation, quotas and project isolation", async () => {
+    const mainHash = "a".repeat(64);
+    const limitedHash = "b".repeat(64);
+    const expiredHash = "c".repeat(64);
+    const revokedHash = "d".repeat(64);
+    const narrowHash = "9".repeat(64);
+    const allScopes = [
+      "projects:write",
+      "specs:write",
+      "builds:write",
+      "builds:read",
+      "previews:read",
+      "deployments:propose",
+    ];
+
+    async function asAnon<T>(run: () => Promise<T>): Promise<T> {
+      await client.query("select set_config('request.jwt.claims', '', false)");
+      await client.query("set role anon");
+      try {
+        return await run();
+      } finally {
+        await client.query("reset role");
+      }
+    }
+
+    type Guard = {
+      ok: boolean;
+      code?: string;
+      project?: { id: string };
+      project_id?: string;
+      replayed?: boolean;
+      proposal?: { status: string; approved: boolean; plan_hash: string };
+      previews?: unknown[];
+      job?: { id: string; status: string; result_version?: number; file_count?: number };
+      spec?: unknown;
+      files?: { path: string; content: string }[];
+      version?: number;
+      file_count?: number;
+      deliveries?: { id: string; event: string }[];
+      delivery?: { status: string; attempts: number };
+    };
+
+    async function call(sql: string, params: unknown[]): Promise<Guard> {
+      const result = await asAnon(async () =>
+        client.query<{ r: Guard }>(sql, params),
+      );
+      return result.rows[0].r;
+    }
+
+    await asUser(accountA.userId, async () => {
+      for (const key of [
+        { name: "Drill main key", prefix: "gti_aaaaaaaa", hash: mainHash, limit: 100, expires: new Date(Date.now() + 86_400_000) },
+        { name: "Drill limited key", prefix: "gti_bbbbbbbb", hash: limitedHash, limit: 1, expires: new Date(Date.now() + 86_400_000) },
+        { name: "Drill expired key", prefix: "gti_cccccccc", hash: expiredHash, limit: 100, expires: new Date(Date.now() - 60_000) },
+        { name: "Drill revoked key", prefix: "gti_dddddddd", hash: revokedHash, limit: 100, expires: new Date(Date.now() + 86_400_000) },
+      ]) {
+        await client.query(
+          "select public.create_project_api_key($1,$2,$3,$4,$5::text[],$6,$7)",
+          [accountA.appProjectId, key.name, key.prefix, key.hash, allScopes, key.limit, key.expires],
+        );
+      }
+
+      await client.query(
+        "select public.create_project_api_key($1,$2,$3,$4,$5::text[],$6,$7)",
+        [
+          accountA.appProjectId,
+          "Drill narrow key",
+          "gti_99999999",
+          narrowHash,
+          ["previews:read"],
+          100,
+          new Date(Date.now() + 86_400_000),
+        ],
+      );
+
+    });
+
+    // Key ids are looked up as the restore owner; authenticated API roles only
+    // see the hash-free safe view.
+    const keyIds = await client.query<{ key_hash: string; id: string }>(
+      "select key_hash, id from public.app_api_keys where user_id = $1",
+      [accountA.userId],
+    );
+    const keyIdByHash = new Map(keyIds.rows.map((row) => [row.key_hash, row.id]));
+    const mainKeyId = keyIdByHash.get(mainHash) ?? "";
+    const revokedKeyId = keyIdByHash.get(revokedHash) ?? "";
+    expect(mainKeyId).not.toBe("");
+    expect(revokedKeyId).not.toBe("");
+
+    await asUser(accountA.userId, async () => {
+      await client.query("select public.revoke_project_api_key($1)", [revokedKeyId]);
+    });
+
+    // A valid, correctly scoped key reaches its own project only.
+    const own = await call("select public.api_project_context($1,$2,$3) as r", [
+      mainHash,
+      accountA.appProjectId,
+      "specs:write",
+    ]);
+    expect(own.ok).toBe(true);
+    expect(own.project?.id).toBe(accountA.appProjectId);
+
+    const foreign = await call("select public.api_project_context($1,$2,$3) as r", [
+      mainHash,
+      accountB.appProjectId,
+      "specs:write",
+    ]);
+    expect(foreign.ok).toBe(false);
+    expect(foreign.code).toBe("not_found");
+
+    const wrongScope = await call("select public.api_project_context($1,$2,$3) as r", [
+      narrowHash,
+      accountA.appProjectId,
+      "specs:write",
+    ]);
+    expect(wrongScope.code).toBe("scope_denied");
+
+    const expired = await call("select public.api_project_context($1,$2,$3) as r", [
+      expiredHash,
+      accountA.appProjectId,
+      "specs:write",
+    ]);
+    expect(expired.code).toBe("expired");
+
+    const revoked = await call("select public.api_project_context($1,$2,$3) as r", [
+      revokedHash,
+      accountA.appProjectId,
+      "specs:write",
+    ]);
+    expect(revoked.code).toBe("revoked");
+
+    const previews = await call("select public.api_list_previews($1,$2,$3) as r", [
+      mainHash,
+      accountA.appProjectId,
+      20,
+    ]);
+    expect(previews.ok).toBe(true);
+    expect(Array.isArray(previews.previews)).toBe(true);
+
+    // The limited key allows exactly one request in its minute window.
+    const firstLimited = await call("select public.api_list_previews($1,$2,$3) as r", [
+      limitedHash,
+      accountA.appProjectId,
+      20,
+    ]);
+    expect(firstLimited.ok).toBe(true);
+    const secondLimited = await call("select public.api_list_previews($1,$2,$3) as r", [
+      limitedHash,
+      accountA.appProjectId,
+      20,
+    ]);
+    expect(secondLimited.ok).toBe(false);
+    expect(secondLimited.code).toBe("rate_limited");
+
+    const limitedUsage = await client.query<{ status: number }>(
+      `select u.status from public.app_api_usage u
+         join public.app_api_keys k on k.id = u.key_id
+        where k.key_hash = $1 and u.error_code = 'rate_limited'`,
+      [limitedHash],
+    );
+    expect(limitedUsage.rows.some((row) => Number(row.status) === 429)).toBe(true);
+
+    // Idempotent project creation: same key and body replay, different body conflicts.
+    const intake = JSON.stringify({
+      name: "API drill app",
+      purpose: "A project created through the developer API drill.",
+      target_users: "Drill operators",
+      workflows: "Record a drill",
+      required_pages: "/ | Home",
+      entities: "",
+      auth_requirements: "none",
+      integrations: "",
+      design_preferences: "",
+      definition_of_done: "A drill record exists",
+    });
+    const spec = JSON.stringify({ stack: "nextjs-typescript-tailwind" });
+    const created = await call("select public.api_create_project($1,$2,$3,$4::jsonb,$5::jsonb) as r", [
+      mainHash,
+      "drill-project-0001",
+      "e".repeat(64),
+      intake,
+      spec,
+    ]);
+    expect(created.ok).toBe(true);
+    const createdProjectId = created.project?.id ?? "";
+    expect(createdProjectId).toMatch(/^[0-9a-f-]{36}$/);
+
+    const replay = await call("select public.api_create_project($1,$2,$3,$4::jsonb,$5::jsonb) as r", [
+      mainHash,
+      "drill-project-0001",
+      "e".repeat(64),
+      intake,
+      spec,
+    ]);
+    expect(replay.ok).toBe(true);
+    expect(replay.replayed).toBe(true);
+    expect(replay.project?.id).toBe(createdProjectId);
+
+    const conflict = await call("select public.api_create_project($1,$2,$3,$4::jsonb,$5::jsonb) as r", [
+      mainHash,
+      "drill-project-0001",
+      "f".repeat(64),
+      intake,
+      spec,
+    ]);
+    expect(conflict.ok).toBe(false);
+    expect(conflict.code).toBe("idempotency_conflict");
+
+    const createdCount = await client.query<{ count: string }>(
+      "select count(*)::text as count from public.app_projects where id = $1",
+      [createdProjectId],
+    );
+    expect(Number(createdCount.rows[0].count)).toBe(1);
+
+    // A proposal is stored as a draft and never as an approval.
+    await asUser(accountA.userId, async () => {
+      await client.query("update public.app_projects set current_version = 1 where id = $1", [
+        createdProjectId,
+      ]);
+    });
+
+    const proposal = await call(
+      "select public.api_create_deployment_proposal($1,$2,$3,$4::jsonb,$5,$6,$7,$8::jsonb,$9,$10) as r",
+      [
+        mainHash,
+        createdProjectId,
+        "preview",
+        JSON.stringify({ version: 1, target: "preview" }),
+        "1".repeat(64),
+        1,
+        "2".repeat(64),
+        JSON.stringify([{ path: "app/page.tsx", content: "export default function Page() { return null; }" }]),
+        "drill-proposal-0001",
+        "3".repeat(64),
+      ],
+    );
+    expect(proposal.ok, JSON.stringify(proposal)).toBe(true);
+    expect(proposal.proposal?.status).toBe("draft");
+    expect(proposal.proposal?.approved).toBe(false);
+
+    const storedProposal = await client.query<{ status: string; approval_at: string | null }>(
+      "select status, approval_at from public.app_deployments where project_id = $1",
+      [createdProjectId],
+    );
+    expect(storedProposal.rows).toHaveLength(1);
+    expect(storedProposal.rows[0].status).toBe("draft");
+    expect(storedProposal.rows[0].approval_at).toBeNull();
+
+    const approvedCount = await client.query<{ count: string }>(
+      "select count(*)::text as count from public.app_deployments where project_id = $1 and status = 'approved'",
+      [createdProjectId],
+    );
+    expect(Number(approvedCount.rows[0].count)).toBe(0);
+
+    // A key without the deployments scope cannot read plan inputs.
+    const readOnlyDeployment = await call("select public.api_deployment_inputs($1,$2) as r", [
+      narrowHash,
+      accountA.appProjectId,
+    ]);
+    expect(readOnlyDeployment.code).toBe("scope_denied");
+
+    const deploymentKey = await call("select public.api_deployment_inputs($1,$2) as r", [
+      mainHash,
+      accountA.appProjectId,
+    ]);
+    expect(deploymentKey.ok).toBe(true);
+
+    // The job lifecycle is stable, idempotent and cancelable while queued.
+    const started = await call("select public.api_start_build_job($1,$2,$3,$4) as r", [
+      mainHash,
+      accountA.appProjectId,
+      "drill-job-0001",
+      "4".repeat(64),
+    ]);
+    expect(started.ok).toBe(true);
+    const startedJobId = started.job?.id ?? "";
+    expect(started.job?.status).toBe("queued");
+
+    const startedAgain = await call("select public.api_start_build_job($1,$2,$3,$4) as r", [
+      mainHash,
+      accountA.appProjectId,
+      "drill-job-0001",
+      "4".repeat(64),
+    ]);
+    expect(startedAgain.replayed).toBe(true);
+    expect(startedAgain.job?.id).toBe(startedJobId);
+
+    const canceled = await call("select public.api_cancel_job($1,$2) as r", [
+      mainHash,
+      startedJobId,
+    ]);
+    expect(canceled.ok).toBe(true);
+    expect(canceled.job?.status).toBe("canceled");
+
+    // Register a webhook, then run one job to completion: claim, generate-store,
+    // artifacts, and exactly one delivery row for the signed event.
+    const webhookId = randomUUID();
+    await asUser(accountA.userId, async () => {
+      await client.query("select public.create_api_webhook($1,$2,$3,$4::text[],$5)", [
+        webhookId,
+        accountA.appProjectId,
+        "https://example.test/hooks/gettoit",
+        ["build.completed", "build.failed"],
+        "v1.drill.sealed.webhook.secret",
+      ]);
+    });
+
+    const buildJob = await call("select public.api_start_build_job($1,$2,$3,$4) as r", [
+      mainHash,
+      accountA.appProjectId,
+      "drill-job-0002",
+      "5".repeat(64),
+    ]);
+    expect(buildJob.ok).toBe(true);
+    const buildJobId = buildJob.job?.id ?? "";
+
+    const claimed = await call("select public.api_claim_job($1,$2) as r", [
+      mainHash,
+      buildJobId,
+    ]);
+    expect(claimed.ok).toBe(true);
+    expect(claimed.spec).toBeTruthy();
+
+    const completed = await call(
+      "select public.api_complete_job($1,$2,$3::jsonb,$4) as r",
+      [
+        mainHash,
+        buildJobId,
+        JSON.stringify([
+          { path: "app/page.tsx", content: "export default function Page() { return 'api'; }" },
+          { path: "README.md", content: "# API build\n" },
+        ]),
+        "API build: 2 files (2 added, 0 changed, 0 removed).",
+      ],
+    );
+    expect(completed.ok).toBe(true);
+    expect(completed.job?.status).toBe("succeeded");
+    expect(completed.job?.file_count).toBe(2);
+    expect(completed.deliveries).toHaveLength(1);
+    expect(completed.deliveries?.[0]?.event).toBe("build.completed");
+
+    const artifacts = await call("select public.api_get_artifacts($1,$2,$3,$4::text) as r", [
+      mainHash,
+      buildJobId,
+      10,
+      null,
+    ]);
+    expect(artifacts.ok).toBe(true);
+    expect(artifacts.file_count).toBe(2);
+    expect(artifacts.files?.map((file) => file.path).sort()).toEqual([
+      "README.md",
+      "app/page.tsx",
+    ]);
+
+    const storedFiles = await client.query<{ count: string }>(
+      "select count(*)::text as count from public.app_files where project_id = $1",
+      [accountA.appProjectId],
+    );
+    expect(Number(storedFiles.rows[0].count)).toBe(2);
+
+    const deliveryRows = await client.query<{ status: string }>(
+      "select status from public.app_api_webhook_deliveries where job_id = $1",
+      [buildJobId],
+    );
+    expect(deliveryRows.rows).toHaveLength(1);
+    expect(deliveryRows.rows[0].status).toBe("pending");
+
+    // Replaying the completion is idempotent and never queues a duplicate.
+    const completedAgain = await call(
+      "select public.api_complete_job($1,$2,$3::jsonb,$4) as r",
+      [mainHash, buildJobId, JSON.stringify([{ path: "app/page.tsx", content: "ignored" }]), "Replay"],
+    );
+    expect(completedAgain.ok).toBe(true);
+    expect(completedAgain.deliveries).toHaveLength(0);
+    const afterReplay = await client.query<{ count: string }>(
+      "select count(*)::text as count from public.app_api_webhook_deliveries where job_id = $1",
+      [buildJobId],
+    );
+    expect(Number(afterReplay.rows[0].count)).toBe(1);
+
+    const deliveryId = completed.deliveries?.[0]?.id ?? "";
+    const recorded = await call("select public.api_record_delivery($1,$2,$3,$4) as r", [
+      mainHash,
+      deliveryId,
+      true,
+      null,
+    ]);
+    expect(recorded.ok, JSON.stringify(recorded)).toBe(true);
+    expect(recorded.delivery?.status).toBe("delivered");
+
+    // Usage is attributed to the key and project, and RLS hides it from account B.
+    const usage = await client.query<{ operation: string; project_id: string }>(
+      `select u.operation, u.project_id from public.app_api_usage u
+         join public.app_api_keys k on k.id = u.key_id
+        where k.key_hash = $1 order by u.created_at`,
+      [mainHash],
+    );
+    expect(usage.rows.length).toBeGreaterThan(0);
+    expect(usage.rows.some((row) => row.project_id === createdProjectId)).toBe(true);
+
+    await asUser(accountB.userId, async () => {
+      const hidden = await client.query<{ count: string }>(
+        "select count(*)::text as count from public.app_api_usage where key_id = $1",
+        [mainKeyId],
+      );
+      expect(Number(hidden.rows[0].count)).toBe(0);
+    });
+  });
+
+  it("bounds Composio connections, grants, approvals and execution", async () => {
+    type ComposeResult = {
+      ok?: boolean;
+      code?: string;
+      message?: string;
+      attempt?: { id: string; toolkit: string };
+      connection?: { id: string; status: string; toolkit: string; account_label: string };
+      connections?: { id: string; status: string; toolkit: string; account_label: string }[];
+      count?: number;
+      action_id?: string;
+      replayed?: boolean;
+      status?: string;
+      arguments_hash?: string;
+      approval_hash?: string;
+      action?: { id: string; status: string; tool_slug: string; arguments: Record<string, unknown> };
+      actions?: { id: string; status: string; arguments: unknown }[];
+      calls?: number;
+      writes?: number;
+    };
+
+    const rpc = async (userId: string, sql: string, params: unknown[]) =>
+      asUser(userId, async () => (await client.query<{ r: ComposeResult }>(sql, params)).rows[0].r);
+
+    const returnPath = `/build/${accountA.appProjectId}/connections`;
+    const stateOne = "1".repeat(64);
+
+    const begun = await rpc(accountA.userId, "select public.composio_begin_auth($1,$2,$3,$4) as r", [
+      accountA.appProjectId,
+      "github",
+      stateOne,
+      returnPath,
+    ]);
+    expect(begun.ok, JSON.stringify(begun)).toBe(true);
+    const attemptId = begun.attempt?.id ?? "";
+    expect(attemptId).toMatch(/^[0-9a-f-]{36}$/);
+
+    const forgedAccount = await rpc(accountA.userId, "select public.composio_finish_auth($1,$2,$3,$4,$5) as r", [
+      attemptId,
+      stateOne,
+      "completed",
+      "not-a-connected-account",
+      "bad",
+    ]);
+    expect(forgedAccount.ok).toBe(false);
+    expect(forgedAccount.code).toBe("invalid_request");
+
+    const finished = await rpc(accountA.userId, "select public.composio_finish_auth($1,$2,$3,$4,$5) as r", [
+      attemptId,
+      stateOne,
+      "completed",
+      "ca_drill_composio_1",
+      "Drill GitHub",
+    ]);
+    expect(finished.ok, JSON.stringify(finished)).toBe(true);
+    const connectionId = finished.connection?.id ?? "";
+    expect(connectionId).not.toBe("");
+
+    const listed = await rpc(accountA.userId, "select public.composio_list_connections($1) as r", [
+      accountA.appProjectId,
+    ]);
+    expect(listed.connections).toHaveLength(1);
+    expect(listed.connections?.[0]?.status).toBe("active");
+
+    const foreignBegin = await rpc(accountB.userId, "select public.composio_begin_auth($1,$2,$3,$4) as r", [
+      accountA.appProjectId,
+      "github",
+      "2".repeat(64),
+      returnPath,
+    ]);
+    expect(foreignBegin.code).toBe("not_found");
+
+    const tools = await rpc(accountA.userId, "select public.composio_replace_tools($1,$2::jsonb) as r", [
+      connectionId,
+      JSON.stringify([
+        { slug: "GITHUB_CREATE_AN_ISSUE", name: "Create an issue", description: "Create a GitHub issue." },
+        { slug: "NOTION_CREATE_NOTION_PAGE", name: "Create a page", description: "Wrong toolkit." },
+      ]),
+    ]);
+    expect(tools.ok, JSON.stringify(tools)).toBe(true);
+    expect(tools.count).toBe(1);
+
+    const grant = await rpc(
+      accountA.userId,
+      "select public.composio_save_grant($1,$2,$3,$4,$5) as r",
+      [accountA.appProjectId, connectionId, "GITHUB_CREATE_AN_ISSUE", "frontend", true],
+    );
+    expect(grant.ok, JSON.stringify(grant)).toBe(true);
+
+    const unknownGrant = await rpc(
+      accountA.userId,
+      "select public.composio_save_grant($1,$2,$3,$4,$5) as r",
+      [accountA.appProjectId, connectionId, "GITHUB_LIST_PULL_REQUESTS", "frontend", true],
+    );
+    expect(unknownGrant.code).toBe("unknown_tool");
+
+    // A real agent task is required; this is what ties a request to a role.
+    const run = await client.query<{ id: string }>(
+      `insert into public.app_team_runs (project_id, user_id, spec_version, spec, status)
+       values ($1, $2, 1, '{}'::jsonb, 'running')
+       on conflict (project_id) do update set updated_at = now()
+       returning id`,
+      [accountA.appProjectId, accountA.userId],
+    );
+    const runId = run.rows[0].id;
+    const task = await client.query<{ id: string }>(
+      `insert into public.app_team_tasks
+         (run_id, project_id, user_id, position, role, objective, status)
+       values ($1, $2, $3, 7, 'frontend', 'Connect the approved plan to one GitHub issue', 'completed')
+       on conflict (run_id, position) do update
+         set role = 'frontend', objective = excluded.objective, status = 'completed'
+       returning id`,
+      [runId, accountA.appProjectId, accountA.userId],
+    );
+    const taskId = task.rows[0].id;
+
+    const expired = await rpc(accountA.userId, "select public.composio_update_connection($1,$2) as r", [
+      connectionId,
+      "expired",
+    ]);
+    expect(expired.ok).toBe(true);
+    const inactiveProposal = await rpc(
+      accountA.userId,
+      "select public.composio_propose_action($1,$2,$3,$4,$5,$6::jsonb,$7,$8) as r",
+      [
+        accountA.appProjectId,
+        connectionId,
+        "GITHUB_CREATE_AN_ISSUE",
+        "frontend",
+        taskId,
+        JSON.stringify({ owner: "drill", repo: "repo", title: "Inactive connection" }),
+        "Inactive connection preview",
+        "composio-drill-inactive",
+      ],
+    );
+    expect(inactiveProposal.code).toBe("connection_inactive");
+    const restored = await rpc(accountA.userId, "select public.composio_update_connection($1,$2) as r", [
+      connectionId,
+      "active",
+    ]);
+    expect(restored.ok).toBe(true);
+
+    const argsOne = JSON.stringify({ owner: "drill", repo: "repo", title: "A bounded action" });
+    const proposed = await rpc(
+      accountA.userId,
+      "select public.composio_propose_action($1,$2,$3,$4,$5,$6::jsonb,$7,$8) as r",
+      [
+        accountA.appProjectId,
+        connectionId,
+        "GITHUB_CREATE_AN_ISSUE",
+        "frontend",
+        taskId,
+        argsOne,
+        "Create an issue on drill/repo",
+        "composio-drill-action-1",
+      ],
+    );
+    expect(proposed.ok, JSON.stringify(proposed)).toBe(true);
+    const actionId = proposed.action_id ?? "";
+
+    const replay = await rpc(
+      accountA.userId,
+      "select public.composio_propose_action($1,$2,$3,$4,$5,$6::jsonb,$7,$8) as r",
+      [
+        accountA.appProjectId,
+        connectionId,
+        "GITHUB_CREATE_AN_ISSUE",
+        "frontend",
+        taskId,
+        argsOne,
+        "Create an issue on drill/repo",
+        "composio-drill-action-1",
+      ],
+    );
+    expect(replay.replayed).toBe(true);
+    expect(replay.action_id).toBe(actionId);
+
+    const conflict = await rpc(
+      accountA.userId,
+      "select public.composio_propose_action($1,$2,$3,$4,$5,$6::jsonb,$7,$8) as r",
+      [
+        accountA.appProjectId,
+        connectionId,
+        "GITHUB_CREATE_AN_ISSUE",
+        "frontend",
+        taskId,
+        JSON.stringify({ owner: "drill", repo: "repo", title: "Changed after proposal" }),
+        "Changed arguments preview",
+        "composio-drill-action-1",
+      ],
+    );
+    expect(conflict.code).toBe("idempotency_conflict");
+
+    const deniedRole = await rpc(
+      accountA.userId,
+      "select public.composio_propose_action($1,$2,$3,$4,$5,$6::jsonb,$7,$8) as r",
+      [
+        accountA.appProjectId,
+        connectionId,
+        "GITHUB_CREATE_AN_ISSUE",
+        "qa",
+        taskId,
+        argsOne,
+        "Wrong role",
+        "composio-drill-role",
+      ],
+    );
+    expect(deniedRole.code).toBe("not_granted");
+
+    const beforeApproval = await rpc(accountA.userId, "select public.composio_claim_action($1) as r", [actionId]);
+    expect(beforeApproval.ok).toBe(false);
+    expect(beforeApproval.code).toBe("invalid_state");
+
+    const zeroUsage = await rpc(accountA.userId, "select public.composio_usage($1) as r", [
+      accountA.appProjectId,
+    ]);
+    expect(zeroUsage.calls).toBe(0);
+
+    // Approval cannot be replaced by editing the stored argument object.
+    await expect(
+      asUser(accountA.userId, async () => {
+        await client.query(
+          "update public.app_composio_actions set arguments = '{\"owner\":\"attacker\"}'::jsonb where id = $1",
+          [actionId],
+        );
+      }),
+    ).rejects.toThrow(/permission denied/);
+
+    const foreignApprove = await rpc(accountB.userId, "select public.composio_approve_action($1) as r", [actionId]);
+    expect(foreignApprove.ok).toBe(false);
+
+    const approved = await rpc(accountA.userId, "select public.composio_approve_action($1) as r", [actionId]);
+    expect(approved.ok, JSON.stringify(approved)).toBe(true);
+    expect(approved.approval_hash).toMatch(/^[a-f0-9]{64}$/);
+
+    const claimed = await rpc(accountA.userId, "select public.composio_claim_action($1) as r", [actionId]);
+    expect(claimed.ok, JSON.stringify(claimed)).toBe(true);
+    expect(claimed.action?.status).toBe("executing");
+    expect(claimed.action?.arguments).toMatchObject({ owner: "drill" });
+
+    const secondClaim = await rpc(accountA.userId, "select public.composio_claim_action($1) as r", [actionId]);
+    expect(secondClaim.ok).toBe(false);
+    expect(secondClaim.code).toBe("busy");
+
+    const completed = await rpc(
+      accountA.userId,
+      "select public.composio_complete_action($1,$2,$3::jsonb,$4,$5,$6) as r",
+      [actionId, "succeeded", JSON.stringify({ issue: 42 }), "log_drill_1", null, null],
+    );
+    expect(completed.ok, JSON.stringify(completed)).toBe(true);
+
+    const duplicateComplete = await rpc(
+      accountA.userId,
+      "select public.composio_complete_action($1,$2,$3::jsonb,$4,$5,$6) as r",
+      [actionId, "succeeded", JSON.stringify({ issue: 42 }), "log_drill_1", null, null],
+    );
+    expect(duplicateComplete.ok).toBe(false);
+    expect(duplicateComplete.code).toBe("invalid_state");
+
+    // Uncertain outcomes are recorded and cannot be claimed again.
+    const uncertainProposal = await rpc(
+      accountA.userId,
+      "select public.composio_propose_action($1,$2,$3,$4,$5,$6::jsonb,$7,$8) as r",
+      [
+        accountA.appProjectId,
+        connectionId,
+        "GITHUB_CREATE_AN_ISSUE",
+        "frontend",
+        taskId,
+        JSON.stringify({ owner: "drill", repo: "repo", title: "Timeout case" }),
+        "Timeout preview",
+        "composio-drill-action-2",
+      ],
+    );
+    const uncertainId = uncertainProposal.action_id ?? "";
+    await rpc(accountA.userId, "select public.composio_approve_action($1) as r", [uncertainId]);
+    const uncertainClaim = await rpc(accountA.userId, "select public.composio_claim_action($1) as r", [uncertainId]);
+    expect(uncertainClaim.ok).toBe(true);
+    const uncertain = await rpc(
+      accountA.userId,
+      "select public.composio_complete_action($1,$2,$3::jsonb,$4,$5,$6) as r",
+      [uncertainId, "uncertain", null, null, "timeout", "Provider timeout; outcome unknown."],
+    );
+    expect(uncertain.ok).toBe(true);
+    const noRetry = await rpc(accountA.userId, "select public.composio_claim_action($1) as r", [uncertainId]);
+    expect(noRetry.ok).toBe(false);
+
+    // Daily external-tool quota is enforced before a new provider call.
+    await client.query(
+      "update public.app_composio_usage set calls = 100, writes = 100 where user_id = $1 and project_id = $2",
+      [accountA.userId, accountA.appProjectId],
+    );
+    const quotaProposal = await rpc(
+      accountA.userId,
+      "select public.composio_propose_action($1,$2,$3,$4,$5,$6::jsonb,$7,$8) as r",
+      [
+        accountA.appProjectId,
+        connectionId,
+        "GITHUB_CREATE_AN_ISSUE",
+        "frontend",
+        taskId,
+        JSON.stringify({ owner: "drill", repo: "repo", title: "Over quota" }),
+        "Quota preview",
+        "composio-drill-action-3",
+      ],
+    );
+    const quotaId = quotaProposal.action_id ?? "";
+    await rpc(accountA.userId, "select public.composio_approve_action($1) as r", [quotaId]);
+    const overQuota = await rpc(accountA.userId, "select public.composio_claim_action($1) as r", [quotaId]);
+    expect(overQuota.ok).toBe(false);
+    expect(overQuota.code).toBe("quota_exceeded");
+
+    const cancelProposal = await rpc(
+      accountA.userId,
+      "select public.composio_propose_action($1,$2,$3,$4,$5,$6::jsonb,$7,$8) as r",
+      [
+        accountA.appProjectId,
+        connectionId,
+        "GITHUB_CREATE_AN_ISSUE",
+        "frontend",
+        taskId,
+        JSON.stringify({ owner: "drill", repo: "repo", title: "Cancelled case" }),
+        "Cancel preview",
+        "composio-drill-action-4",
+      ],
+    );
+    const cancelId = cancelProposal.action_id ?? "";
+    const cancelled = await rpc(accountA.userId, "select public.composio_cancel_action($1) as r", [cancelId]);
+    expect(cancelled.ok).toBe(true);
+    const cancelClaim = await rpc(accountA.userId, "select public.composio_claim_action($1) as r", [cancelId]);
+    expect(cancelClaim.ok).toBe(false);
+
+    // Disconnecting revokes locally, disables grants and cancels pending work.
+    const pendingProposal = await rpc(
+      accountA.userId,
+      "select public.composio_propose_action($1,$2,$3,$4,$5,$6::jsonb,$7,$8) as r",
+      [
+        accountA.appProjectId,
+        connectionId,
+        "GITHUB_CREATE_AN_ISSUE",
+        "frontend",
+        taskId,
+        JSON.stringify({ owner: "drill", repo: "repo", title: "Pending at disconnect" }),
+        "Pending at disconnect preview",
+        "composio-drill-action-5",
+      ],
+    );
+    const pendingId = pendingProposal.action_id ?? "";
+    await rpc(accountA.userId, "select public.composio_approve_action($1) as r", [pendingId]);
+    const disconnected = await rpc(accountA.userId, "select public.composio_disconnect($1,$2) as r", [
+      connectionId,
+      "revoke",
+    ]);
+    expect(disconnected.ok).toBe(true);
+    expect(disconnected.status).toBe("revoked");
+
+    const postDisconnect = await rpc(
+      accountA.userId,
+      "select public.composio_propose_action($1,$2,$3,$4,$5,$6::jsonb,$7,$8) as r",
+      [
+        accountA.appProjectId,
+        connectionId,
+        "GITHUB_CREATE_AN_ISSUE",
+        "frontend",
+        taskId,
+        JSON.stringify({ owner: "drill", repo: "repo", title: "After disconnect" }),
+        "After disconnect preview",
+        "composio-drill-action-6",
+      ],
+    );
+    expect(postDisconnect.code).toBe("connection_inactive");
+
+    const pendingRow = await client.query<{ status: string }>(
+      "select status from public.app_composio_actions where id = $1",
+      [pendingId],
+    );
+    expect(pendingRow.rows[0]?.status).toBe("cancelled");
+
+    const expiredBegin = await rpc(accountA.userId, "select public.composio_begin_auth($1,$2,$3,$4) as r", [
+      accountA.appProjectId,
+      "notion",
+      "3".repeat(64),
+      returnPath,
+    ]);
+    const expiredAttemptId = expiredBegin.attempt?.id ?? "";
+    await client.query(
+      "update public.app_composio_auth_attempts set expires_at = now() - interval '1 minute' where id = $1",
+      [expiredAttemptId],
+    );
+    const expiredFinish = await rpc(accountA.userId, "select public.composio_finish_auth($1,$2,$3,$4,$5) as r", [
+      expiredAttemptId,
+      "3".repeat(64),
+      "completed",
+      "ca_drill_composio_2",
+      "Expired attempt",
+    ]);
+    expect(expiredFinish.code).toBe("expired");
+
+    const cancelledBegin = await rpc(accountA.userId, "select public.composio_begin_auth($1,$2,$3,$4) as r", [
+      accountA.appProjectId,
+      "notion",
+      "4".repeat(64),
+      returnPath,
+    ]);
+    const cancelledAttemptId = cancelledBegin.attempt?.id ?? "";
+    const cancelledAuth = await rpc(accountA.userId, "select public.composio_finish_auth($1,$2,$3,$4,$5) as r", [
+      cancelledAttemptId,
+      "4".repeat(64),
+      "cancelled",
+      null,
+      null,
+    ]);
+    expect(cancelledAuth.ok).toBe(true);
+    expect(cancelledAuth.status).toBe("cancelled");
+
+    const connectionCount = await client.query<{ count: string }>(
+      "select count(*)::text as count from public.app_composio_connections where project_id = $1",
+      [accountA.appProjectId],
+    );
+    expect(Number(connectionCount.rows[0].count)).toBe(1);
+
+    const foreignSession = await rpc(accountB.userId, "select public.composio_save_session($1,$2,$3) as r", [
+      accountA.appProjectId,
+      "github",
+      "sess_drill_foreign_123",
+    ]);
+    expect(foreignSession.code).toBe("not_found");
+
+    await asUser(accountB.userId, async () => {
+      const connections = await client.query("select 1 from public.app_composio_connections");
+      const actions = await client.query("select 1 from public.app_composio_actions");
+      expect(connections.rowCount).toBe(0);
+      expect(actions.rowCount).toBe(0);
+    });
+  });
+
+  it("keeps design profiles, references and versions owner-only", async () => {
+    const versionId = randomUUID();
+    const assetId = randomUUID();
+
+    await asUser(accountA.userId, async () => {
+      await client.query(
+        `insert into public.app_design_profiles (project_id, user_id, brief, config)
+         values ($1, $2, 'A design brief long enough for the drill.', '{}'::jsonb)
+         on conflict (project_id) do update set brief = excluded.brief`,
+        [accountA.appProjectId, accountA.userId],
+      );
+      await client.query(
+        `insert into public.app_design_assets
+           (id, project_id, user_id, kind, name, mime, bytes, sha256, content_base64,
+            attribution, license_note, permission_confirmed)
+         values ($1, $2, $3, 'screenshot', 'drill.png', 'image/png', 8, $4, 'iVBORw0KGgo=',
+                 'Owner supplied', 'Owner supplied', true)`,
+        [assetId, accountA.appProjectId, accountA.userId, "a".repeat(64)],
+      );
+      await client.query(
+        `insert into public.app_design_versions
+           (id, project_id, user_id, version, config, summary)
+         values ($1, $2, $3, 1, '{}'::jsonb, 'Applied the drill design')`,
+        [versionId, accountA.appProjectId, accountA.userId],
+      );
+    });
+
+    await asUser(accountB.userId, async () => {
+      expect((await client.query("select 1 from public.app_design_profiles where project_id = $1", [accountA.appProjectId])).rowCount).toBe(0);
+      expect((await client.query("select 1 from public.app_design_assets where id = $1", [assetId])).rowCount).toBe(0);
+      expect((await client.query("select 1 from public.app_design_versions where id = $1", [versionId])).rowCount).toBe(0);
+
+      await expect(
+        client.query(
+          `insert into public.app_design_profiles (project_id, user_id, brief)
+           values ($1, $2, 'A cross-account design brief for the drill.')`,
+          [accountA.appProjectId, accountB.userId],
+        ),
+      ).rejects.toThrow(/row-level security/);
+      await expect(
+        client.query(
+          `insert into public.app_design_assets
+             (project_id, user_id, kind, name, mime, bytes, sha256, content_base64, permission_confirmed)
+           values ($1, $2, 'asset', 'intruder.png', 'image/png', 8, $3, 'iVBORw0KGgo=', true)`,
+          [accountA.appProjectId, accountB.userId, "b".repeat(64)],
+        ),
+      ).rejects.toThrow(/row-level security/);
+    });
+
+    await asUser(accountA.userId, async () => {
+      expect((await client.query("select 1 from public.app_design_profiles where project_id = $1", [accountA.appProjectId])).rowCount).toBe(1);
+      expect((await client.query("select 1 from public.app_design_assets where id = $1", [assetId])).rowCount).toBe(1);
+      expect((await client.query("select 1 from public.app_design_versions where id = $1", [versionId])).rowCount).toBe(1);
+      const update = await client.query("update public.app_design_versions set summary = 'changed' where id = $1", [versionId]);
+      expect(update.rowCount).toBe(0);
+    });
+  });
+
   it("keeps preview workspaces owner-only", async () => {
     const workspace = await client.query<{ id: string }>(
       `insert into public.app_workspaces (project_id, user_id, runner_key, status)
@@ -849,7 +1765,9 @@ describeRestore("isolated restore and authorization drill", () => {
   it("keeps agent-team runs and tasks owner-only", async () => {
     const run = await client.query<{ id: string }>(
       `insert into public.app_team_runs (project_id, user_id, spec_version, spec)
-       values ($1, $2, 1, '{}'::jsonb) returning id`,
+       values ($1, $2, 1, '{}'::jsonb)
+       on conflict (project_id) do update set updated_at = now()
+       returning id`,
       [accountA.appProjectId, accountA.userId],
     );
     const runId = run.rows[0].id;
@@ -933,6 +1851,253 @@ describeRestore("isolated restore and authorization drill", () => {
     });
   });
 
+  it("keeps release evidence, incidents and automation owner-controlled", async () => {
+    const releaseId = randomUUID();
+    const checkRunId = randomUUID();
+    const deploymentId = randomUUID();
+
+    await asUser(accountA.userId, async () => {
+      await client.query(
+        `insert into public.app_deployments
+           (id, project_id, user_id, target, snapshot_version, snapshot_digest,
+            snapshot, plan, plan_hash, status, checks, migration_state, source_commit)
+         values ($1,$2,$3,'preview',3,$4,
+                 '[{"path":"app/page.tsx","content":"export default function Page(){return null}"}]'::jsonb,
+                 '{}'::jsonb,$4,'partial_failure',$5,'not_applied_preview','abc1234')`,
+        [
+          deploymentId,
+          accountA.appProjectId,
+          accountA.userId,
+          "c".repeat(64),
+          JSON.stringify([
+            {
+              name: "Repair health",
+              label: "Repair health",
+              status: "failed",
+              code: null,
+              detail: "The simulated deployment returned HTTP 500.",
+            },
+          ]),
+        ],
+      );
+      await client.query(
+        `insert into public.app_releases
+           (id, project_id, user_id, version, deployment_id, source_revision, source_digest,
+            changed_features, review)
+         values ($1,$2,$3,3,$4,'abc1234',$5,'["Changed the repair page."]'::jsonb,
+                 '{"what_unverified":["Passing tests do not establish that no defects exist."]}'::jsonb)`,
+        [releaseId, accountA.appProjectId, accountA.userId, deploymentId, "c".repeat(64)],
+      );
+      await client.query(
+        `insert into public.app_release_check_runs
+           (id, release_id, project_id, user_id, name, kind, status, observed, detail)
+         values ($1,$2,$3,$4,'Repair health','health','failed',$5,
+                 'The configured health endpoint returned HTTP 500.')`,
+        [
+          checkRunId,
+          releaseId,
+          accountA.appProjectId,
+          accountA.userId,
+          JSON.stringify({ status: 500, synthetic: true }),
+        ],
+      );
+      const automationBefore = await client.query<{ count: string }>(
+        "select count(*)::text as count from public.app_release_automation where project_id = $1",
+        [accountA.appProjectId],
+      );
+      expect(Number(automationBefore.rows[0].count)).toBe(0);
+    });
+
+    await asUser(accountB.userId, async () => {
+      expect((await client.query("select 1 from public.app_releases where id = $1", [releaseId])).rowCount).toBe(0);
+      await expect(
+        client.query(
+          `insert into public.app_release_incidents
+             (project_id, release_id, user_id, title, trigger, evidence)
+           values ($1,$2,$3,'Intruder incident','Intruder trigger','[{"detail":"intruder"}]'::jsonb)`,
+          [accountA.appProjectId, releaseId, accountB.userId],
+        ),
+      ).rejects.toThrow();
+    });
+
+    const incidentId = await asUser(accountA.userId, async () => {
+      const incident = await client.query<{ id: string }>(
+        "select public.detect_app_release_incident($1,$2,'high') as id",
+        [checkRunId, "Failed health check: Repair health"],
+      );
+      return incident.rows[0].id;
+    });
+    expect(incidentId).toBeTruthy();
+
+    await asUser(accountA.userId, async () => {
+      const incident = await client.query<{
+        status: string;
+        evidence: unknown[];
+        root_cause: string | null;
+        root_cause_confirmed: boolean;
+      }>(
+        "select status, evidence, root_cause, root_cause_confirmed from public.app_release_incidents where id = $1",
+        [incidentId],
+      );
+      expect(incident.rows[0].status).toBe("evidence_collected");
+      expect(incident.rows[0].evidence).toHaveLength(1);
+      expect(incident.rows[0].root_cause).toBeNull();
+      expect(incident.rows[0].root_cause_confirmed).toBe(false);
+
+      const simulatedDeployment = await client.query<{ status: string; deployment_id: string }>(
+        `select d.status, r.deployment_id
+           from public.app_deployments d
+           join public.app_releases r on r.deployment_id = d.id
+          where r.id = $1`,
+        [releaseId],
+      );
+      expect(simulatedDeployment.rows[0].status).toBe("partial_failure");
+      expect(simulatedDeployment.rows[0].deployment_id).toBe(deploymentId);
+
+      await expect(
+        client.query(
+          "select public.propose_app_incident_diagnosis($1,'Likely configuration','too short',true)",
+          [incidentId],
+        ),
+      ).rejects.toThrow(/substantive supporting evidence/);
+
+      await client.query(
+        "select public.propose_app_incident_diagnosis($1,'Likely configuration','The check failed after a configuration name changed.',false)",
+        [incidentId],
+      );
+      const diagnosed = await client.query<{ status: string; root_cause: string | null }>(
+        "select status, root_cause from public.app_release_incidents where id = $1",
+        [incidentId],
+      );
+      expect(diagnosed.rows[0].status).toBe("diagnosed");
+      expect(diagnosed.rows[0].root_cause).toBeNull();
+
+      await client.query(
+        "select public.prepare_app_incident_recovery($1,'code_rollback',$2::jsonb)",
+        [
+          incidentId,
+          JSON.stringify({
+            steps: ["Create a new deployment from the previous source snapshot."],
+            limitations: ["Database state is not changed."],
+          }),
+        ],
+      );
+      const prepared = await client.query<{ status: string; recovery_plan: { limitations: string[] } }>(
+        "select status, recovery_plan from public.app_release_incidents where id = $1",
+        [incidentId],
+      );
+      expect(prepared.rows[0].status).toBe("awaiting_approval");
+      expect(prepared.rows[0].recovery_plan.limitations.join(" ")).toContain(
+        "does not reverse a database migration",
+      );
+
+      await expect(
+        client.query("select public.approve_app_incident_action($1,'yes')", [incidentId]),
+      ).rejects.toThrow(/type APPROVE/);
+      await client.query("select public.approve_app_incident_action($1,'APPROVE')", [incidentId]);
+
+      const approved = await client.query<{ status: string; approved_at: string | null }>(
+        "select status, approved_at from public.app_release_incidents where id = $1",
+        [incidentId],
+      );
+      expect(approved.rows[0].status).toBe("approved");
+      expect(approved.rows[0].approved_at).toBeTruthy();
+
+      await expect(
+        client.query(
+          "select public.save_app_release_automation($1,true,'[]'::jsonb,'No known limitations.')",
+          [accountA.appProjectId],
+        ),
+      ).rejects.toThrow(/at least one explicit condition/);
+
+      await client.query(
+        "select public.save_app_release_automation($1,true,$2::jsonb,'Cannot reverse a destructive migration.')",
+        [accountA.appProjectId, JSON.stringify(["Two consecutive health check failures"])],
+      );
+      const enabled = await client.query<{ auto_rollback_enabled: boolean }>(
+        "select auto_rollback_enabled from public.app_release_automation where project_id = $1",
+        [accountA.appProjectId],
+      );
+      expect(enabled.rows[0].auto_rollback_enabled).toBe(true);
+
+      await client.query("select public.disable_app_release_automation($1)", [accountA.appProjectId]);
+      const disabled = await client.query<{ auto_rollback_enabled: boolean }>(
+        "select auto_rollback_enabled from public.app_release_automation where project_id = $1",
+        [accountA.appProjectId],
+      );
+      expect(disabled.rows[0].auto_rollback_enabled).toBe(false);
+      const audit = await client.query<{ count: string }>(
+        "select count(*)::text as count from public.app_release_automation_events where project_id = $1",
+        [accountA.appProjectId],
+      );
+      expect(Number(audit.rows[0].count)).toBeGreaterThanOrEqual(2);
+    });
+
+    await asUser(accountB.userId, async () => {
+      await expect(
+        client.query(
+          "select public.save_app_release_automation($1,true,$2::jsonb,'Cannot reverse a migration.')",
+          [accountA.appProjectId, JSON.stringify(["Intruder condition"])],
+        ),
+      ).rejects.toThrow(/project access denied/);
+    });
+  });
+
+  it("inspects PostgreSQL schema read-only against the isolated database", async () => {
+    await testPostgresConnection(connectionString!);
+    const tables = await inspectPostgresSchema(connectionString!);
+    expect(tables.some((table) => table.name === "app_integrations")).toBe(true);
+    expect(tables.find((table) => table.name === "app_integrations")?.columns.length).toBeGreaterThan(0);
+  });
+
+  it("keeps Integration Studio rows owner-only and seals credentials", async () => {
+    const created = await asUser(accountA.userId, async () =>
+      client.query<{ id: string }>(
+        `select public.create_app_integration(
+           $1, 'openapi_http', 'Owner API', $2::jsonb, '[]'::jsonb, '[]'::jsonb, 'draft'
+         ) as id`,
+        [accountA.appProjectId, JSON.stringify({ base_url: "https://api.example.test" })],
+      ),
+    );
+    const integrationId = created.rows[0].id;
+
+    await asUser(accountA.userId, async () => {
+      await client.query("select public.save_app_integration_secrets($1, 'v1.dev', 'v1.prod')", [
+        integrationId,
+      ]);
+      const secret = await client.query<{ value: string }>(
+        "select public.get_app_integration_secret($1, 'development') as value",
+        [integrationId],
+      );
+      expect(secret.rows[0].value).toBe("v1.dev");
+      await expect(
+        client.query("select development_secret_sealed from public.app_integrations where id = $1", [
+          integrationId,
+        ]),
+      ).rejects.toThrow(/permission denied/);
+    });
+
+    await asUser(accountB.userId, async () => {
+      const notMine = await client.query("select 1 from public.app_integrations where id = $1", [
+        integrationId,
+      ]);
+      expect(notMine.rowCount).toBe(0);
+      const secret = await client.query<{ value: string | null }>(
+        "select public.get_app_integration_secret($1, 'development') as value",
+        [integrationId],
+      );
+      expect(secret.rows[0].value).toBeNull();
+      await expect(
+        client.query(
+          `select public.create_app_integration(
+             $1, 'openapi_http', 'Intruder API', '{}'::jsonb, '[]'::jsonb, '[]'::jsonb, 'draft'
+           )`,
+          [accountA.appProjectId],
+        ),
+      ).rejects.toThrow(/project not found/);
+    });
+  });
+
   it("keeps Supabase OAuth tokens owner-only and sealed", async () => {
     const account = await client.query<{ id: string }>(
       `insert into public.supabase_account_connections
@@ -1003,6 +2168,232 @@ describeRestore("isolated restore and authorization drill", () => {
           [accountA.appProjectId, accountB.userId],
         ),
       ).rejects.toThrow(/row-level security/);
+    });
+  });
+
+  it("enforces Build Room roles, stale reviews, conflicts and revoked access", async () => {
+    // The mission drill removed B from the workspace; restore membership so the
+    // Build Room can test mapped roles and two-human review.
+    await client.query(
+      `insert into public.workspace_members (workspace_id, user_id, role, status)
+       values ($1, $2, 'member', 'active')
+       on conflict (workspace_id, user_id) do update set status = 'active', role = 'member'`,
+      [accountA.workspaceId, accountB.userId],
+    );
+
+    await asUser(accountA.userId, async () => {
+      await client.query("select public.link_app_workspace($1, $2)", [
+        accountA.appProjectId,
+        accountA.workspaceId,
+      ]);
+    });
+
+    const bChangeset = await asUser(accountB.userId, async () => {
+      const room = await client.query<{ room: { role: string } }>(
+        "select public.get_app_build_room($1) as room",
+        [accountA.appProjectId],
+      );
+      expect(room.rows[0].room.role).toBe("contributor");
+      const created = await client.query<{ id: string }>(
+        "select public.create_app_changeset($1,$2,$3,$4,$5) as id",
+        [
+          accountA.appProjectId,
+          "B changes the page",
+          "Contributor isolation drill",
+          "app/page.tsx",
+          "export default function Page() { return 'from B'; }",
+        ],
+      );
+      const id = created.rows[0].id;
+      await client.query("select public.submit_app_changeset($1)", [id]);
+      await client.query(
+        `select public.set_app_changeset_checks($1, $2::jsonb)`,
+        [id, JSON.stringify([{ name: "files", label: "Files", status: "passed", code: null, log: "ok" }])],
+      );
+      await expect(
+        client.query("select public.merge_app_changeset($1)", [id]),
+      ).rejects.toThrow(/maintainer access required/);
+      return id;
+    });
+
+    const aChangeset = await asUser(accountA.userId, async () => {
+      await client.query("select public.add_app_project_member($1,$2,'reviewer')", [
+        accountA.appProjectId,
+        accountB.userId,
+      ]);
+      const created = await client.query<{ id: string }>(
+        "select public.create_app_changeset($1,$2,$3,$4,$5) as id",
+        [
+          accountA.appProjectId,
+          "A changes the page",
+          "Owner isolation drill",
+          "app/page.tsx",
+          "export default function Page() { return 'from A'; }",
+        ],
+      );
+      const id = created.rows[0].id;
+      await client.query("select public.submit_app_changeset($1)", [id]);
+      await client.query(
+        `select public.set_app_changeset_checks($1, $2::jsonb)`,
+        [id, JSON.stringify([{ name: "files", label: "Files", status: "passed", code: null, log: "ok" }])],
+      );
+
+      await expect(
+        client.query("select public.review_app_changeset($1,'approve','')", [id]),
+      ).rejects.toThrow(/cannot review your own changeset/);
+
+      // A reviews B; B has been promoted to reviewer and reviews A.
+      await client.query("select public.review_app_changeset($1,'approve','Approved B')", [bChangeset]);
+      return id;
+    });
+
+    await asUser(accountB.userId, async () => {
+      await client.query("select public.review_app_changeset($1,'approve','Approved A')", [aChangeset]);
+    });
+
+    await asUser(accountA.userId, async () => {
+      const merged = await client.query<{ result: { ok: boolean; version: number } }>(
+        "select public.merge_app_changeset($1) as result",
+        [bChangeset],
+      );
+      expect(merged.rows[0].result.ok).toBe(true);
+
+      const conflict = await client.query<{ result: { ok: boolean; conflicts: string[] } }>(
+        "select public.merge_app_changeset($1) as result",
+        [aChangeset],
+      );
+      expect(conflict.rows[0].result.ok).toBe(false);
+      expect(conflict.rows[0].result.conflicts).toContain("app/page.tsx");
+
+      const current = await client.query<{ content: string }>(
+        "select content from public.app_files where project_id = $1 and path = 'app/page.tsx'",
+        [accountA.appProjectId],
+      );
+      expect(current.rows[0].content).toContain("from B");
+
+      // Resolve the conflict by rebasing onto the integrated files, then run
+      // checks and get a fresh review before integrating the tested result.
+      await client.query("select public.rebase_app_changeset($1)", [aChangeset]);
+      await client.query("select public.submit_app_changeset($1)", [aChangeset]);
+      await client.query(
+        `select public.set_app_changeset_checks($1, $2::jsonb)`,
+        [aChangeset, JSON.stringify([{ name: "files", label: "Files", status: "passed", code: null, log: "rebased" }])],
+      );
+    });
+    await asUser(accountB.userId, async () => {
+      await client.query("select public.review_app_changeset($1,'approve','Rebased and tested')", [aChangeset]);
+    });
+    await asUser(accountA.userId, async () => {
+      const merged = await client.query<{ result: { ok: boolean; version: number } }>(
+        "select public.merge_app_changeset($1) as result",
+        [aChangeset],
+      );
+      expect(merged.rows[0].result.ok).toBe(true);
+      const current = await client.query<{ content: string }>(
+        "select content from public.app_files where project_id = $1 and path = 'app/page.tsx'",
+        [accountA.appProjectId],
+      );
+      expect(current.rows[0].content).toContain("from A");
+    });
+
+    const stale = await asUser(accountA.userId, async () => {
+      const created = await client.query<{ id: string }>(
+        "select public.create_app_changeset($1,$2,$3,$4,$5) as id",
+        [
+          accountA.appProjectId,
+          "Stale approval drill",
+          "Review then edit",
+          "app/page.tsx",
+          "export default function Page() { return 'reviewed'; }",
+        ],
+      );
+      return created.rows[0].id;
+    });
+
+    await asUser(accountA.userId, async () => {
+      await client.query("select public.submit_app_changeset($1)", [stale]);
+      await client.query(
+        `select public.set_app_changeset_checks($1, $2::jsonb)`,
+        [stale, JSON.stringify([{ name: "files", label: "Files", status: "passed", code: null, log: "ok" }])],
+      );
+    });
+    await asUser(accountB.userId, async () => {
+      await client.query("select public.review_app_changeset($1,'approve','Approved before edit')", [stale]);
+    });
+    await asUser(accountA.userId, async () => {
+      await client.query(
+        "select public.update_app_changeset($1,'Stale approval drill','Edited after review','app/page.tsx',$2)",
+        [stale, "export default function Page() { return 'edited'; }"],
+      );
+      const row = await client.query<{ status: string; stale: boolean }>(
+        `select status, reviewed_digest is distinct from content_digest as stale
+           from public.app_changesets where id = $1`,
+        [stale],
+      );
+      expect(row.rows[0].status).toBe("draft");
+      expect(row.rows[0].stale).toBe(true);
+      await expect(client.query("select public.merge_app_changeset($1)", [stale]))
+        .rejects.toThrow(/not approved/);
+    });
+
+    // A completed agent branch can become an isolated changeset, but only by a
+    // maintainer and only for files the agent declared it would touch.
+    const agentRun = await client.query<{ id: string }>(
+      `insert into public.app_team_runs (project_id, user_id, spec_version, spec)
+       values ($1, $2, 1, '{}'::jsonb)
+       on conflict (project_id) do update set updated_at = now()
+       returning id`,
+      [accountA.appProjectId, accountA.userId],
+    );
+    const agentTask = await client.query<{ id: string }>(
+      `insert into public.app_team_tasks
+         (run_id, project_id, user_id, position, role, objective, status,
+          file_claims, branch_files, changed_files)
+       values ($1, $2, $3, 5, 'frontend', 'Add an agent greeting', 'completed',
+               '["app/page.tsx"]'::jsonb,
+               '[{"path":"app/page.tsx","content":"export default function Page() { return 1; }"}]'::jsonb,
+               '["app/page.tsx"]'::jsonb)
+       returning id`,
+      [agentRun.rows[0].id, accountA.appProjectId, accountA.userId],
+    );
+    const agentChangeset = await asUser(accountA.userId, async () => {
+      const created = await client.query<{ id: string }>(
+        "select public.create_agent_changeset_from_task($1) as id",
+        [agentTask.rows[0].id],
+      );
+      return created.rows[0].id;
+    });
+    const agentRow = await client.query<{ author_kind: string; agent_role: string; files: { path: string }[] }>(
+      "select author_kind, agent_role, files from public.app_changesets where id = $1",
+      [agentChangeset],
+    );
+    expect(agentRow.rows[0].author_kind).toBe("agent");
+    expect(agentRow.rows[0].agent_role).toBe("frontend");
+    expect(agentRow.rows[0].files[0].path).toBe("app/page.tsx");
+
+    const tokenHash = "a".repeat(64);
+    await asUser(accountA.userId, async () => {
+      await client.query("select public.create_app_share_link($1,$2,1)", [accountA.appProjectId, tokenHash]);
+    });
+    await asUser(accountB.userId, async () => {
+      const shared = await client.query<{ preview: { ok: boolean; name: string } }>(
+        "select public.get_shared_app_preview($1) as preview",
+        [tokenHash],
+      );
+      expect(shared.rows[0].preview.ok).toBe(true);
+      expect(shared.rows[0].preview.name).toContain("Restore drill app");
+    });
+
+    await asUser(accountA.userId, async () => {
+      await client.query("select public.remove_app_project_member($1,$2)", [
+        accountA.appProjectId,
+        accountB.userId,
+      ]);
+    });
+    await asUser(accountB.userId, async () => {
+      await expect(
+        client.query("select public.get_app_build_room($1)", [accountA.appProjectId]),
+      ).rejects.toThrow(/project access denied/);
     });
   });
 

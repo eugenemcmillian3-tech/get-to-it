@@ -84,6 +84,18 @@ export function supabaseAccountAad(userId: string): string {
   return `supabase-account:${userId}`;
 }
 
+export function appIntegrationAad(
+  projectId: string,
+  integrationId: string,
+  environment: "development" | "production",
+): string {
+  return `app-integration:${projectId}:${integrationId}:${environment}`;
+}
+
 export function supabaseOAuthStateAad(stateHash: string): string {
   return `supabase-oauth-state:${stateHash}`;
+}
+
+export function apiWebhookAad(projectId: string, webhookId: string): string {
+  return `api-webhook:${projectId}:${webhookId}`;
 }

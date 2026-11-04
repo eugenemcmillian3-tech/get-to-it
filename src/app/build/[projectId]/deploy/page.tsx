@@ -352,6 +352,7 @@ export default async function DeployPage({
             snapshot and shows every external action before anything is written. Creating a plan does not authorize it.
           </p>
           <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted">
+            <Link href={`/build/${project.id}/releases`} className={secondaryButton}>Release dashboard</Link>
             <span className={chipClass}>GitHub</span>
             <span className={chipClass}>Vercel</span>
             <span className={chipClass}>Supabase</span>
