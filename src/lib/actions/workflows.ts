@@ -7,7 +7,7 @@ import { finishAiRequest, reserveAiRequest } from "@/lib/ai/limits";
 import { aiModelLabel, DEFAULT_AI_MODEL, isAiModel } from "@/lib/ai/models";
 import { chatWithOllama, OllamaError, ollamaErrorMessage } from "@/lib/ai/ollama";
 import { getSession, type Session } from "@/lib/auth";
-import { executorFor, getConnector, NO_REAL_CONNECTOR_NOTE } from "@/lib/connectors";
+import { executorFor, getConnector } from "@/lib/connectors";
 import { getWorkflowRun } from "@/lib/data/workflows";
 import { getPersonalTemplate } from "@/lib/data/templates";
 import { firstErrorMessage, isUuid, readText } from "@/lib/validation";
@@ -1136,5 +1136,3 @@ export async function cancelWorkflowRunAction(
     nonce: Date.now(),
   };
 }
-
-export { NO_REAL_CONNECTOR_NOTE };
