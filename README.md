@@ -113,8 +113,9 @@ browser visual or keyboard-accessibility test.
 
 Two workflows run on pushes to `main` and pull requests:
 
-- `.github/workflows/ci.yml` runs typecheck, lint, unit tests and the secret
-  scan. It needs no secrets and also runs for fork pull requests.
+- `.github/workflows/ci.yml` runs typecheck, lint, unit tests, a dependency
+  audit at high severity and the secret scan. It needs no secrets and also runs
+  for fork pull requests.
 - `.github/workflows/e2e.yml` runs this authenticated check. It also supports
   manual dispatches, and skips fork and Dependabot pull requests because GitHub
   withholds secrets from them.
