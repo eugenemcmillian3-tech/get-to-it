@@ -111,9 +111,15 @@ browser visual or keyboard-accessibility test.
 
 ### CI
 
-The workflow in `.github/workflows/e2e.yml` runs this check on pushes to `main`,
-same-repository pull requests and manual dispatches. Add these repository
-secrets before enabling it:
+Two workflows run on pushes to `main` and pull requests:
+
+- `.github/workflows/ci.yml` runs typecheck, lint, unit tests and the secret
+  scan. It needs no secrets and also runs for fork pull requests.
+- `.github/workflows/e2e.yml` runs this authenticated check. It also supports
+  manual dispatches, and skips fork pull requests because GitHub withholds
+  secrets from them.
+
+Add these repository secrets before enabling the E2E workflow:
 
 | Secret | Value |
 | --- | --- |
@@ -124,8 +130,7 @@ secrets before enabling it:
 Apply every migration to that project first. The workflow builds and starts the
 app on port 3100, then runs the crawl. The app process receives only the URL and
 anon key; the service-role key is scoped to the crawl step so the running app
-never sees it. Fork pull requests skip the job because GitHub withholds secrets
-from them. A normal failed run still deletes its account and rows; a hard
+never sees it. A normal failed run still deletes its account and rows; a hard
 cancellation can leave the uniquely named test account behind.
 
 ## AI help (Ollama)
