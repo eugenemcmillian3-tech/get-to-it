@@ -2,6 +2,11 @@ name: Authenticated E2E
 
 on:
   workflow_dispatch:
+    inputs:
+      full_workflow:
+        description: Run the AI draft, review and checkpoint smoke test
+        type: boolean
+        default: false
   push:
     branches: [main]
   pull_request:
@@ -55,10 +60,22 @@ jobs:
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
+      - name: Verify full workflow configuration
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.full_workflow }}
+        env:
+          OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+        run: |
+          if [ -z "$OLLAMA_API_KEY" ]; then
+            echo "::error::full_workflow requires the OLLAMA_API_KEY repository secret."
+            exit 1
+          fi
+
       - name: Build
         run: npm run build
 
       - name: Start app
+        env:
+          OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
         run: |
           ./node_modules/.bin/next start -p 3100 > "$RUNNER_TEMP/app.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/app.pid"
@@ -87,6 +104,7 @@ jobs:
       - name: Run browser functional smoke
         env:
           E2E_SERVICE_ROLE_KEY: ${{ secrets.E2E_SUPABASE_SERVICE_ROLE_KEY }}
+          E2E_FULL_WORKFLOW: ${{ github.event_name == 'workflow_dispatch' && inputs.full_workflow && '1' || '' }}
         run: npm run test:functional
 
       - name: Stop app
