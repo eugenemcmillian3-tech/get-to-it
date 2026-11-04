@@ -1,0 +1,108 @@
+name: Authenticated E2E
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: authenticated-e2e
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  authenticated-e2e:
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.E2E_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.E2E_SUPABASE_ANON_KEY }}
+      E2E_BASE_URL: http://127.0.0.1:3100
+      NEXT_TELEMETRY_DISABLED: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify E2E configuration
+        env:
+          E2E_SERVICE_ROLE_KEY: ${{ secrets.E2E_SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          missing=0
+          for name in NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY E2E_SERVICE_ROLE_KEY; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is not configured. Add the E2E Supabase secrets described in README.md."
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Build
+        run: npm run build
+
+      - name: Start app
+        run: |
+          ./node_modules/.bin/next start -p 3100 > "$RUNNER_TEMP/app.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/app.pid"
+
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent --show-error --max-time 5 "$E2E_BASE_URL/api/health" > /dev/null; then
+              exit 0
+            fi
+            if ! kill -0 "$(cat "$RUNNER_TEMP/app.pid")" 2> /dev/null; then
+              echo "The app process exited before becoming healthy."
+              cat "$RUNNER_TEMP/app.log"
+              exit 1
+            fi
+            sleep 1
+          done
+
+          echo "The app did not become healthy within 60 seconds."
+          cat "$RUNNER_TEMP/app.log"
+          exit 1
+
+      - name: Run authenticated crawl
+        env:
+          E2E_SERVICE_ROLE_KEY: ${{ secrets.E2E_SUPABASE_SERVICE_ROLE_KEY }}
+        run: npm run test:e2e
+
+      - name: Stop app
+        if: always()
+        run: |
+          if [ ! -f "$RUNNER_TEMP/app.pid" ]; then
+            exit 0
+          fi
+
+          pid="$(cat "$RUNNER_TEMP/app.pid")"
+          if kill -0 "$pid" 2> /dev/null; then
+            kill "$pid" 2> /dev/null || true
+          fi
+          for attempt in $(seq 1 10); do
+            if ! kill -0 "$pid" 2> /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          kill -9 "$pid" 2> /dev/null || true
+
+      - name: Upload app log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: authenticated-e2e-app-log
+          path: ${{ runner.temp }}/app.log
+          if-no-files-found: ignore

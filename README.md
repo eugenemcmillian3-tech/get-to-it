@@ -109,6 +109,25 @@ the runner deletes the account it created. Without the key it exits with a setup
 message instead of touching the project. This is an HTTP and API check, not a
 browser visual or keyboard-accessibility test.
 
+### CI
+
+The workflow in `.github/workflows/e2e.yml` runs this check on pushes to `main`,
+same-repository pull requests and manual dispatches. Add these repository
+secrets before enabling it:
+
+| Secret | Value |
+| --- | --- |
+| `E2E_SUPABASE_URL` | URL of the dedicated test project |
+| `E2E_SUPABASE_ANON_KEY` | Its anon key |
+| `E2E_SUPABASE_SERVICE_ROLE_KEY` | Its service-role key |
+
+Apply every migration to that project first. The workflow builds and starts the
+app on port 3100, then runs the crawl. The app process receives only the URL and
+anon key; the service-role key is scoped to the crawl step so the running app
+never sees it. Fork pull requests skip the job because GitHub withholds secrets
+from them. A normal failed run still deletes its account and rows; a hard
+cancellation can leave the uniquely named test account behind.
+
 ## AI help (Ollama)
 
 The goal page can ask an open model for a small next step, using the goal, the
