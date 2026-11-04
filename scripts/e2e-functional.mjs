@@ -3,9 +3,9 @@
  * Authenticated functional smoke test.
  *
  * Exercises the browser path that unit tests and an HTTP crawl cannot:
- * saving a workflow step through a server action, downloading an export, and
- * importing it into a second account. It deliberately stops before the AI
- * draft, so it needs no provider key and spends no AI request.
+ * saving a workflow step through a server action, reopening a completed task,
+ * downloading an export, and importing it into a second account. It deliberately
+ * stops before the AI draft, so it needs no provider key and spends no AI request.
  *
  * Required environment:
  *   E2E_SERVICE_ROLE_KEY  Supabase service-role key, used only to create and
@@ -195,7 +195,7 @@ async function seedGoal(sessionA, accountA) {
     }),
   });
   check("seed account has one goal and one completed task", Boolean(goal?.id && task?.id));
-  return goal;
+  return { goal, task };
 }
 
 async function runWorkflowInput(sessionA, accountA, page) {
@@ -319,6 +319,30 @@ async function verifyIsolation(sessionA, sessionB, originalGoal) {
   );
 }
 
+async function reopenTask(page, session, goal, task) {
+  await page.goto(`${BASE}/goals/${goal.id}/tasks/${task.id}`, {
+    waitUntil: "domcontentloaded",
+  });
+  await page.getByRole("button", { name: "Reopen task" }).waitFor({ timeout: 20_000 });
+  await page.getByRole("button", { name: "Reopen task" }).click();
+  await page.waitForFunction(
+    () => {
+      const button = Array.from(document.querySelectorAll("button")).find(
+        (element) => element.textContent?.trim() === "Mark complete",
+      );
+      return Boolean(button && !button.disabled);
+    },
+    null,
+    { timeout: 20_000 },
+  );
+
+  const rows = await rest(session, `tasks?id=eq.${task.id}&select=status`);
+  check(
+    "reopened task returns to the to-do list",
+    Array.isArray(rows) && rows[0]?.status === "todo",
+  );
+}
+
 async function main() {
   requireConfiguration();
 
@@ -351,11 +375,12 @@ async function main() {
   await uiLogin(pageB, accountB);
   check("second account signs in through the UI", true);
 
-  const goal = await seedGoal(sessionA, accountA);
+  const { goal, task } = await seedGoal(sessionA, accountA);
   await runWorkflowInput(sessionA, accountA, pageA);
   const exportPath = await exportGoal(pageA);
   await importGoal(pageB, exportPath);
   await verifyIsolation(sessionA, sessionB, goal);
+  await reopenTask(pageA, sessionA, goal, task);
 }
 
 let failure = null;

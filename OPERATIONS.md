@@ -304,8 +304,8 @@ it checks the shipped runtime; the CI gate also catches tooling advisories such 
 the one that affected `minimatch`.
 
 The browser smoke test (`npm run test:functional`) automates the workflow-input
-server action and the export/import isolation check. It stops before the AI draft,
-so the full workflow run below remains a manual check.
+server action, task reopen and the export/import isolation check. It stops before
+the AI draft, so the full workflow run below remains a manual check.
 
 Then check by hand, and record the result rather than assuming it:
 
