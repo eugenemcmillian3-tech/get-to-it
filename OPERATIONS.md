@@ -303,6 +303,10 @@ production dependencies. `release:check` keeps its production-only audit because
 it checks the shipped runtime; the CI gate also catches tooling advisories such as
 the one that affected `minimatch`.
 
+The browser smoke test (`npm run test:functional`) automates the workflow-input
+server action and the export/import isolation check. It stops before the AI draft,
+so the full workflow run below remains a manual check.
+
 Then check by hand, and record the result rather than assuming it:
 
 - [ ] Sign in, create a goal, a task and saved work; complete and reopen the task.

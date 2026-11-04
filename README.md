@@ -86,6 +86,7 @@ Authentication → Providers → Email.
 | `npm run lint` | ESLint (Next.js config) |
 | `npm test` | Vitest unit tests |
 | `npm run test:e2e` | Authenticated HTTP crawl against a running app; creates and deletes a disposable Supabase user |
+| `npm run test:functional` | Browser smoke test for a workflow server action and cross-account export/import; creates and deletes two disposable users |
 
 ### Authenticated HTTP E2E
 
@@ -109,6 +110,18 @@ the runner deletes the account it created. Without the key it exits with a setup
 message instead of touching the project. This is an HTTP and API check, not a
 browser visual or keyboard-accessibility test.
 
+### Browser functional smoke test
+
+`npm run test:functional` drives the signed-in browser through the workflow input
+server action, downloads a JSON export, imports it into a second disposable
+account, and checks that the two accounts' rows stay separate. It stops before
+the AI draft, so it needs no `OLLAMA_API_KEY` and spends no AI request.
+
+Install Chromium once with `npx playwright install --with-deps chromium`. The app
+must be running, every migration must be applied, and the same
+`E2E_SERVICE_ROLE_KEY` is required; both temporary accounts are deleted on every
+exit path. This is not a visual or keyboard-accessibility audit.
+
 ### CI
 
 Two workflows run on pushes to `main` and pull requests:
@@ -116,9 +129,9 @@ Two workflows run on pushes to `main` and pull requests:
 - `.github/workflows/ci.yml` runs typecheck, lint, unit tests, a dependency
   audit at high severity and the secret scan. It needs no secrets and also runs
   for fork pull requests.
-- `.github/workflows/e2e.yml` runs this authenticated check. It also supports
-  manual dispatches, and skips fork and Dependabot pull requests because GitHub
-  withholds secrets from them.
+- `.github/workflows/e2e.yml` runs the authenticated crawl and the browser
+  functional smoke test. It also supports manual dispatches, and skips fork and
+  Dependabot pull requests because GitHub withholds secrets from them.
 
 Branch protection requires a pull request and the `checks` status for `main`.
 Administrators are subject to the rule, so a direct push or admin merge cannot
@@ -141,10 +154,11 @@ Add these repository secrets before enabling the E2E workflow:
 | `E2E_SUPABASE_SERVICE_ROLE_KEY` | Its service-role key |
 
 Apply every migration to that project first. The workflow builds and starts the
-app on port 3100, then runs the crawl. The app process receives only the URL and
-anon key; the service-role key is scoped to the crawl step so the running app
-never sees it. A normal failed run still deletes its account and rows; a hard
-cancellation can leave the uniquely named test account behind.
+app on port 3100, then runs the crawl and the browser smoke test. The app process
+receives only the URL and anon key; the service-role key is scoped to the test
+steps so the running app never sees it. A normal failed run still deletes its
+accounts and rows; a hard cancellation can leave the uniquely named test accounts
+behind.
 
 ## AI help (Ollama)
 
