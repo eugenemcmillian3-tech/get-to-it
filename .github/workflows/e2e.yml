@@ -8,7 +8,7 @@ on:
     branches: [main]
 
 concurrency:
-  group: authenticated-e2e
+  group: authenticated-e2e-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -17,8 +17,9 @@ permissions:
 jobs:
   authenticated-e2e:
     if: >-
-      github.event_name != 'pull_request' ||
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.actor != 'dependabot[bot]' &&
+      (github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:

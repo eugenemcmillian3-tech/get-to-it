@@ -116,11 +116,20 @@ Two workflows run on pushes to `main` and pull requests:
 - `.github/workflows/ci.yml` runs typecheck, lint, unit tests and the secret
   scan. It needs no secrets and also runs for fork pull requests.
 - `.github/workflows/e2e.yml` runs this authenticated check. It also supports
-  manual dispatches, and skips fork pull requests because GitHub withholds
-  secrets from them.
+  manual dispatches, and skips fork and Dependabot pull requests because GitHub
+  withholds secrets from them.
 
-Branch protection requires the `checks` status for pull requests into `main`.
-`authenticated-e2e` remains advisory because it skips fork pull requests.
+Branch protection requires a pull request and the `checks` status for `main`.
+Administrators are subject to the rule, so a direct push or admin merge cannot
+bypass it. `authenticated-e2e` remains advisory because it skips fork pull
+requests.
+
+### Repository security
+
+Secret scanning and push protection, Dependabot alerts and security updates, and
+CodeQL default setup are enabled. Dependabot checks `npm` and GitHub Actions
+weekly. Report a vulnerability privately through the advisory flow described in
+[`SECURITY.md`](SECURITY.md); do not open a public issue.
 
 Add these repository secrets before enabling the E2E workflow:
 

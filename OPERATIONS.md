@@ -316,11 +316,19 @@ end-to-end suite, no load test, no penetration test, and no email deliverability
 test. The secret scan is a pattern check on tracked files; it is not a security
 audit, and passing it does not mean the deployment is secure.
 
+## Repository security
+
+Secret scanning and push protection, Dependabot alerts and security updates, and
+CodeQL default setup are enabled on the public repository. Dependabot checks
+`npm` and GitHub Actions weekly. Report a vulnerability through the private
+advisory flow in `SECURITY.md`, never a public issue.
+
 ## Known operational limitations
 
-- Branch protection requires the `checks` status for pull-request merges to
-  `main`. `authenticated-e2e` remains advisory because it skips fork pull
-  requests. Direct pushes and administrator merges can still bypass the check.
+- Branch protection requires a pull request and the `checks` status for `main`.
+  Administrators are subject to the rule, so direct pushes and admin merges
+  cannot bypass it. `authenticated-e2e` remains advisory because it skips fork
+  pull requests.
 - No down migrations; rollback is restore-based.
 - One database, no read replica and no point-in-time recovery beyond what the host
   provides.
