@@ -2,6 +2,8 @@
 
 GET TO IT deploys from the `main` branch of `eugenemcmillian3-tech/get-to-it` to the Vercel project `get-to-it-wvpy`.
 
+- Vercel Git auto-deploy is enabled for `main`; pushes to `main` deploy production automatically. Do not run manual production deploys.
+
 - Production URL: https://get-to-it-wvpy.vercel.app
 - Vercel project ID: `prj_7ZFE4kOPQgsrubitOv1cDcIMPCOx`
 - Vercel production branch: `main`
