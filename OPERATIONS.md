@@ -298,6 +298,11 @@ production build, secret pattern scan and `npm audit --omit=dev --audit-level=hi
 It exits non-zero if any step fails. `test:restore` is separate because it needs a
 database.
 
+The CI quality gate runs `npm audit --audit-level=high` over both development and
+production dependencies. `release:check` keeps its production-only audit because
+it checks the shipped runtime; the CI gate also catches tooling advisories such as
+the one that affected `minimatch`.
+
 Then check by hand, and record the result rather than assuming it:
 
 - [ ] Sign in, create a goal, a task and saved work; complete and reopen the task.
