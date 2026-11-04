@@ -86,7 +86,7 @@ Authentication → Providers → Email.
 | `npm run lint` | ESLint (Next.js config) |
 | `npm test` | Vitest unit tests |
 | `npm run test:e2e` | Authenticated HTTP crawl against a running app; creates and deletes a disposable Supabase user |
-| `npm run test:functional` | Browser smoke test for a workflow server action and cross-account export/import; creates and deletes two disposable users |
+| `npm run test:functional` | Browser smoke test for a workflow server action, task reopen and cross-account export/import; creates and deletes two disposable users |
 
 ### Authenticated HTTP E2E
 
@@ -113,9 +113,10 @@ browser visual or keyboard-accessibility test.
 ### Browser functional smoke test
 
 `npm run test:functional` drives the signed-in browser through the workflow input
-server action, downloads a JSON export, imports it into a second disposable
-account, and checks that the two accounts' rows stay separate. It stops before
-the AI draft, so it needs no `OLLAMA_API_KEY` and spends no AI request.
+server action, reopens a completed task, downloads a JSON export, imports it into
+a second disposable account, and checks that the two accounts' rows stay
+separate. It stops before the AI draft, so it needs no `OLLAMA_API_KEY` and
+spends no AI request.
 
 Install Chromium once with `npx playwright install --with-deps chromium`. The app
 must be running, every migration must be applied, and the same
