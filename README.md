@@ -13,7 +13,7 @@ check-ins, optional in-app reminders, a template library with goal search,
 filters and archiving, small shared workspaces, small workflows that pause for
 your review and need an exact-content approval before any connector action, and a
 plain data export/import page with an operations guide. See `BUILD_STATUS.md`.
-Payments exist only in Stripe test mode, and nothing is deployed.
+Payments exist only in Stripe test mode. The app is deployed in production; optional integrations without credentials stay in setup mode.
 
 The goal page also has an optional "I'M STUCK" panel that asks an open model for
 a starting point through Ollama's cloud API. It needs `OLLAMA_API_KEY`; without
