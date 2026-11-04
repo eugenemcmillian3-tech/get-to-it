@@ -119,6 +119,9 @@ Two workflows run on pushes to `main` and pull requests:
   manual dispatches, and skips fork pull requests because GitHub withholds
   secrets from them.
 
+Branch protection requires the `checks` status for pull requests into `main`.
+`authenticated-e2e` remains advisory because it skips fork pull requests.
+
 Add these repository secrets before enabling the E2E workflow:
 
 | Secret | Value |

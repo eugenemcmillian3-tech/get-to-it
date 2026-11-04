@@ -318,11 +318,9 @@ audit, and passing it does not mean the deployment is secure.
 
 ## Known operational limitations
 
-- Branch protection and repository rulesets are unavailable on the current
-  private repository plan. `main` is unprotected, so the `Quality checks` and
-  `Authenticated E2E` workflows are advisory. After upgrading to GitHub Pro or
-  making the repository public, require the `checks` status before merging.
-  Leave `authenticated-e2e` unrequired because it skips fork pull requests.
+- Branch protection requires the `checks` status for pull-request merges to
+  `main`. `authenticated-e2e` remains advisory because it skips fork pull
+  requests. Direct pushes and administrator merges can still bypass the check.
 - No down migrations; rollback is restore-based.
 - One database, no read replica and no point-in-time recovery beyond what the host
   provides.
