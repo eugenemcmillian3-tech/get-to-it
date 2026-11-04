@@ -5,7 +5,7 @@
 GET TO IT helps you name what you've been putting off, turn it into a goal you can
 plan around, and keep the work you actually do.
 
-This repository contains **Phases 1 to 8 and 10 to 25**: accounts, goals, tasks,
+This repository contains **Phases 1 to 8 and 10 to 30**: accounts, goals, tasks,
 a saved-work workspace, AI-assisted planning with a reviewable preview,
 task-level AI help whose suggestions you accept, edit or reject, an optional
 server-side focus timer, a plain-figures progress view, private weekly
@@ -30,20 +30,12 @@ it the panel explains the missing key instead of inventing an answer.
 ## Setup
 
 1. Create a Supabase project (or use an existing one).
-2. In the Supabase SQL editor, run the migrations in order:
-   `supabase/migrations/0001_phase1_init.sql`,
-   `0002_phase2_planning.sql`, `0003_phase3_task_workspace.sql`,
-   `0004_phase4_focus_progress.sql`, `0005_phase5_release.sql`,
-   `0006_phase6_reminders.sql`, `0007_phase7_templates.sql`,
-   `0008_phase8_partnership.sql`, `0009_phase10_credits.sql`,
-   `0010_phase11_preferences.sql`, `0011_phase12_learning.sql`,
-   `0012_phase13_workspaces.sql`, `0013_phase14_workflows.sql`,
-   `0014_phase15_operations.sql`, `0015_phase16_future_paths.sql`,
-   `0016_phase17_reviews.sql`, `0017_phase18_radar.sql`,
-   `0018_phase19_missions.sql`, `0019_phase20_outcomes.sql`,
-   `0020_phase21_app_builder.sql`, `0021_phase22_preview_workspace.sql`,
-   `0022_phase23_agent_team.sql`, `0023_phase24_deployment.sql` and
-   `0024_phase25_improvement.sql`. Together they
+2. In the Supabase SQL editor, run every file in `supabase/migrations/` in
+   filename order, from `0001_phase1_init.sql` through
+   `0033_composio_connections.sql`. Do not stop at an earlier phase: a missing
+   later migration leaves Build Room, Design, Releases, Integration Studio, the
+   developer API and Connections returning a server error at request time.
+   Together they
    create `profiles`, `goals`, `tasks`, `task_results`, the plan and request-limit
    tables, focus sessions, reminders, private templates, partner sharing, the
    credit ledger and payments, optional work preferences, approved daily plans,
