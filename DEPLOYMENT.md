@@ -231,16 +231,66 @@ billing.
 | --- | --- | --- |
 | Owner approval to execute | Name, date/time UTC, explicit scope | `Not granted — preflight only (2026-11-05)` |
 | Live billing decision | Must be **NO** for this rollout | `NO — live Stripe remains off` |
-| Backup or snapshot | Reference and timestamp | `None listed; PITR disabled (2026-11-05) — blocker` |
+| Backup or snapshot | Reference and timestamp | `Free plan; no platform backups/PITR — owner-run dump required (blocker)` |
 | Zero-balance audit | Purchases, paid payments, ledger rows | `0 payments; 0 paid; 0 refunded; 0 ledger rows` |
 | Ledger balance | Sum of all deltas, expected `0` | `0` |
 | AI limits before | `per_user_daily`, `global_daily`, `in_flight_seconds` | `15 / 200 / 120 seconds (pre-0034)` |
 | Current pack catalogue | Pre-0034 values | `3 active: starter 20/$5; steady 60/$12; deep 150/$25` |
 | Reservation schema | Pre-0035 state | `2-arg present; 4-arg absent` |
-| PR checks | Run URL and result for the final commit | `11b9bd1 — all checks passed; final record commit pending` |
+| PR checks | Run URL and result for the final commit | `4cc2478 — all checks passed` |
 | Staging rehearsal | 35 migrations, `26/26` restore, `13/13` functional | `Passed — PR #15 comment` |
 | Production health | `/api/health` status and revision | `200 ok; ab5a3968da18; 2026-11-05T04:16:50Z` |
 | Stripe configuration | No live key and `STRIPE_ALLOW_LIVE` unset | `Not verified — Vercel project inaccessible; keep live off` |
+
+### Backup remediation
+
+Confirmed 2026-11-05: the organization is on the **Free** plan. The production
+database is 19 MB and has no Storage buckets or objects. Free projects have no
+automatic backups and no PITR, so the missing backup is a hard rollout blocker.
+Use one of these paths, then record the reference and a successful restore test.
+
+**Option A — logical dump (no plan change, recommended).** Run from the owner's
+secure shell with a direct or session-pooler connection string. Do not paste the
+connection string into chat or commit it.
+
+```bash
+export SUPABASE_DB_URL='postgresql://...'
+supabase db dump --remote="$SUPABASE_DB_URL" -f roles.sql --role-only
+supabase db dump --remote="$SUPABASE_DB_URL" -f schema.sql
+supabase db dump --remote="$SUPABASE_DB_URL" -f data.sql --use-copy --data-only \
+  -x "storage.buckets_vectors" -x "storage.vector_indexes"
+sha256sum roles.sql schema.sql data.sql > SHA256SUMS
+```
+
+Encrypt and store the files off-site. Storage objects are not included; the
+current bucket count is zero, but verify again before dumping. Restore into a
+disposable Postgres 17 or Supabase project, not over production or staging:
+
+```bash
+psql --single-transaction --variable ON_ERROR_STOP=1 \
+  --file roles.sql --file schema.sql \
+  --command 'SET session_replication_role = replica' \
+  --file data.sql --dbname "$RESTORE_DB_URL"
+```
+
+Verify the migration head, table counts, `health_probe()`, RLS policies, and a
+signed-in read before treating the dump as restorable. Free plans are limited to
+two active projects, so free a slot or use a local Postgres 17 instance.
+
+**Option B — upgrade the organization to Pro.** Pro includes 7 days of daily
+physical backups, restorable from the dashboard, but the docs do not document a
+user-triggered on-demand backup and physical daily backups are not downloadable.
+Wait for a completed daily backup, then restore-test it. Pro is $25/month plus
+compute; PITR is a separate add-on (about $100/month for 7-day retention,
+requires Small compute) and replaces daily backups. This is unnecessary for one
+migration if Option A is tested.
+
+Branching and read replicas are not backups: branches are data-less by default,
+and replicas have no versioned restore history. Do not use either as the gate.
+
+Official references: [backups](https://supabase.com/docs/guides/platform/backups),
+[pricing](https://supabase.com/pricing), and
+[CLI backup/restore](https://supabase.com/docs/guides/platform/migrating-within-supabase/backup-restore).
 
 ### Execution log
 
@@ -292,7 +342,7 @@ handwritten inverse of `0034` or `0035`, and never edit `credit_ledger` by hand.
 - Decision: **NO-GO**
 - Approved by: `Not approved — preflight only`
 - Date/time UTC: `2026-11-05T04:16:50Z`
-- Conditions or open risks: `No backup or snapshot is available (PITR disabled); owner approval not granted; Stripe live configuration not verifiable through the Vercel integration.`
+- Conditions or open risks: `No backup or snapshot is available (Free plan, PITR disabled); complete and restore-test the Backup remediation path; owner approval not granted; Stripe live configuration not verifiable through the Vercel integration.`
 - Next review: `After a fresh backup/snapshot, owner approval and Stripe-off confirmation.`
 
 ## Live Stripe gate
