@@ -231,13 +231,13 @@ billing.
 | --- | --- | --- |
 | Owner approval to execute | Name, date/time UTC, explicit scope | `Not granted — preflight only (2026-11-05)` |
 | Live billing decision | Must be **NO** for this rollout | `NO — live Stripe remains off` |
-| Backup or snapshot | Reference and timestamp | `Free plan; no platform backups/PITR — owner-run dump required (blocker)` |
+| Backup or snapshot | Reference and timestamp | `Free plan; no platform backups/PITR; CLI token lacks database_write — owner-run dump required (blocker)` |
 | Zero-balance audit | Purchases, paid payments, ledger rows | `0 payments; 0 paid; 0 refunded; 0 ledger rows` |
 | Ledger balance | Sum of all deltas, expected `0` | `0` |
 | AI limits before | `per_user_daily`, `global_daily`, `in_flight_seconds` | `15 / 200 / 120 seconds (pre-0034)` |
 | Current pack catalogue | Pre-0034 values | `3 active: starter 20/$5; steady 60/$12; deep 150/$25` |
 | Reservation schema | Pre-0035 state | `2-arg present; 4-arg absent` |
-| PR checks | Run URL and result for the final commit | `4cc2478 — all checks passed` |
+| PR checks | Run URL and result for the final commit | `de5d20f — all checks passed` |
 | Staging rehearsal | 35 migrations, `26/26` restore, `13/13` functional | `Passed — PR #15 comment` |
 | Production health | `/api/health` status and revision | `200 ok; ab5a3968da18; 2026-11-05T04:16:50Z` |
 | Stripe configuration | No live key and `STRIPE_ALLOW_LIVE` unset | `Not verified — Vercel project inaccessible; keep live off` |
@@ -284,6 +284,13 @@ Wait for a completed daily backup, then restore-test it. Pro is $25/month plus
 compute; PITR is a separate add-on (about $100/month for 7-day retention,
 requires Small compute) and replaces daily backups. This is unnecessary for one
 migration if Option A is tested.
+
+The agent workspace's scoped Management API token is read-only. A dry run of
+`supabase db dump --remote=qhlzjhdcnlokbsdsrqqy` stopped at login-role
+initialization with `403 missing database_write`. Do not rotate the database
+password or create a temporary role to bypass this; run the dump from the
+owner's shell with a direct or session-pooler URL, or use a scoped token
+explicitly granted `database_write`.
 
 Branching and read replicas are not backups: branches are data-less by default,
 and replicas have no versioned restore history. Do not use either as the gate.
@@ -342,7 +349,7 @@ handwritten inverse of `0034` or `0035`, and never edit `credit_ledger` by hand.
 - Decision: **NO-GO**
 - Approved by: `Not approved — preflight only`
 - Date/time UTC: `2026-11-05T04:16:50Z`
-- Conditions or open risks: `No backup or snapshot is available (Free plan, PITR disabled); complete and restore-test the Backup remediation path; owner approval not granted; Stripe live configuration not verifiable through the Vercel integration.`
+- Conditions or open risks: `No backup or snapshot is available (Free plan, PITR disabled; scoped CLI token lacks database_write); complete and restore-test the Backup remediation path with an owner-run direct connection; owner approval not granted; Stripe live configuration not verifiable through the Vercel integration.`
 - Next review: `After a fresh backup/snapshot, owner approval and Stripe-off confirmation.`
 
 ## Live Stripe gate
