@@ -3,9 +3,6 @@
  * without a database or a browser.
  */
 
-/** One credit buys one AI request after the free daily allowance is gone. */
-export const CREDITS_PER_REQUEST = 1;
-
 export const REFUND_POLICY = [
   "Refunds are full and only for credits you have not used.",
   "Ask within 30 days of the purchase and include the receipt reference.",
@@ -54,9 +51,7 @@ export const LEDGER_REASON_LABELS: Record<LedgerReason, string> = {
 };
 
 export function ledgerReasonLabel(reason: string): string {
-  return (
-    LEDGER_REASON_LABELS[reason as LedgerReason] ?? "Credit change"
-  );
+  return LEDGER_REASON_LABELS[reason as LedgerReason] ?? "Credit change";
 }
 
 export type PaymentStatus = "pending" | "paid" | "refunded" | "failed" | "canceled";
@@ -73,26 +68,12 @@ export function paymentStatusLabel(status: string): string {
   return PAYMENT_STATUS_LABELS[status as PaymentStatus] ?? "Unknown";
 }
 
-/**
- * Wording for a refused AI request. `needs-credits` is the only new outcome
- * Phase 10 adds to the free allowance; everything else is unchanged.
- */
-export function creditLimitMessage(code?: string, limit?: number): string {
-  const allowance = typeof limit === "number" && limit > 0 ? limit : null;
-
+/** Wording for a refused AI request. There is no free allowance to name. */
+export function creditLimitMessage(code?: string): string {
   switch (code) {
     case "needs-credits":
-      return allowance
-        ? `You've used today's ${allowance} free AI requests and have no credits. Add credits, or keep going by hand — goals, tasks and saved work all still work.`
-        : "You've used today's free AI requests and have no credits. Add credits, or keep going by hand.";
+      return "You're out of credits. Add credits to run AI work; your goals, tasks, saved work, account settings and billing history still work.";
     default:
       return "";
   }
-}
-
-/** Short note under an AI control once credits exist. */
-export function creditNote(balance: number, freeRemaining: number): string | null {
-  if (balance > 0) return `${formatCredits(balance)} available.`;
-  if (freeRemaining === 0) return "No free AI requests or credits left today.";
-  return null;
 }

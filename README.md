@@ -32,7 +32,7 @@ it the panel explains the missing key instead of inventing an answer.
 1. Create a Supabase project (or use an existing one).
 2. In the Supabase SQL editor, run every file in `supabase/migrations/` in
    filename order, from `0001_phase1_init.sql` through
-   `0033_composio_connections.sql`. Do not stop at an earlier phase: a missing
+   `0034_credit_pricing.sql`. Do not stop at an earlier phase: a missing
    later migration leaves Build Room, Design, Releases, Integration Studio, the
    developer API and Connections returning a server error at request time.
    Together they
@@ -233,18 +233,17 @@ the same server-enforced allowance, stored in Postgres:
 - a global daily allowance,
 - one AI request in flight per user.
 
-The defaults live in `public.ai_limits` (15 per person per day, 200 per day
-globally, 120 second in-flight timeout). The browser cannot read or write that
-table, and cannot insert, update or delete `ai_requests` rows at all: requests are
-reserved by security-definer functions, so limits cannot be raised or reset from
-the client. Change the numbers with the SQL editor:
+The defaults live in `public.ai_limits` (0 free requests per person, 200 requests
+per day globally, 120 second in-flight timeout). Zero free requests is the pricing
+decision: there is no free plan. Every AI request is paid from prepaid credits,
+and an account starts with none. The browser cannot read or write that table, and
+cannot insert, update or delete `ai_requests` rows at all: requests are reserved
+by security-definer functions, so limits cannot be raised or reset from the
+client.
 
-```sql
-update public.ai_limits set per_user_daily = 30, global_daily = 500 where id = 1;
-```
-
-These are **request limits**, not a dollar budget. GET TO IT has no billing and
-makes no promise about provider pricing.
+These are **request limits and credit controls**, not a claim that every operation
+costs the same number of credits. The approval gate for the model-specific rate card is in
+[`PRICING.md`](PRICING.md).
 
 ## Task workspace help (Phase 3)
 
@@ -740,10 +739,11 @@ certificates, no automated high-stakes grading and no rankings.
 
 ## AI credits and payments (test mode)
 
-The free allowance on every account is unchanged: 15 AI requests a day, counted
-in Postgres. Credits are optional and only used once that allowance is gone —
-one credit per request. Nothing else costs credits, and no feature is locked
-behind a purchase.
+There is no free plan, trial or promotional credit. New accounts start with zero
+credits. One credit costs **$0.10**, sold in five one-time packs: $5 for 50, $10
+for 100, $25 for 250, $50 for 500 and $100 for 1,000. The current test-mode
+reservation is one credit per AI request; that is not the final model-specific
+rate card. See [`PRICING.md`](PRICING.md) for the approval gate.
 
 **What is measured, and what is not.** Every AI request records its kind, model,
 outcome, error code and timing, plus the token counts the provider reports. The
@@ -764,6 +764,12 @@ is closed out after its in-flight window — the credit is returned, once, becau
 a request can have at most one charge row and one release row. A timeout is
 treated as failed and released: there is no blind retry and no guessing that the
 provider did the work.
+
+**Zero balance.** New paid AI work is blocked when the balance is zero. Existing
+results, account settings and billing history stay available; there is no free
+AI or sample output substituted. The final model-specific operation rate card,
+per-operation estimates and aggregate build/swarm/workflow budgets are not
+activated by this pricing change.
 
 **Payments.** One provider, Stripe, hosted Checkout, one-time purchases only.
 There are no subscription objects and nothing renews. A pending payment row is

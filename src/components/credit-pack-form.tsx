@@ -4,6 +4,7 @@ import { useActionState } from "react";
 import { idleFormState } from "@/lib/action-state";
 import { startCheckoutAction } from "@/lib/actions/credits";
 import { formatCredits, formatUsd } from "@/lib/credits/format";
+import { CREDIT_VALUE_LABEL } from "@/lib/credits/pricing";
 import { cardClass, primaryButton } from "@/lib/styles";
 import type { CreditPack } from "@/lib/types";
 
@@ -28,7 +29,8 @@ export function CreditPackForm({
             <p className="text-lg font-bold">{formatCredits(pack.credits)}</p>
             <p className="mt-0.5 text-sm text-muted">{formatUsd(pack.amount_cents)}</p>
             <p className="mt-2 text-xs leading-relaxed text-muted">
-              One credit per AI request after the free daily allowance.
+              {CREDIT_VALUE_LABEL} per credit. AI work uses prepaid credits;
+              there is no free plan.
             </p>
             <button
               type="submit"
@@ -37,7 +39,7 @@ export function CreditPackForm({
               disabled={!enabled}
               className={`${primaryButton} mt-3 w-full`}
             >
-              Buy {formatCredits(pack.credits)}
+              Buy for {formatUsd(pack.amount_cents)}
             </button>
           </li>
         ))}

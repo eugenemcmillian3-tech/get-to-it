@@ -11,7 +11,7 @@
 | Phase 7 | Template library, private templates, goal search, filters, archive | Complete |
 | Phase 8 | One accountability partner, opt-in sharing, encouragement, block/report | Complete |
 | Phase 9 | Action framework and one external connector | Not started — no connector was selected |
-| Phase 10 | Prepaid AI credits, Stripe test-mode checkout, ledger, owner dashboard | Complete (test mode; live payments not enabled) |
+| Phase 10 | Prepaid AI credits, Stripe test-mode checkout, ledger, owner dashboard | Complete (test mode; $0.10 credit; no free plan; live payments not enabled) |
 | Phase 11 | Optional work preferences, preference-aware suggestions, approved daily plan | Complete |
 | Phase 12 | Optional learning mode: editable path, practice records, step help | Complete |
 | Phase 13 | Small shared workspaces: roles, shared goals, assignments, comments | Complete |
@@ -76,17 +76,20 @@ thread with database-enforced limits, and end/block/report controls. The partner
 reads nothing directly — a security-definer snapshot returns only enabled
 fields, and RLS keeps every underlying row owner-only. Invitations are never
 emailed and no automated moderation is claimed.
-Phase 10 adds optional prepaid AI credits on top of the unchanged free daily
-allowance. Credits are an append-only ledger in Postgres: one credit is reserved
+Phase 10 adds prepaid AI credits. There is no free plan: new accounts start at
+zero credits and every AI request is paid from the ledger. One credit costs
+$0.10, sold in five one-time packs from $5/50 credits to $100/1,000 credits.
+Credits are an append-only ledger in Postgres: one test-mode credit is reserved
 before a model call and released if the call fails, the balance guard refuses an
-overspend, and a purchase is credited only by a signature-verified Stripe
-webhook whose event id can be processed once. A test-mode checkout creates a
-pending payment from a database price, the success page adds nothing, refunds are
-full and only for unused credits, and a refund that would go negative is parked
-for a person. Token counts are recorded as the provider reports them; provider
-cost stays explicitly unknown until an owner enters prices. `/owner` shows
-aggregate activity, AI outcomes, credits and payment states — never task content —
-behind a database-side ownership check.
+overspend, and a purchase is credited only by a signature-verified Stripe webhook
+whose event id can be processed once. A test-mode checkout creates a pending
+payment from a database price, the success page adds nothing, refunds are full
+and only for unused credits, and a refund that would go negative is parked for a
+person. Token counts are recorded as the provider reports them; provider cost
+stays explicitly unknown until an owner enters prices. The final model-specific
+operation rate card remains unapproved and inactive; see `PRICING.md`.
+`/owner` shows aggregate activity, AI outcomes, credits and payment states —
+never task content — behind a database-side ownership check.
 Phase 11 adds optional work preferences — session length, usual days and hours,
 task size, communication style, topics, and a preferred reminder schedule — and
 uses only what was explicitly saved to shape planning, task help and a daily

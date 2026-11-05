@@ -3,7 +3,6 @@ import { describe, expect, it, afterEach } from "vitest";
 import {
   ACCOUNT_DELETION_POLICY,
   creditLimitMessage,
-  creditNote,
   formatCredits,
   formatSignedCredits,
   formatUsd,
@@ -11,6 +10,14 @@ import {
   paymentStatusLabel,
   REFUND_POLICY,
 } from "@/lib/credits/format";
+import {
+  CREDIT_PACK_DEFINITIONS,
+  CREDIT_VALUE_CENTS,
+  CREDIT_VALUE_LABEL,
+  creditNote,
+  creditsToCents,
+  formatCreditsWithUsd,
+} from "@/lib/credits/pricing";
 import {
   createCheckoutSession,
   factsFromEvent,
@@ -168,26 +175,44 @@ describe("credit formatting", () => {
   });
 });
 
+describe("credit pricing", () => {
+  it("sets the retail value of one credit to ten cents", () => {
+    expect(CREDIT_VALUE_CENTS).toBe(10);
+    expect(CREDIT_VALUE_LABEL).toBe("$0.10");
+    expect(creditsToCents(50)).toBe(500);
+    expect(formatCreditsWithUsd(50)).toBe("50 credits ($5.00)");
+  });
+
+  it("keeps all five packs at exactly ten cents per credit", () => {
+    expect(CREDIT_PACK_DEFINITIONS).toHaveLength(5);
+    for (const pack of CREDIT_PACK_DEFINITIONS) {
+      expect(pack.amount_cents).toBe(pack.credits * CREDIT_VALUE_CENTS);
+    }
+    expect(CREDIT_PACK_DEFINITIONS.map((pack) => pack.credits)).toEqual([
+      50, 100, 250, 500, 1000,
+    ]);
+  });
+});
+
 describe("credit copy", () => {
-  it("names the free allowance when credits run out", () => {
-    const message = creditLimitMessage("needs-credits", 15);
-    expect(message).toContain("15 free AI requests");
+  it("does not invent a free allowance when credits run out", () => {
+    const message = creditLimitMessage("needs-credits");
+    expect(message).toContain("out of credits");
     expect(message).toContain("Add credits");
-    expect(message).toContain("by hand");
+    expect(message).not.toContain("free");
   });
 
   it("still reads sensibly without a known allowance", () => {
-    expect(creditLimitMessage("needs-credits")).toContain("no credits");
+    expect(creditLimitMessage("needs-credits")).toContain("credits");
   });
 
   it("says nothing for codes it does not own", () => {
     expect(creditLimitMessage("in-flight")).toBe("");
   });
 
-  it("shows a balance note only when there is something to say", () => {
-    expect(creditNote(3, 0)).toBe("3 credits available.");
-    expect(creditNote(0, 0)).toContain("No free AI requests");
-    expect(creditNote(0, 4)).toBeNull();
+  it("shows a balance note with its dollar value", () => {
+    expect(creditNote(3)).toBe("3 credits available ($0.30).");
+    expect(creditNote(0)).toContain("No credits available");
   });
 
   it("states that refunds only cover unused credits", () => {

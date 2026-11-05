@@ -108,12 +108,12 @@ and no digest: an event creates one in-app row, and the person marks it read.
 - **Usage belongs to the person, not the workspace.** Phase 13 adds no AI entry
   point inside a workspace. Every AI feature stays personal and keeps charging the
   signed-in person.
-- The database still enforces the free daily allowance, the prepaid credit ledger,
-  the global daily ceiling and the one-request-at-a-time rule exactly as before.
+- The database still enforces the prepaid credit ledger, the global daily
+  ceiling and the one-request-at-a-time rule. There is no free allowance.
   Nothing in this phase adds a `workspace_id` to `ai_requests` or a way to spend
-  someone else's allowance.
+  someone else's credits.
 - There is deliberately **no unmetered team AI path**: a workspace has no budget,
-  no shared pool and no endpoint that skips `reserve_ai_request`. If a workspace
+  no shared credit pool and no endpoint that skips `reserve_ai_request`. If a workspace
   AI feature is added later, it must call the same reservation function with the
   acting person's identity.
 

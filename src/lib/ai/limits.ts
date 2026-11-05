@@ -8,6 +8,7 @@
 
 import type { Session } from "@/lib/auth";
 import { creditLimitMessage } from "@/lib/credits/format";
+import { TEST_MODE_REQUEST_COST_LABEL } from "@/lib/credits/pricing";
 
 /**
  * Every AI entry point: goal help, goal planning, task-workspace help, learning
@@ -34,7 +35,7 @@ export type AiReservation = {
   limit: number;
   /** Credits left after this request was accounted for. */
   balance: number;
-  /** True when this request came out of the free daily allowance. */
+  /** Kept for older responses; the free allowance is disabled. */
   free: boolean;
 };
 
@@ -124,8 +125,8 @@ export async function finishAiRequest(
 }
 
 /**
- * These are request counts. They are not a dollar budget and GET TO IT has no
- * billing: the wording deliberately says requests, not money.
+ * There is no free allowance. The current test-mode reservation is shown as
+ * both credits and dollars; the final operation rate card is not activated.
  */
 export function limitMessage(code?: string, limit?: number): string {
   const allowance = typeof limit === "number" && limit > 0 ? limit : null;
@@ -140,7 +141,7 @@ export function limitMessage(code?: string, limit?: number): string {
     case "global-daily":
       return "AI requests are paused for everyone for the rest of today. Your goals and tasks are unaffected.";
     case "needs-credits":
-      return creditLimitMessage("needs-credits", limit) || UNAVAILABLE;
+      return creditLimitMessage("needs-credits") || UNAVAILABLE;
     case "unauthenticated":
       return "Your session expired. Sign in again to keep going.";
     default:
@@ -148,10 +149,7 @@ export function limitMessage(code?: string, limit?: number): string {
   }
 }
 
-/** Small line under an AI control. Null when there is nothing useful to say. */
-export function remainingNote(remaining?: number): string | null {
-  if (typeof remaining !== "number" || remaining < 0) return null;
-  if (remaining === 0) return "No AI requests left today.";
-  const noun = remaining === 1 ? "request" : "requests";
-  return `${remaining} AI ${noun} left today.`;
+/** Small line under an AI control. There is no free daily allowance. */
+export function remainingNote(): string | null {
+  return `Current test-mode reservation: ${TEST_MODE_REQUEST_COST_LABEL}. A failed request releases it.`;
 }

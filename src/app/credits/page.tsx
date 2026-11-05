@@ -14,6 +14,7 @@ import {
   ledgerReasonLabel,
   paymentStatusLabel,
 } from "@/lib/credits/format";
+import { CREDIT_VALUE_CENTS, CREDIT_VALUE_LABEL } from "@/lib/credits/pricing";
 import { stripeConfigState } from "@/lib/credits/stripe";
 import { getCreditOverview } from "@/lib/data/credits";
 import { getIdentity } from "@/lib/identity";
@@ -81,17 +82,25 @@ export default async function CreditsPage({
           AI credits
         </h1>
         <p className="mt-3 max-w-xl leading-relaxed text-muted">
-          Every account gets free AI requests each day. Credits are optional and
-          only used after those are gone. One credit covers one request.
+          AI work is prepaid. There is no free plan and no trial: new accounts
+          start with zero credits, and each credit is worth {CREDIT_VALUE_LABEL}.
+          Add credits before starting AI work.
         </p>
 
         <div className="mt-4 flex flex-wrap gap-2">
           <span className={chipClass}>{formatCredits(summary.balance)} left</span>
           <span className={chipClass}>
-            {summary.free_remaining} of {summary.free_limit} free requests left today
+            {formatUsd(summary.balance * CREDIT_VALUE_CENTS)} value
           </span>
+          <span className={chipClass}>{CREDIT_VALUE_LABEL} per credit</span>
           <span className={chipClass}>Test mode</span>
         </div>
+
+        <p className="mt-3 rounded-xl border border-line bg-paper p-3 text-sm leading-relaxed">
+          At zero credits, new paid AI work is blocked. Your existing results,
+          account settings and billing history stay available. Nothing is charged
+          automatically, and no free AI or sample output is substituted.
+        </p>
 
         {params.checkout === "done" ? (
           <p className="mt-4 rounded-xl border border-line bg-paper p-3 text-sm leading-relaxed">
@@ -207,7 +216,7 @@ export default async function CreditsPage({
 
           {ledger.length === 0 ? (
             <p className="mt-2 text-sm text-muted">
-              No credit changes yet — you are still inside the free allowance.
+              No credit changes yet.
             </p>
           ) : (
             <ul className="mt-3 divide-y divide-line rounded-2xl border border-line bg-card">
@@ -263,7 +272,7 @@ export default async function CreditsPage({
                         : "In progress"}
                     {row.credits_charged > 0
                       ? ` · ${formatCredits(row.credits_charged)} used`
-                      : " · free allowance"}
+                      : " · no charge"}
                     {row.tokens_in !== null || row.tokens_out !== null
                       ? ` · ${row.tokens_in ?? 0} in / ${row.tokens_out ?? 0} out tokens`
                       : ""}

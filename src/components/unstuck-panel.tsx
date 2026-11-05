@@ -55,7 +55,7 @@ export function UnstuckPanel({ goalId }: { goalId: string }) {
         </SubmitButton>
 
         <p className="text-xs text-muted">
-          {remainingNote(state.remaining) ??
+          {remainingNote() ??
             "One AI request at a time, with a daily allowance per account."}
         </p>
       </form>
