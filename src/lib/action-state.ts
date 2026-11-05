@@ -13,7 +13,7 @@ export type FormState = {
   nonce?: number;
   /** A one-time link to show the person, e.g. an invitation to copy. */
   link?: string;
-  /** AI requests left today, for actions that spend one. */
+  /** Legacy allowance field; credit operations use a fixed charge and budget. */
   remaining?: number;
 };
 
@@ -33,7 +33,7 @@ export type AiHelpState = {
   answer?: string;
   /** Model id that actually answered. */
   model?: string;
-  /** AI requests left today for this account, after this one. */
+  /** Legacy allowance field; credit operations use a fixed charge and budget. */
   remaining?: number;
   nonce?: number;
 };
@@ -76,7 +76,7 @@ export type TaskAiState = {
   text?: string;
   intent?: TaskHelpIntent;
   model?: string;
-  /** AI requests left today for this account, after this one. */
+  /** Legacy allowance field; credit operations use a fixed charge and budget. */
   remaining?: number;
   nonce?: number;
 };
@@ -162,7 +162,7 @@ export const idleImportState: ImportState = { status: "idle" };
 export type FuturePathState = {
   status: "idle" | "error" | "success";
   message?: string;
-  /** AI requests left today, after this one. */
+  /** Legacy allowance field; credit operations use a fixed charge and budget. */
   remaining?: number;
   nonce?: number;
 };
@@ -189,7 +189,7 @@ export const idleRadarState: RadarState = { status: "idle" };
 export type MissionState = {
   status: "idle" | "error" | "success";
   message?: string;
-  /** AI requests left today, for the assistance actions. */
+  /** Legacy allowance field; credit operations use a fixed charge and budget. */
   remaining?: number;
   nonce?: number;
 };
@@ -209,7 +209,7 @@ export type BuildState = {
   message?: string;
   /** A short-lived preview link. Never a platform credential. */
   link?: string;
-  /** AI requests left today, after a repair. */
+  /** Legacy allowance field; credit operations use a fixed charge and budget. */
   remaining?: number;
   nonce?: number;
 };

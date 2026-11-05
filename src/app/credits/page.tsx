@@ -14,7 +14,15 @@ import {
   ledgerReasonLabel,
   paymentStatusLabel,
 } from "@/lib/credits/format";
-import { CREDIT_VALUE_CENTS, CREDIT_VALUE_LABEL } from "@/lib/credits/pricing";
+import {
+  AI_OPERATION_PRICES,
+  BUILD_MAX_CREDITS,
+  CREDIT_VALUE_CENTS,
+  CREDIT_VALUE_LABEL,
+  WORKFLOW_MAX_CREDITS,
+  formatCreditsWithUsd,
+  operationLabel,
+} from "@/lib/credits/pricing";
 import { stripeConfigState } from "@/lib/credits/stripe";
 import { getCreditOverview } from "@/lib/data/credits";
 import { getIdentity } from "@/lib/identity";
@@ -101,6 +109,38 @@ export default async function CreditsPage({
           account settings and billing history stay available. Nothing is charged
           automatically, and no free AI or sample output is substituted.
         </p>
+
+        <section aria-labelledby="prices-heading" className="mt-9">
+          <h2 id="prices-heading" className="text-lg font-bold">
+            What AI work costs
+          </h2>
+          <p className="mt-1 text-sm leading-relaxed text-muted">
+            Each request reserves its price before the model call and releases it
+            if the call fails. These are fixed estimates, not token counts.
+          </p>
+          <ul className="mt-3 divide-y divide-line rounded-2xl border border-line bg-card">
+            {AI_OPERATION_PRICES.map((operation) => (
+              <li
+                key={operation.kind}
+                className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-4 py-2.5"
+              >
+                <div>
+                  <p className="text-sm font-medium">{operation.label}</p>
+                  <p className="text-xs text-muted">{operation.note}</p>
+                </div>
+                <p className="text-sm font-semibold">
+                  {formatCreditsWithUsd(operation.credits)}
+                </p>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-3 text-xs leading-relaxed text-muted">
+            A build repair costs 2 credits per attempt and can use at most{" "}
+            {BUILD_MAX_CREDITS} credits per workspace. A workflow run has a
+            user-chosen limit of up to {WORKFLOW_MAX_CREDITS} credits. Swarms are
+            fixture-only today and make no paid calls, so they use 0 credits.
+          </p>
+        </section>
 
         {params.checkout === "done" ? (
           <p className="mt-4 rounded-xl border border-line bg-paper p-3 text-sm leading-relaxed">
@@ -256,11 +296,7 @@ export default async function CreditsPage({
                 <li key={row.id} className="rounded-xl border border-line bg-card p-3">
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
                     <p className="text-sm font-medium">
-                      {row.kind === "plan"
-                        ? "Plan help"
-                        : row.kind === "task_help"
-                          ? "Task help"
-                          : "Unstuck help"}
+                      {operationLabel(row.kind)}
                     </p>
                     <p className="text-xs text-muted">{whenLabel(row.started_at)}</p>
                   </div>

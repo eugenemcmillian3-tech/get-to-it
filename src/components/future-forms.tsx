@@ -12,6 +12,7 @@ import {
   updateScenarioAction,
 } from "@/lib/actions/futures";
 import { AI_MODELS, DEFAULT_AI_MODEL } from "@/lib/ai/models";
+import { operationChargeLabel } from "@/lib/credits/pricing";
 import {
   ASSUMPTION_BASED_NOTE,
   HORIZONS,
@@ -198,7 +199,10 @@ export function FuturePathForm({
               </option>
             ))}
           </select>
-          <p className={hintClass}>One AI request. The key stays on the server.</p>
+          <p className={hintClass}>
+            This request: {operationChargeLabel("future_paths")}. The key stays on
+            the server.
+          </p>
         </div>
       </div>
 

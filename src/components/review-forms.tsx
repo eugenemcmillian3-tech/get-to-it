@@ -12,6 +12,7 @@ import {
   updateReviewPrioritiesAction,
 } from "@/lib/actions/reviews";
 import { AI_MODELS, DEFAULT_AI_MODEL } from "@/lib/ai/models";
+import { operationChargeLabel } from "@/lib/credits/pricing";
 import {
   HUMAN_DECISION_NOTE,
   MAX_CHOSEN_OPTION,
@@ -156,7 +157,8 @@ export function ReviewForm() {
         <input type="checkbox" name="acknowledge" value="yes" required className="mt-1" />
         <span>
           I understand this review can make up to five AI requests, one per
-          perspective, and that I start each one.
+          perspective, at {operationChargeLabel("review")} each, and that I start
+          each one.
         </span>
       </label>
 
@@ -231,7 +233,7 @@ export function RunPerspectiveForm({
     <form action={formAction} className="mt-3">
       <input type="hidden" name="review_id" value={reviewId} />
       <SubmitButton pendingLabel="Thinking…" className={primaryButton}>
-        Run {label} (1 AI request)
+        Run {label} ({operationChargeLabel("review")})
       </SubmitButton>
       <p aria-live="polite" className="mt-2 min-h-5 text-sm">
         {state.status === "error" ? (

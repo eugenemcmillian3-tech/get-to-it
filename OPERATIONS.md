@@ -37,7 +37,7 @@ Database-side configuration:
 | --- | --- | --- |
 | AI allowances (`per_user_daily`, `global_daily`, `in_flight_seconds`) | `public.ai_limits`, one row | `per_user_daily = 0` means no free plan; change only with a pricing decision |
 | Credit pack prices | `public.credit_packs` | $0.10 per credit, five packs; the table constrains amount to credits × 10 cents |
-| Operation rate card | `RATE_CARD_DRAFT.md` + owner approval | Draft only; not activated. Provider costs are sourced, but envelopes, budgets and microcredits still need approval |
+| Operation rate card | `RATE_CARD_DRAFT.md` + `0035_operation_budgets.sql` | Approved for implementation, not live. Fixed per-operation credits, build/workflow/swarm budgets. `ai_prices` remains empty; migration, live billing and deployment still need separate approval |
 | `credit_webhook` secret | `public.app_secrets` | Must equal `CREDIT_RPC_TOKEN`; the webhook has no signed-in user |
 | Owners | `public.app_owners` | Only these accounts may open `/owner` |
 

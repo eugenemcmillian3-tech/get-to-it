@@ -1,8 +1,10 @@
-# Operation rate card — DRAFT, NOT APPROVED
+# Operation rate card — approved for implementation, not live
 
-**Status:** proposal only. No charge below is active. The application still uses
-the 1-credit test-mode reservation. Do not deploy this card, enable live billing,
-or change production prices without owner approval.
+**Status:** the owner approved this card on **2026-11-05** for implementation.
+The fixed operation prices and hard build/workflow/swarm budgets are implemented
+in `0035_operation_budgets.sql` and tested locally. This is **not** authorization
+to apply the migration to production, enable live billing, or deploy. Token
+envelopes remain planning assumptions and microcredit accounting is not built.
 
 Prepared **2026-11-05** from published list prices. Re-check every source before
 activation; provider prices can change.
@@ -143,8 +145,9 @@ credits (125,000 µcr)`. Customer-facing estimates can show `0.13 credits
 ($0.013)` with the exact µcr value retained internally.
 
 This requires a ledger migration. The current ledger stores whole integer
-credits, and the test-mode reservation is still exactly 1 credit. Do not claim
-microcredit accounting is implemented until that migration and its tests exist.
+credits. Fixed operation prices and budgets are implemented, but microcredit
+accounting is not. Do not claim it is implemented until that migration and its
+tests exist.
 
 For variable-token operations, reserve the quoted ceiling in µcr, make the call
 with a bounded output, settle the approved charge, and release the unused
@@ -152,23 +155,25 @@ reservation. Never make a second call to “use up” a reservation.
 
 ## 7. Approval checklist
 
-The card is not active until every item is checked:
+The card is approved for implementation, but it is not live until every gate is
+cleared:
 
-- [ ] Owner approves the 1-credit single-call prices and the 2-credit
+- [x] Owner approves the 1-credit single-call prices and the 2-credit
       `app_repair` price.
-- [ ] Owner approves the $0.002 single-call and $0.004 repair compute/
-      infrastructure planning reserves, or replaces them with invoice-backed
-      figures.
-- [ ] Owner approves the bundle caps, especially the 6-credit build ceiling.
+- [x] Owner approves the $0.002 single-call and $0.004 repair compute/
+      infrastructure planning reserves.
+- [x] Owner approves the bundle caps, including the 6-credit build ceiling and
+      the user-selectable 10-credit workflow limit.
+- [x] Estimate display and maximum-budget enforcement are implemented and tested.
+- [x] Purchase, duplicate webhook, reservation, settlement, release, refund,
+      insufficient-balance, 2-credit repair and workflow-budget tests pass.
 - [ ] Token envelopes are replaced with observed p50/p95 from `ai_requests`.
 - [ ] Every selectable model id is verified with a live Ollama call, or unpriced/
       invalid models are disabled before activation.
-- [ ] Production `public.ai_prices` is populated only after approval, with the
-      six model rows below.
-- [ ] The microcredit ledger migration, estimate display, and maximum-budget
-      enforcement are implemented and tested.
-- [ ] Purchase, duplicate webhook, reservation, settlement, release, refund and
-      insufficient-balance tests pass.
+- [ ] Production `public.ai_prices` is populated only after the remaining gates,
+      with the six model rows below.
+- [ ] The microcredit ledger migration is implemented and tested.
+- [ ] `0034` and `0035` are applied to production after separate approval.
 - [ ] Live billing and deployment are separately approved.
 
 ## 8. `ai_prices` values for later
@@ -188,10 +193,12 @@ millionths-of-a-dollar-per-1K-token units:
 DeepSeek off-peak rows can be added later only if the dashboard can represent
 time-of-day pricing; a single `ai_prices` row is the conservative peak figure.
 
-## 9. What this draft does not do
+## 9. What this implementation does not do
 
-- It does not change the current test-mode 1-credit reservation.
-- It does not write `ai_prices`, activate a rate, enable live billing, or deploy.
+- It does not write `ai_prices`, activate a live rate, enable live billing, or
+  deploy.
+- It does not apply `0034` or `0035` to production.
 - It does not prove the token envelopes or infrastructure reserve; those need
   production data.
-- It does not implement per-operation estimates, bundle budgets, or microcredits.
+- It does not implement the microcredit ledger. The wallet still stores whole
+  integer credits.

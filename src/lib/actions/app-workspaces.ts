@@ -6,6 +6,7 @@ import { DEFAULT_AI_MODEL } from "@/lib/ai/models";
 import { chatWithOllama, ollamaErrorMessage } from "@/lib/ai/ollama";
 import { finishAiRequest, reserveAiRequest } from "@/lib/ai/limits";
 import { getSession } from "@/lib/auth";
+import { BUILD_REPAIR_CREDITS } from "@/lib/credits/pricing";
 import {
   PREVIEW_LIMITS,
   PreviewError,
@@ -176,6 +177,8 @@ export async function startWorkspaceAction(
           last_error: null,
           iterations: 0,
           ai_requests: 0,
+          credit_budget: 6,
+          credits_spent: 0,
         },
         { onConflict: "project_id" },
       )
@@ -383,7 +386,12 @@ export async function repairWorkspaceAction(
   const workspace = await workspaceFor(session, projectId);
   if (!workspace?.runner_key) return fail("Start a preview workspace before repairing it.");
   if (workspace.iterations >= PREVIEW_LIMITS.maxRepairIterations) {
-    return fail("This workspace has used its two repair iterations. Fix the source yourself, or start a new workspace after the limit resets.");
+    return fail("This workspace has used its three repair attempts. Fix the source yourself, or start a new workspace after the limit resets.");
+  }
+  if (workspace.credits_spent + BUILD_REPAIR_CREDITS > workspace.credit_budget) {
+    return fail(
+      `This workspace has used its ${workspace.credit_budget}-credit AI budget. A repair costs ${BUILD_REPAIR_CREDITS} credits, so no further AI repair was started.`,
+    );
   }
   if (Date.now() - new Date(workspace.started_at).getTime() > PREVIEW_LIMITS.maxRuntimeMs) {
     return fail("This workspace is past its runtime budget. Stop it, then start a new one.");
@@ -402,7 +410,10 @@ export async function repairWorkspaceAction(
   const failure = firstFailure(checks);
   if (!failure) return fail("There is no failing check to repair. Run checks first; if they pass, start the preview.");
 
-  const reservation = await reserveAiRequest(session, "app_repair", DEFAULT_AI_MODEL);
+  const reservation = await reserveAiRequest(session, "app_repair", DEFAULT_AI_MODEL, {
+    kind: "build",
+    id: workspace.id,
+  });
   if (!reservation.ok) return fail(reservation.message);
 
   const files = await projectFiles(session, projectId);

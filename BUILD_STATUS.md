@@ -296,7 +296,8 @@ The app can start a workspace, run typecheck, lint, configured tests and build,
 start a preview, inspect logs, download the project and stop the workspace. The
 preview is a separate host with a short-lived signed token, no platform cookie,
 no referrer and its own frame policy; unused previews expire. Repairs are bounded
-to two iterations, two AI requests, ten minutes and 200,000 characters of log.
+to three repair attempts (two credits each, six credits per workspace), three AI
+requests, ten minutes and 200,000 characters of log.
 One iteration sends only the failing check and bounded source files, accepts only
 full replacements of existing files under `app/`, `components/` or `lib/`,
 refuses tests and configuration, saves a normal version snapshot, reruns every

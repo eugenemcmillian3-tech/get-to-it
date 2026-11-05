@@ -7,6 +7,7 @@ import { finishAiRequest, reserveAiRequest } from "@/lib/ai/limits";
 import { aiModelLabel, DEFAULT_AI_MODEL, isAiModel } from "@/lib/ai/models";
 import { chatWithOllama, OllamaError, ollamaErrorMessage } from "@/lib/ai/ollama";
 import { getSession, type Session } from "@/lib/auth";
+import { AI_OPERATION_CREDIT_COSTS, WORKFLOW_MAX_CREDITS } from "@/lib/credits/pricing";
 import { executorFor, getConnector } from "@/lib/connectors";
 import { getWorkflowRun } from "@/lib/data/workflows";
 import { getPersonalTemplate } from "@/lib/data/templates";
@@ -352,6 +353,11 @@ export async function startWorkflowRunAction(
   const workflowId = readText(formData, "workflow_id");
   if (!isUuid(workflowId)) return { status: "error", message: NOT_AVAILABLE };
 
+  const requestedCredits = Number(readText(formData, "max_credits"));
+  const creditBudget = Number.isFinite(requestedCredits)
+    ? Math.min(Math.max(Math.trunc(requestedCredits), 1), WORKFLOW_MAX_CREDITS)
+    : WORKFLOW_MAX_CREDITS;
+
   const { data, error } = await session.supabase.rpc("start_workflow_run", {
     p_workflow_id: workflowId,
   });
@@ -364,6 +370,22 @@ export async function startWorkflowRunAction(
   const payload = (data ?? {}) as { ok?: boolean; code?: string; run_id?: string };
   if (payload.ok !== true || !payload.run_id) {
     return { status: "error", message: workflowErrorMessage(payload.code) };
+  }
+
+  const { error: budgetError } = await session.supabase
+    .from("workflow_runs")
+    .update({ credit_budget: creditBudget })
+    .eq("id", payload.run_id)
+    .eq("user_id", session.user.id);
+
+  if (budgetError) {
+    console.error("startWorkflowRunAction budget failed:", budgetError.message);
+    await session.supabase
+      .from("workflow_runs")
+      .update({ status: "failed", error_code: "budget-setup-failed", finished_at: new Date().toISOString() })
+      .eq("id", payload.run_id)
+      .eq("user_id", session.user.id);
+    return { status: "error", message: "The run started, but its credit budget could not be saved. It was stopped; no AI work can start." };
   }
 
   refresh(payload.run_id);
@@ -476,7 +498,18 @@ export async function generateWorkflowDraftAction(
   const requestedModel = readText(formData, "model");
   const model = isAiModel(requestedModel) ? requestedModel : DEFAULT_AI_MODEL;
 
-  const reserved = await reserveAiRequest(session, "workflow_draft", model);
+  const draftCost = AI_OPERATION_CREDIT_COSTS.workflow_draft;
+  if (detail.run.credits_spent + draftCost > detail.run.credit_budget) {
+    return {
+      status: "error",
+      message: `This run has reached its ${detail.run.credit_budget}-credit AI budget. No further draft was started.`,
+    };
+  }
+
+  const reserved = await reserveAiRequest(session, "workflow_draft", model, {
+    kind: "workflow",
+    id: detail.run.id,
+  });
   if (!reserved.ok) {
     return { status: "error", message: reserved.message };
   }

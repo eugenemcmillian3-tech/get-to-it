@@ -288,10 +288,9 @@ describe("AI request limit messages", () => {
     );
   });
 
-  it("shows the test-mode credit reservation, not a free allowance", () => {
-    expect(remainingNote()).toContain("test-mode reservation");
-    expect(remainingNote()).toContain("1 credit ($0.10)");
+  it("shows the operation price, not a free allowance", () => {
+    expect(remainingNote()).toContain("This request: 1 credit ($0.10)");
     expect(remainingNote()).toContain("failed request releases it");
-    expect(remainingNote()).toContain("$0.10");
+    expect(remainingNote("app_repair")).toContain("2 credits ($0.20)");
   });
 });

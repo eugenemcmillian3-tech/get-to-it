@@ -32,7 +32,7 @@ it the panel explains the missing key instead of inventing an answer.
 1. Create a Supabase project (or use an existing one).
 2. In the Supabase SQL editor, run every file in `supabase/migrations/` in
    filename order, from `0001_phase1_init.sql` through
-   `0034_credit_pricing.sql`. Do not stop at an earlier phase: a missing
+   `0035_operation_budgets.sql`. Do not stop at an earlier phase: a missing
    later migration leaves Build Room, Design, Releases, Integration Studio, the
    developer API and Connections returning a server error at request time.
    Together they
@@ -1287,9 +1287,10 @@ and removes the directory.
 request, send the failing check and bounded source files, accept only full
 replacements of existing files under `app/`, `components/` or `lib/`, refuse tests
 and configuration, save a normal version snapshot, rerun every check, and show
-the log, changed files and diff. At most two iterations, two AI requests, ten
-minutes and 200,000 characters of log per workspace. An unresolved failure is
-reported as unresolved; no error is hidden and no test is deleted.
+the log, changed files and diff. At most three repair attempts (two credits each,
+six credits per workspace), three AI requests, ten minutes and 200,000 characters
+of log per workspace. An unresolved failure is reported as unresolved; no error
+is hidden and no test is deleted.
 - **What this is not.** It is not a public deployment, a production host, a
 security certification or a sandbox for arbitrary code. The generated scaffold
 is still a scaffold, and a passing check only means those commands passed.

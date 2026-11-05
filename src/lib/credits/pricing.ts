@@ -2,9 +2,8 @@
  * Credit pricing. Pure functions and constants only, so the browser, server
  * actions and tests use exactly the same numbers.
  *
- * A credit is retail value, not a token count. The final per-operation rate
- * card is deliberately not encoded here: it needs owner approval before it can
- * be activated.
+ * A credit is retail value, not a token count. The approved operation prices
+ * are fixed per call; the provider-cost draft lives in RATE_CARD_DRAFT.md.
  */
 
 import { formatCredits, formatUsd } from "./format";
@@ -15,16 +14,71 @@ export const CREDIT_VALUE_CENTS = 10;
 /** Display form of the retail credit value. */
 export const CREDIT_VALUE_LABEL = formatUsd(CREDIT_VALUE_CENTS);
 
-/**
- * The current test-mode reservation. This is not the final model-specific
- * operation rate card, and it is not a promise that every operation costs one
- * credit.
- */
-export const TEST_MODE_CREDITS_PER_REQUEST = 1;
+export type AiOperation =
+  | "unstuck"
+  | "plan"
+  | "task_help"
+  | "learning"
+  | "learning_help"
+  | "workflow_draft"
+  | "future_paths"
+  | "review"
+  | "mission_assist"
+  | "app_repair";
 
-export const TEST_MODE_REQUEST_COST_LABEL = `${formatCredits(
-  TEST_MODE_CREDITS_PER_REQUEST,
-)} (${formatUsd(TEST_MODE_CREDITS_PER_REQUEST * CREDIT_VALUE_CENTS)})`;
+export type AiOperationPrice = {
+  kind: AiOperation;
+  label: string;
+  credits: number;
+  note: string;
+};
+
+/** The approved customer-facing operation prices. */
+export const AI_OPERATION_PRICES: AiOperationPrice[] = [
+  { kind: "unstuck", label: "Goal help", credits: 1, note: "One suggestion from a goal." },
+  { kind: "plan", label: "Goal plan", credits: 1, note: "A plan or clarifying questions." },
+  { kind: "task_help", label: "Task help", credits: 1, note: "Start, explain, draft or review a task." },
+  { kind: "learning", label: "Learning path", credits: 1, note: "A learning path for one topic." },
+  { kind: "learning_help", label: "Learning step help", credits: 1, note: "Help with one learning step." },
+  { kind: "workflow_draft", label: "Workflow draft", credits: 1, note: "One AI draft step in a workflow run." },
+  { kind: "future_paths", label: "Future paths", credits: 1, note: "Three possible futures for a decision." },
+  { kind: "review", label: "Review perspective", credits: 1, note: "One perspective in a multi-perspective review." },
+  { kind: "mission_assist", label: "Mission assist", credits: 1, note: "One suggestion for a mission." },
+  { kind: "app_repair", label: "Build repair attempt", credits: 2, note: "One AI repair proposal for a failing build." },
+];
+
+/** Database-authoritative prices, mirrored here for estimates and tests. */
+export const AI_OPERATION_CREDIT_COSTS: Record<AiOperation, number> = {
+  unstuck: 1,
+  plan: 1,
+  task_help: 1,
+  learning: 1,
+  learning_help: 1,
+  workflow_draft: 1,
+  future_paths: 1,
+  review: 1,
+  mission_assist: 1,
+  app_repair: 2,
+};
+
+export const BUILD_REPAIR_CREDITS = AI_OPERATION_CREDIT_COSTS.app_repair;
+export const BUILD_MAX_CREDITS = 6;
+export const WORKFLOW_MAX_CREDITS = 10;
+export const SWARM_MAX_CREDITS = 0;
+
+export function operationCreditCost(kind: string): number {
+  return AI_OPERATION_CREDIT_COSTS[kind as AiOperation] ?? 1;
+}
+
+export function operationLabel(kind: string): string {
+  return AI_OPERATION_PRICES.find((operation) => operation.kind === kind)?.label ?? kind;
+}
+
+/** Example: `1 credit ($0.10)`. */
+export function operationChargeLabel(kind: string): string {
+  const credits = operationCreditCost(kind);
+  return `${formatCredits(credits)} (${formatUsd(credits * CREDIT_VALUE_CENTS)})`;
+}
 
 export type CreditPackDefinition = {
   slug: string;

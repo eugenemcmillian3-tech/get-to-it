@@ -247,6 +247,8 @@ export async function startTeamAction(
         max_calls: maxCalls,
         max_runtime_seconds: maxRuntime,
         calls_used: 0,
+        credit_budget: 0,
+        credits_spent: 0,
         runtime_seconds: 0,
         active_count: 0,
         integration_status: "pending",

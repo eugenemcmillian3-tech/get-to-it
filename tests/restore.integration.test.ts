@@ -2643,6 +2643,146 @@ describeRestore("isolated restore and authorization drill", () => {
         [accountB.userId],
       ),
     ).rejects.toThrow(/insufficient-credits/);
+
+    // A build repair is two credits, and its workspace budget is locked and
+    // charged in the same transaction as the reservation.
+    const repairWorkspace = await client.query<{ id: string }>(
+      `insert into public.app_workspaces
+         (project_id, user_id, status, credit_budget, credits_spent)
+       values ($1, $2, 'checks_failed', 2, 0)
+       on conflict (project_id) do update
+         set user_id = excluded.user_id,
+             status = 'checks_failed',
+             credit_budget = 2,
+             credits_spent = 0
+       returning id`,
+      [accountA.appProjectId, accountA.userId],
+    );
+    const repairWorkspaceId = repairWorkspace.rows[0].id;
+
+    const repair = await asUser(accountA.userId, async () => {
+      const result = await client.query<{
+        r: {
+          ok: boolean;
+          request_id: string;
+          credits: number;
+          balance: number;
+          budget_remaining: number | null;
+        };
+      }>(
+        "select public.reserve_ai_request('app_repair','glm-5.3-flash','build',$1) as r",
+        [repairWorkspaceId],
+      );
+      return result.rows[0].r;
+    });
+    expect(repair.ok).toBe(true);
+    expect(repair.credits).toBe(2);
+    expect(repair.balance).toBe(47);
+    expect(repair.budget_remaining).toBe(0);
+
+    const repairRequest = await client.query<{ budget_kind: string; budget_id: string }>(
+      "select budget_kind, budget_id from public.ai_requests where id = $1",
+      [repair.request_id],
+    );
+    expect(repairRequest.rows[0]).toEqual({ budget_kind: "build", budget_id: repairWorkspaceId });
+
+    await asUser(accountA.userId, async () => {
+      await client.query("select public.finish_ai_request($1,'failed','provider',null,null)", [
+        repair.request_id,
+      ]);
+    });
+
+    const repairReleased = await client.query<{ total: string; spent: number }>(
+      `select coalesce(sum(delta),0)::text as total,
+              (select credits_spent from public.app_workspaces where id = $2) as spent
+         from public.credit_ledger where user_id = $1`,
+      [accountA.userId, repairWorkspaceId],
+    );
+    expect(Number(repairReleased.rows[0].total)).toBe(49);
+    expect(Number(repairReleased.rows[0].spent)).toBe(0);
+
+    const repairAgain = await asUser(accountA.userId, async () => {
+      const result = await client.query<{ r: { ok: boolean; request_id: string } }>(
+        "select public.reserve_ai_request('app_repair','glm-5.3-flash','build',$1) as r",
+        [repairWorkspaceId],
+      );
+      return result.rows[0].r;
+    });
+    expect(repairAgain.ok).toBe(true);
+    await asUser(accountA.userId, async () => {
+      await client.query("select public.finish_ai_request($1,'succeeded',null,10,2)", [
+        repairAgain.request_id,
+      ]);
+    });
+
+    const repairBudgetBlocked = await asUser(accountA.userId, async () => {
+      const result = await client.query<{ r: { ok: boolean; code?: string } }>(
+        "select public.reserve_ai_request('app_repair','glm-5.3-flash','build',$1) as r",
+        [repairWorkspaceId],
+      );
+      return result.rows[0].r;
+    });
+    expect(repairBudgetBlocked.ok).toBe(false);
+    expect(repairBudgetBlocked.code).toBe("budget-exhausted");
+
+    // A workflow chooses a budget, stops at it, and releases a failed draft.
+    const workflowRun = await client.query<{ id: string }>(
+      `insert into public.workflow_runs
+         (user_id, workflow_name, workflow_version, credit_budget, credits_spent)
+       values ($1, 'Budget drill', 1, 1, 0)
+       returning id`,
+      [accountA.userId],
+    );
+    const workflowRunId = workflowRun.rows[0].id;
+
+    const draftFailed = await asUser(accountA.userId, async () => {
+      const result = await client.query<{ r: { ok: boolean; request_id: string; balance: number } }>(
+        "select public.reserve_ai_request('workflow_draft','glm-5.3-flash','workflow',$1) as r",
+        [workflowRunId],
+      );
+      return result.rows[0].r;
+    });
+    expect(draftFailed.ok).toBe(true);
+    expect(draftFailed.balance).toBe(46);
+
+    await asUser(accountA.userId, async () => {
+      await client.query("select public.finish_ai_request($1,'failed','provider',null,null)", [
+        draftFailed.request_id,
+      ]);
+    });
+
+    const draftBudgetReleased = await client.query<{ spent: number; total: string }>(
+      `select (select credits_spent from public.workflow_runs where id = $2) as spent,
+              coalesce(sum(delta),0)::text as total
+         from public.credit_ledger where user_id = $1`,
+      [accountA.userId, workflowRunId],
+    );
+    expect(Number(draftBudgetReleased.rows[0].spent)).toBe(0);
+    expect(Number(draftBudgetReleased.rows[0].total)).toBe(47);
+
+    const draftSucceeded = await asUser(accountA.userId, async () => {
+      const result = await client.query<{ r: { ok: boolean; request_id: string } }>(
+        "select public.reserve_ai_request('workflow_draft','glm-5.3-flash','workflow',$1) as r",
+        [workflowRunId],
+      );
+      return result.rows[0].r;
+    });
+    expect(draftSucceeded.ok).toBe(true);
+    await asUser(accountA.userId, async () => {
+      await client.query("select public.finish_ai_request($1,'succeeded',null,1000,200)", [
+        draftSucceeded.request_id,
+      ]);
+    });
+
+    const draftBudgetBlocked = await asUser(accountA.userId, async () => {
+      const result = await client.query<{ r: { ok: boolean; code?: string } }>(
+        "select public.reserve_ai_request('workflow_draft','glm-5.3-flash','workflow',$1) as r",
+        [workflowRunId],
+      );
+      return result.rows[0].r;
+    });
+    expect(draftBudgetBlocked.ok).toBe(false);
+    expect(draftBudgetBlocked.code).toBe("budget-exhausted");
   });
 
 });

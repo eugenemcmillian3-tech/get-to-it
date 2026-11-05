@@ -45,7 +45,7 @@ export function TaskAiPanel({
   const [model, setModel] = useState(DEFAULT_AI_MODEL);
 
   const hasNotes = content.trim() !== "";
-  const note = remainingNote();
+  const note = remainingNote("task_help");
 
   return (
     <section
@@ -128,7 +128,7 @@ export function TaskAiPanel({
         </fieldset>
 
         <p className={hintClass}>
-          {note ?? "AI work uses prepaid credits; the current test-mode reservation is 1 credit ($0.10)."}
+          {note}
         </p>
       </form>
 

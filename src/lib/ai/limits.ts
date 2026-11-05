@@ -8,23 +8,17 @@
 
 import type { Session } from "@/lib/auth";
 import { creditLimitMessage } from "@/lib/credits/format";
-import { TEST_MODE_REQUEST_COST_LABEL } from "@/lib/credits/pricing";
+import {
+  AI_OPERATION_CREDIT_COSTS,
+  operationChargeLabel,
+  type AiOperation,
+} from "@/lib/credits/pricing";
 
 /**
  * Every AI entry point: goal help, goal planning, task-workspace help, learning
  * path generation and step-level learning help.
  */
-export type AiRequestKind =
-  | "unstuck"
-  | "plan"
-  | "task_help"
-  | "learning"
-  | "learning_help"
-  | "workflow_draft"
-  | "future_paths"
-  | "review"
-  | "mission_assist"
-  | "app_repair";
+export type AiRequestKind = AiOperation;
 
 export type AiReservation = {
   /** Row in public.ai_requests, used to close the request out. */
@@ -35,6 +29,8 @@ export type AiReservation = {
   limit: number;
   /** Credits left after this request was accounted for. */
   balance: number;
+  /** Credits reserved for this operation. */
+  credits: number;
   /** Kept for older responses; the free allowance is disabled. */
   free: boolean;
 };
@@ -50,6 +46,10 @@ type ReservePayload = {
   remaining?: number;
   limit?: number;
   balance?: number;
+  credits?: number;
+  budget_remaining?: number | null;
+  budget?: number;
+  spent?: number;
   free?: boolean;
 };
 
@@ -67,10 +67,13 @@ export async function reserveAiRequest(
   session: Session,
   kind: AiRequestKind,
   model: string,
+  budget?: { kind: "workflow" | "build" | "swarm"; id: string },
 ): Promise<ReserveOutcome> {
   const { data, error } = await session.supabase.rpc("reserve_ai_request", {
     p_kind: kind,
     p_model: model,
+    p_budget_kind: budget?.kind ?? null,
+    p_budget_id: budget?.id ?? null,
   });
 
   if (error) {
@@ -88,6 +91,7 @@ export async function reserveAiRequest(
         remaining: Number(payload.remaining ?? 0),
         limit: Number(payload.limit ?? 0),
         balance: Number(payload.balance ?? 0),
+        credits: Number(payload.credits ?? AI_OPERATION_CREDIT_COSTS[kind]),
         free: payload.free !== false,
       },
     };
@@ -125,8 +129,8 @@ export async function finishAiRequest(
 }
 
 /**
- * There is no free allowance. The current test-mode reservation is shown as
- * both credits and dollars; the final operation rate card is not activated.
+ * There is no free allowance. Each operation has a fixed credit price, shown
+ * in both credits and dollars before the request starts.
  */
 export function limitMessage(code?: string, limit?: number): string {
   const allowance = typeof limit === "number" && limit > 0 ? limit : null;
@@ -142,6 +146,10 @@ export function limitMessage(code?: string, limit?: number): string {
       return "AI requests are paused for everyone for the rest of today. Your goals and tasks are unaffected.";
     case "needs-credits":
       return creditLimitMessage("needs-credits") || UNAVAILABLE;
+    case "budget-exhausted":
+      return "This run has reached its approved credit budget. No further AI work was started.";
+    case "invalid-budget":
+      return "That AI budget isn't available. Refresh and try again.";
     case "unauthenticated":
       return "Your session expired. Sign in again to keep going.";
     default:
@@ -149,7 +157,7 @@ export function limitMessage(code?: string, limit?: number): string {
   }
 }
 
-/** Small line under an AI control. There is no free daily allowance. */
-export function remainingNote(): string | null {
-  return `Current test-mode reservation: ${TEST_MODE_REQUEST_COST_LABEL}. A failed request releases it.`;
+/** Small line under an AI control: the exact operation estimate in credits and dollars. */
+export function remainingNote(kind: AiRequestKind = "unstuck"): string | null {
+  return `This request: ${operationChargeLabel(kind)}. A failed request releases it.`;
 }

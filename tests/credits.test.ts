@@ -11,12 +11,18 @@ import {
   REFUND_POLICY,
 } from "@/lib/credits/format";
 import {
+  AI_OPERATION_CREDIT_COSTS,
+  AI_OPERATION_PRICES,
+  BUILD_MAX_CREDITS,
   CREDIT_PACK_DEFINITIONS,
   CREDIT_VALUE_CENTS,
   CREDIT_VALUE_LABEL,
+  WORKFLOW_MAX_CREDITS,
   creditNote,
   creditsToCents,
   formatCreditsWithUsd,
+  operationChargeLabel,
+  operationCreditCost,
 } from "@/lib/credits/pricing";
 import {
   createCheckoutSession,
@@ -191,6 +197,29 @@ describe("credit pricing", () => {
     expect(CREDIT_PACK_DEFINITIONS.map((pack) => pack.credits)).toEqual([
       50, 100, 250, 500, 1000,
     ]);
+  });
+});
+
+describe("operation prices", () => {
+  it("prices every approved operation in whole credits", () => {
+    expect(AI_OPERATION_PRICES).toHaveLength(10);
+    for (const operation of AI_OPERATION_PRICES) {
+      expect(operation.credits).toBe(AI_OPERATION_CREDIT_COSTS[operation.kind]);
+      expect(operation.credits).toBeGreaterThan(0);
+    }
+  });
+
+  it("charges two credits for a build repair and one for everything else", () => {
+    expect(operationCreditCost("app_repair")).toBe(2);
+    expect(operationCreditCost("plan")).toBe(1);
+    expect(operationCreditCost("workflow_draft")).toBe(1);
+    expect(operationChargeLabel("app_repair")).toBe("2 credits ($0.20)");
+    expect(operationChargeLabel("plan")).toBe("1 credit ($0.10)");
+  });
+
+  it("keeps the build and workflow caps in one place", () => {
+    expect(BUILD_MAX_CREDITS).toBe(6);
+    expect(WORKFLOW_MAX_CREDITS).toBe(10);
   });
 });
 

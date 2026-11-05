@@ -12,8 +12,8 @@ import { isSafeProjectPath } from "@/lib/app-builder";
  */
 
 export const PREVIEW_LIMITS = {
-  maxRepairIterations: 2,
-  maxAiRequests: 2,
+  maxRepairIterations: 3,
+  maxAiRequests: 3,
   maxRuntimeMs: 10 * 60_000,
   maxLogChars: 200_000,
   maxPatchFiles: 8,
