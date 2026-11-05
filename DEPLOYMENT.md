@@ -221,24 +221,26 @@ billing.
 - Staging evidence: [PR #15 staging rehearsal](https://github.com/eugenemcmillian3-tech/get-to-it/pull/15#issuecomment-6649338569)
 - Commit to deploy: `________________`
 - Vercel deployment ID after merge: `________________`
-- Production revision before: `________________` (last documented: `c04c0f5`)
-- Production migration head before: `________________` (last documented:
-  `0033_composio_connections.sql`)
+- Production revision before: `ab5a3968da18` (checked 2026-11-05T04:16:50Z)
+- Production migration head before: `0033_composio_connections.sql` (confirmed;
+  four-argument reservation absent)
 
 ### Approvals and baseline
 
 | Required item | Evidence to record | Value |
 | --- | --- | --- |
-| Owner approval to execute | Name, date/time UTC, explicit scope | `________________` |
-| Live billing decision | Must be **NO** for this rollout | `________________` |
-| Backup or snapshot | Reference and timestamp | `________________` |
-| Zero-balance audit | Purchases, paid payments, ledger rows | `________________` |
-| Ledger balance | Sum of all deltas, expected `0` | `________________` |
-| AI limits before | `per_user_daily`, `global_daily`, `in_flight_seconds` | `________________` |
-| PR checks | Run URL and result for the final commit | `________________` |
-| Staging rehearsal | 35 migrations, `26/26` restore, `13/13` functional | `________________` |
-| Production health | `/api/health` status and revision | `________________` |
-| Stripe configuration | No live key and `STRIPE_ALLOW_LIVE` unset | `________________` |
+| Owner approval to execute | Name, date/time UTC, explicit scope | `Not granted — preflight only (2026-11-05)` |
+| Live billing decision | Must be **NO** for this rollout | `NO — live Stripe remains off` |
+| Backup or snapshot | Reference and timestamp | `None listed; PITR disabled (2026-11-05) — blocker` |
+| Zero-balance audit | Purchases, paid payments, ledger rows | `0 payments; 0 paid; 0 refunded; 0 ledger rows` |
+| Ledger balance | Sum of all deltas, expected `0` | `0` |
+| AI limits before | `per_user_daily`, `global_daily`, `in_flight_seconds` | `15 / 200 / 120 seconds (pre-0034)` |
+| Current pack catalogue | Pre-0034 values | `3 active: starter 20/$5; steady 60/$12; deep 150/$25` |
+| Reservation schema | Pre-0035 state | `2-arg present; 4-arg absent` |
+| PR checks | Run URL and result for the final commit | `11b9bd1 — all checks passed; final record commit pending` |
+| Staging rehearsal | 35 migrations, `26/26` restore, `13/13` functional | `Passed — PR #15 comment` |
+| Production health | `/api/health` status and revision | `200 ok; ab5a3968da18; 2026-11-05T04:16:50Z` |
+| Stripe configuration | No live key and `STRIPE_ALLOW_LIVE` unset | `Not verified — Vercel project inaccessible; keep live off` |
 
 ### Execution log
 
@@ -287,11 +289,11 @@ handwritten inverse of `0034` or `0035`, and never edit `credit_ledger` by hand.
 
 ### Final sign-off
 
-- Decision (circle one): **GO / NO-GO**
-- Approved by: `________________________________`
-- Date/time UTC: `________________________________`
-- Conditions or open risks: `________________________________`
-- Next review: `________________________________`
+- Decision: **NO-GO**
+- Approved by: `Not approved — preflight only`
+- Date/time UTC: `2026-11-05T04:16:50Z`
+- Conditions or open risks: `No backup or snapshot is available (PITR disabled); owner approval not granted; Stripe live configuration not verifiable through the Vercel integration.`
+- Next review: `After a fresh backup/snapshot, owner approval and Stripe-off confirmation.`
 
 ## Live Stripe gate
 
