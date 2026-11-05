@@ -80,6 +80,10 @@ This is implemented, but **not activated**:
 The purchase, duplicate-webhook, reservation, settlement, release, refund,
 insufficient-balance, 2-credit repair and workflow-budget tests pass locally.
 
+The step-by-step production rollout, verification queries and restore-based
+rollback are in [`DEPLOYMENT.md`](DEPLOYMENT.md#pricing-rollout-0034-and-0035).
+Executing them still requires separate owner approval.
+
 ## Existing balances
 
 Before this pricing change, production was audited read-only:

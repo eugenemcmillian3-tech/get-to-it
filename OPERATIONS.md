@@ -147,7 +147,7 @@ project keeps no separate log store.
 ## Migrations
 
 - Files live in `supabase/migrations/` and are applied in filename order, once each:
-  `0001` … `0024_phase25_improvement.sql`.
+  `0001` … `0035_operation_budgets.sql`.
 - They are forward-only. There are no down migrations, and no rollback has been
   tested. Treat every migration as one-way.
 - Migrations are written to be re-runnable where possible (`create table if not
@@ -284,6 +284,9 @@ Destructive checks no longer run against the live application database.
 
 `npm test` covers the pure export, import, workflow, workspace, learning and
 planning rules with fixtures and makes no network or database calls.
+
+Pricing-specific rollout and rollback steps, including the `0034`/`0035` order and
+the live Stripe gate, are in [`DEPLOYMENT.md`](DEPLOYMENT.md#pricing-rollout-0034-and-0035).
 
 ## Release checklist
 
