@@ -653,8 +653,8 @@ export function WorkflowRunPanel({ detail }: { detail: WorkflowRunDetail }) {
           {progress.done} of {progress.total} steps done ({progress.percent}%).
         </p>
         <p className="mt-1 text-xs text-muted">
-          AI credits: {run.credits_spent} of {run.credit_budget} used. Each draft
-          costs {operationChargeLabel("workflow_draft")}.
+          AI credits: {run.credits_spent ?? 0} of {run.credit_budget ?? WORKFLOW_MAX_CREDITS} used.
+          Each draft costs {operationChargeLabel("workflow_draft")}.
         </p>
 
         {terminal ? (

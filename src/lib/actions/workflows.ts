@@ -372,20 +372,25 @@ export async function startWorkflowRunAction(
     return { status: "error", message: workflowErrorMessage(payload.code) };
   }
 
-  const { error: budgetError } = await session.supabase
-    .from("workflow_runs")
-    .update({ credit_budget: creditBudget })
-    .eq("id", payload.run_id)
-    .eq("user_id", session.user.id);
-
-  if (budgetError) {
-    console.error("startWorkflowRunAction budget failed:", budgetError.message);
-    await session.supabase
+  // The migrated schema defaults to the maximum budget. Skip the write when
+  // the person kept that default, which also lets a pre-0035 smoke database
+  // start a non-AI run without pretending the budget column exists.
+  if (creditBudget !== WORKFLOW_MAX_CREDITS) {
+    const { error: budgetError } = await session.supabase
       .from("workflow_runs")
-      .update({ status: "failed", error_code: "budget-setup-failed", finished_at: new Date().toISOString() })
+      .update({ credit_budget: creditBudget })
       .eq("id", payload.run_id)
       .eq("user_id", session.user.id);
-    return { status: "error", message: "The run started, but its credit budget could not be saved. It was stopped; no AI work can start." };
+
+    if (budgetError) {
+      console.error("startWorkflowRunAction budget failed:", budgetError.message);
+      await session.supabase
+        .from("workflow_runs")
+        .update({ status: "failed", error_code: "budget-setup-failed", finished_at: new Date().toISOString() })
+        .eq("id", payload.run_id)
+        .eq("user_id", session.user.id);
+      return { status: "error", message: "The run started, but its credit budget could not be saved. It was stopped; no AI work can start." };
+    }
   }
 
   refresh(payload.run_id);

@@ -145,7 +145,7 @@ export default async function AppTeamPage({ params }: { params: Promise<{ projec
             <span className={chipClass}>Version {project.current_version || "none"}</span>
             {run ? <span className={chipClass}>Run: {run.status}</span> : <span className={chipClass}>Not started</span>}
             {run ? <span className={chipClass}>Mode: {run.mode}</span> : null}
-            {run ? <span className={chipClass}>AI credits: {run.credits_spent} / {run.credit_budget}</span> : null}
+            {run ? <span className={chipClass}>AI credits: {run.credits_spent ?? 0} / {run.credit_budget ?? 0}</span> : null}
             {run ? <span className={chipClass}>Integration: {run.integration_status}</span> : null}
           </div>
         </header>
@@ -204,7 +204,7 @@ export default async function AppTeamPage({ params }: { params: Promise<{ projec
               <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-5">
                 <p><span className="font-semibold">Agent cap</span><br />{run.max_agents} per advance, {run.active_count} active</p>
                 <p><span className="font-semibold">AI calls</span><br />{run.calls_used} / {run.max_calls || "no calls allowed"}</p>
-                <p><span className="font-semibold">AI credits</span><br />{run.credits_spent} / {run.credit_budget} (fixture only)</p>
+                <p><span className="font-semibold">AI credits</span><br />{run.credits_spent ?? 0} / {run.credit_budget ?? 0} (fixture only)</p>
                 <p><span className="font-semibold">Runtime</span><br />{run.runtime_seconds}s / {run.max_runtime_seconds}s</p>
                 <p><span className="font-semibold">Tasks</span><br />{tasksByStatus("completed")} completed, {tasksByStatus("awaiting_review")} awaiting review</p>
               </div>

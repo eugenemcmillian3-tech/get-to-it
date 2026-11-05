@@ -102,7 +102,7 @@ export default async function WorkspacePage({
                   {workspace.iterations}/{PREVIEW_LIMITS.maxRepairIterations} repairs
                 </span>
                 <span className={chipClass}>
-                  {workspace.credits_spent}/{workspace.credit_budget} AI credits
+                  {workspace.credits_spent ?? 0}/{workspace.credit_budget ?? BUILD_MAX_CREDITS} AI credits
                 </span>
               </>
             ) : null}
