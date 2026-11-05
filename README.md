@@ -747,9 +747,11 @@ rate card. See [`PRICING.md`](PRICING.md) for the approval gate.
 
 **What is measured, and what is not.** Every AI request records its kind, model,
 outcome, error code and timing, plus the token counts the provider reports. The
-provider's price per token is *not* invented: `ai_prices` stays empty until an
-owner enters a model's price, and the dashboard shows cost as unknown until
-then, alongside how many requests have no price at all.
+provider's price per token is *not* invented: the sourced draft is in
+[`RATE_CARD_DRAFT.md`](RATE_CARD_DRAFT.md), and production `ai_prices` stays
+empty until the owner approves it and the rows are applied. Until then the
+dashboard shows cost as unknown, alongside how many requests have no price at
+all.
 
 **The ledger is append-only.** `credit_ledger` rows are only ever added. A
 balance is the sum of its rows; a trigger refuses an insert that would take the

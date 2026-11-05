@@ -31,8 +31,9 @@ tool call, build, swarm or workflow can have a different charge.
 ## Operation rate card — not approved or activated
 
 Operation pricing stays inactive until the owner approves a model-specific rate
-card. Provider cost is not invented: `public.ai_prices` is currently empty, so
-provider expense and gross margin cannot yet be calculated honestly.
+card. A sourced draft is in [`RATE_CARD_DRAFT.md`](RATE_CARD_DRAFT.md); it is
+not approved and nothing in it is active. Production `public.ai_prices` remains
+empty until the owner approves the card and the rows are applied.
 
 The approval table must contain, for each model and operation:
 
@@ -46,8 +47,9 @@ The approval table must contain, for each model and operation:
 | Gross margin | Customer charge minus all of those costs |
 | Approval | Owner sign-off before activation |
 
-The reference row can be filled in only after the provider price and the
-non-model costs are sourced. No live rate card is approved by this document.
+The draft covers the six selectable models, ten operations, separate model/
+tools/compute/infrastructure costs, and bundle budgets. It remains a proposal;
+no live rate card is approved by this document.
 
 ## Current test-mode behavior
 
