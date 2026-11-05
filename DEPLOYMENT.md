@@ -206,6 +206,93 @@ safe database rollback.
   confirm checkout is unavailable. Reconcile any real payments and refunds in the
   Stripe dashboard; never edit `credit_ledger` by hand.
 
+## Production go/no-go record
+
+Copy this section into the release record or PR comment at execution time. Leave
+it unfilled until then. A blank required field means **NO-GO**, not an implied
+approval. This record does not authorize execution and never authorizes live
+billing.
+
+### Release
+
+- PR: #15
+- Migration order: `0034_credit_pricing.sql`, then
+  `0035_operation_budgets.sql`
+- Staging evidence: [PR #15 staging rehearsal](https://github.com/eugenemcmillian3-tech/get-to-it/pull/15#issuecomment-6649338569)
+- Commit to deploy: `________________`
+- Vercel deployment ID after merge: `________________`
+- Production revision before: `________________` (last documented: `c04c0f5`)
+- Production migration head before: `________________` (last documented:
+  `0033_composio_connections.sql`)
+
+### Approvals and baseline
+
+| Required item | Evidence to record | Value |
+| --- | --- | --- |
+| Owner approval to execute | Name, date/time UTC, explicit scope | `________________` |
+| Live billing decision | Must be **NO** for this rollout | `________________` |
+| Backup or snapshot | Reference and timestamp | `________________` |
+| Zero-balance audit | Purchases, paid payments, ledger rows | `________________` |
+| Ledger balance | Sum of all deltas, expected `0` | `________________` |
+| AI limits before | `per_user_daily`, `global_daily`, `in_flight_seconds` | `________________` |
+| PR checks | Run URL and result for the final commit | `________________` |
+| Staging rehearsal | 35 migrations, `26/26` restore, `13/13` functional | `________________` |
+| Production health | `/api/health` status and revision | `________________` |
+| Stripe configuration | No live key and `STRIPE_ALLOW_LIVE` unset | `________________` |
+
+### Execution log
+
+| Step | UTC | Operator | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| Record `global_daily`; set it to `0` for the schema window | `________` | `________` | `________` | `________` |
+| Apply `0034_credit_pricing.sql` once | `________` | `________` | `________` | `________` |
+| Apply `0035_operation_budgets.sql` once | `________` | `________` | `________` | `________` |
+| Run schema verification; stop on any mismatch | `________` | `________` | `________` | `________` |
+| Merge PR #15; record the automatic Vercel deployment | `________` | `________` | `________` | `________` |
+| Verify `/api/health` and the product smoke checks | `________` | `________` | `________` | `________` |
+| Restore the recorded `global_daily` value | `________` | `________` | `________` | `________` |
+| Confirm Stripe live remains off | `________` | `________` | `________` | `________` |
+
+### Verification results
+
+- [ ] Five active packs: 50/$5, 100/$10, 250/$25, 500/$50, 1,000/$100.
+- [ ] `credit_packs_retail_value` holds for every active pack.
+- [ ] `per_user_daily = 0`; no signup or trial grant exists.
+- [ ] `reserve_ai_request(text, text, text, uuid)` and the existing
+      `finish_ai_request` signature exist.
+- [ ] Workflow budget defaults to 10; build to 6; swarm is fixed at 0.
+- [ ] Build limits allow three attempts and six credits, with release on failure.
+- [ ] `health_probe()` succeeds; `credit_ledger` and `ai_prices` remain empty.
+- [ ] The legacy two-argument reservation call resolves against the new function.
+- [ ] Zero-credit authenticated work is refused without creating `ai_requests`.
+- [ ] Sign-in, a workflow run, a completed task, export and import still work.
+- [ ] No live Stripe payment, subscription or key was created.
+
+Attach or link the SQL output and smoke-test output here:
+`________________________________________________________________`
+
+### Rollback record
+
+- Trigger and time (UTC): `________________________________`
+- Decision owner: `________________________________`
+- Application rollback target (prior Vercel deployment): `________________`
+- Was the prior app verified against the new function signature? `____`
+- Database restore backup/target project: `________________`
+- Was live Stripe ever enabled? `____`
+- Customer impact and follow-up owner: `________________`
+
+If the database must be restored, stop AI work first, restore the recorded backup
+into a new project, re-point the app and run read-only checks. Do not attempt a
+handwritten inverse of `0034` or `0035`, and never edit `credit_ledger` by hand.
+
+### Final sign-off
+
+- Decision (circle one): **GO / NO-GO**
+- Approved by: `________________________________`
+- Date/time UTC: `________________________________`
+- Conditions or open risks: `________________________________`
+- Next review: `________________________________`
+
 ## Live Stripe gate
 
 This rollout must **not** turn on real money. The current production configuration
