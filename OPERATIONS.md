@@ -315,6 +315,24 @@ scheduled E2E run enables this mode automatically, and a manual dispatch can
 request it with `full_workflow: true`. The full workflow item below remains a
 manual check for the release record.
 
+`npm run test:email` automates the confirmation path. It creates a disposable
+mail.tm inbox, signs up through the production Supabase project, waits for the
+Resend-delivered confirmation email, follows the link, signs in as the confirmed
+user, and deletes the user and inbox. It needs `EMAIL_SMOKE_SUPABASE_URL`,
+`EMAIL_SMOKE_SUPABASE_ANON_KEY` and `EMAIL_SMOKE_SERVICE_ROLE_KEY`; locally it
+falls back to `NEXT_PUBLIC_SUPABASE_*`, `E2E_SERVICE_ROLE_KEY` or
+`SUPABASE_SERVICE_ROLE_KEY`. The weekly **Email delivery smoke** workflow runs it
+with repository secrets.
+
+The hourly **Resend delivery monitor** workflow runs
+`node scripts/resend-monitor.mjs`. It reads recent messages from the Resend API
+and opens one GitHub issue per email whose latest event is `bounced`,
+`complained`, `failed`, `suppressed` or `delivery_delayed`. The issue contains
+the Resend email id, event and timestamp only; recipient addresses and message
+bodies are not included. The workflow needs the repository secret `RESEND_API_KEY`
+and the `issues: write` permission. Re-running it reuses an existing issue, so a
+bad email does not create a new issue every hour.
+
 Then check by hand, and record the result rather than assuming it:
 
 - [ ] Sign in, create a goal, a task and saved work; complete and reopen the task.
@@ -328,10 +346,11 @@ Then check by hand, and record the result rather than assuming it:
       database makes `/api/health` return 503 and pages show an error, not a crash.
 - [ ] `/api/health` shows the revision you intended to release.
 
-What this does **not** cover: there is no automated accessibility audit, no browser
-end-to-end suite, no load test, no penetration test, and no email deliverability
-test. The secret scan is a pattern check on tracked files; it is not a security
-audit, and passing it does not mean the deployment is secure.
+What this does **not** cover: there is no automated accessibility audit, no
+browser end-to-end suite, no load test and no penetration test. Email delivery
+has a scheduled smoke test; it is not a full deliverability or reputation audit.
+The secret scan is a pattern check on tracked files; it is not a security audit,
+and passing it does not mean the deployment is secure.
 
 ## Repository security
 
@@ -352,7 +371,10 @@ advisory flow in `SECURITY.md`, never a public issue.
 - No background worker for imports or exports: both run inside one request and are
   bounded (2 MB / 200 goals / 1,000 tasks / 300 reflections, 8 MB export).
 - No per-row purge in backups.
-- Health checks cover the app and the database only, not Stripe, Ollama or email.
+- Health checks cover the app and the database only, not Stripe, Ollama or email;
+  use the scheduled email smoke test and Resend monitor for delivery checks.
+- The Resend monitor polls hourly and opens GitHub issues; it is not a real-time
+  webhook and does not measure inbox placement or reputation.
 - Restore drills run on the same schema but not the same data volume as production.
 - Agent-team execution is request-scoped fixture work, not a background worker. A
   click advances at most the configured number of tasks; pausing stops future

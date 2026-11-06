@@ -75,6 +75,22 @@ settings. Confirmation links return to `/auth/callback`, which exchanges the
 code for a session. For local development you can turn "Confirm email" off under
 Authentication → Providers → Email.
 
+Production must use a custom SMTP provider. Supabase's built-in email sender is
+rate-limited and is not a production delivery service. Set the project's
+**Site URL** and **Redirect URLs** to the deployed origin, and configure
+**Authentication → SMTP Settings** with a verified sender before treating signup
+as working. The production project uses Resend through the verified
+`mail.network-x-ai.win` subdomain; signup, confirmation, and sign-in were
+verified end to end on 2026-11-06. The app does not send confirmation mail itself
+and needs no `service_role` key.
+
+The weekly **Email delivery smoke** workflow runs `npm run test:email` against
+the production project. It needs the repository secrets
+`EMAIL_SMOKE_SUPABASE_URL`, `EMAIL_SMOKE_SUPABASE_ANON_KEY` and
+`EMAIL_SMOKE_SERVICE_ROLE_KEY`. The hourly **Resend delivery monitor** workflow
+uses a repository `RESEND_API_KEY` secret and opens one GitHub issue per recent
+bounced, complained, failed, suppressed or delayed email.
+
 ## Scripts
 
 | Command | What it does |
@@ -87,6 +103,7 @@ Authentication → Providers → Email.
 | `npm test` | Vitest unit tests |
 | `npm run test:e2e` | Authenticated HTTP crawl against a running app; creates and deletes a disposable Supabase user |
 | `npm run test:functional` | Browser smoke test for a workflow server action, task reopen and cross-account export/import; creates and deletes two disposable users |
+| `npm run test:email` | Production signup, confirmation-email delivery, confirmation-link and sign-in check; creates and deletes a disposable user and mailbox |
 
 ### Authenticated HTTP E2E
 

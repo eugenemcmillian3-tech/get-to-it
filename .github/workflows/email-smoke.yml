@@ -1,0 +1,44 @@
+name: Email delivery smoke
+
+on:
+  schedule:
+    # Every Monday at 08:23 UTC. This sends one real confirmation email.
+    - cron: "23 8 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: email-delivery-smoke
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  email-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      EMAIL_SMOKE_SUPABASE_URL: ${{ secrets.EMAIL_SMOKE_SUPABASE_URL }}
+      EMAIL_SMOKE_SUPABASE_ANON_KEY: ${{ secrets.EMAIL_SMOKE_SUPABASE_ANON_KEY }}
+      EMAIL_SMOKE_SERVICE_ROLE_KEY: ${{ secrets.EMAIL_SMOKE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+
+      - name: Verify email smoke configuration
+        run: |
+          missing=0
+          for name in EMAIL_SMOKE_SUPABASE_URL EMAIL_SMOKE_SUPABASE_ANON_KEY EMAIL_SMOKE_SERVICE_ROLE_KEY; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is not configured. Add the email smoke secrets described in README.md."
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Run email delivery smoke
+        run: node scripts/email-signup-smoke.mjs
