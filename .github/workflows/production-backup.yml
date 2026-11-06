@@ -153,6 +153,7 @@ jobs:
             --data "$(printf '{"name":"%s"}' "$R2_BUCKET_NAME")")"
           if [ "$code" = "200" ] || [ "$code" = "201" ]; then
             echo "R2 backup bucket is ready."
+            sleep 2
           elif grep -qi 'already exists' /tmp/r2-bucket.json; then
             echo "R2 backup bucket already exists."
           else
@@ -165,87 +166,16 @@ jobs:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_BUCKET_NAME: get-to-it-backups
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           set -euo pipefail
-          for name in R2_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_BUCKET; do
+          for name in R2_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY; do
             test -n "${!name}" || { echo "::error::$name is missing"; exit 1; }
           done
           test -s backup/production.dump.gpg
-          RAW="${R2_BUCKET#s3://}"
-          RAW="${RAW%/}"
-          if [[ "$RAW" == *"://"* ]]; then
-            HOST="${RAW#*://}"
-            HOST="${HOST%%/*}"
-            REST="${RAW#*://$HOST}"
-            REST="${REST#/}"
-            REST="${REST%%\?*}"
-            if [[ "$REST" == buckets/* ]]; then
-              BUCKET="${REST#buckets/}"
-              BUCKET="${BUCKET%%/*}"
-            elif [[ "$REST" == *"/buckets/"* ]]; then
-              BUCKET="${REST##*/buckets/}"
-              BUCKET="${BUCKET%%/*}"
-            elif [[ -n "$REST" ]]; then
-              BUCKET="${REST%%/*}"
-            elif [[ "$HOST" == *".r2.cloudflarestorage.com" ]]; then
-              BUCKET="${HOST%%.*}"
-            else
-              BUCKET=""
-            fi
-          else
-            BUCKET="${RAW%%/*}"
-          fi
-          CANDIDATE="$BUCKET"
-          BUCKET=""
-          LISTED=0
-          if [ -n "${CLOUDFLARE_API_TOKEN:-}" ] && [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
-            response=""
-            if response="$(curl -fsS \
-              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets?per_page=100" \
-              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}")"; then
-              mapfile -t BUCKETS < <(printf '%s' "$response" | python3 -c 'import json,sys; data=json.load(sys.stdin); print("\n".join(b.get("name","") for b in data.get("result", []) if b.get("name")))' 2>/dev/null)
-              LISTED=1
-              if [ "${#BUCKETS[@]}" -eq 1 ]; then
-                BUCKET="${BUCKETS[0]}"
-              elif [ "${#BUCKETS[@]}" -gt 1 ]; then
-                for candidate_bucket in "${BUCKETS[@]}"; do
-                  if [ "$candidate_bucket" = "$CANDIDATE" ]; then
-                    BUCKET="$candidate_bucket"
-                  fi
-                done
-                if [ -z "$BUCKET" ]; then
-                  AMBIGUOUS=0
-                  for candidate_bucket in "${BUCKETS[@]}"; do
-                    case "${candidate_bucket,,}" in
-                      *backup*|*get-to-it*)
-                        if [ -n "$BUCKET" ] && [ "$BUCKET" != "$candidate_bucket" ]; then
-                          AMBIGUOUS=1
-                        fi
-                        BUCKET="$candidate_bucket"
-                        ;;
-                    esac
-                  done
-                  if [ "$AMBIGUOUS" -eq 1 ]; then
-                    BUCKET=""
-                  fi
-                fi
-              fi
-            fi
-          fi
-          if [ -z "$BUCKET" ]; then
-            if [ "$LISTED" -eq 1 ]; then
-              echo "::error::R2_BUCKET did not match a unique bucket in CLOUDFLARE_ACCOUNT_ID (${#BUCKETS[@]} buckets found)."
-              exit 1
-            fi
-            BUCKET="$CANDIDATE"
-          fi
-          if [[ ! "$BUCKET" =~ ^[A-Za-z0-9._-]{1,255}$ ]]; then
-            echo "::error::R2_BUCKET must be a bucket name, s3:// URL, or R2 bucket URL."
-            exit 1
-          fi
+          BUCKET="get-to-it-backups"
           PREFIX="production/$(date -u +%Y/%m/%d)/run-${GITHUB_RUN_ID}"
           export AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID"
           export AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"
