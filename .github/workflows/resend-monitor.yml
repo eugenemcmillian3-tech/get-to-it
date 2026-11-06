@@ -1,0 +1,34 @@
+name: Resend delivery monitor
+
+on:
+  schedule:
+    # Poll recent Resend mail every hour. Scheduled runs can be delayed.
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: resend-delivery-monitor
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  resend-monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      GITHUB_TOKEN: ${{ github.token }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+
+      - name: Run Resend delivery monitor
+        run: node scripts/resend-monitor.mjs
