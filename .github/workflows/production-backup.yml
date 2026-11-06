@@ -115,7 +115,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ ! -s backup/production.dump ]; then
-            echo "::warning::No dump was produced; nothing to encrypt."
+            echo "::warning::No backup dump was produced; nothing to encrypt."
             exit 0
           fi
           {
@@ -159,7 +159,10 @@ jobs:
             REST="${RAW#*://$HOST}"
             REST="${REST#/}"
             REST="${REST%%\?*}"
-            if [[ "$REST" == *"/buckets/"* ]]; then
+            if [[ "$REST" == buckets/* ]]; then
+              BUCKET="${REST#buckets/}"
+              BUCKET="${BUCKET%%/*}"
+            elif [[ "$REST" == *"/buckets/"* ]]; then
               BUCKET="${REST##*/buckets/}"
               BUCKET="${BUCKET%%/*}"
             elif [[ -n "$REST" ]]; then
@@ -190,12 +193,28 @@ jobs:
                     BUCKET="$candidate_bucket"
                   fi
                 done
+                if [ -z "$BUCKET" ]; then
+                  AMBIGUOUS=0
+                  for candidate_bucket in "${BUCKETS[@]}"; do
+                    case "${candidate_bucket,,}" in
+                      *backup*|*get-to-it*)
+                        if [ -n "$BUCKET" ] && [ "$BUCKET" != "$candidate_bucket" ]; then
+                          AMBIGUOUS=1
+                        fi
+                        BUCKET="$candidate_bucket"
+                        ;;
+                    esac
+                  done
+                  if [ "$AMBIGUOUS" -eq 1 ]; then
+                    BUCKET=""
+                  fi
+                fi
               fi
             fi
           fi
           if [ -z "$BUCKET" ]; then
             if [ "$LISTED" -eq 1 ]; then
-              echo "::error::R2_BUCKET did not match a bucket in CLOUDFLARE_ACCOUNT_ID."
+              echo "::error::R2_BUCKET did not match a unique bucket in CLOUDFLARE_ACCOUNT_ID (${#BUCKETS[@]} buckets found)."
               exit 1
             fi
             BUCKET="$CANDIDATE"
