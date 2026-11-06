@@ -76,7 +76,8 @@ export type CheckoutInput = {
   email: string | null;
   packSlug: string;
   label: string;
-  credits: number;
+  /** Database pack credits; omitted callers cannot use a saved price. */
+  credits?: number;
   amountCents: number;
   currency: string;
   successUrl: string;
