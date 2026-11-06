@@ -2493,6 +2493,298 @@ describeRestore("isolated restore and authorization drill", () => {
     );
     expect(Number(remaining.rows[0].count)).toBe(4);
   });
+
+  it("prices credits at $0.10, enforces zero balance, and settles once", async () => {
+    const token = "drill-credit-webhook-token-0123456789";
+    await client.query(
+      `insert into public.app_secrets (name, value) values ('credit_webhook', $1)
+       on conflict (name) do update set value = excluded.value, updated_at = now()`,
+      [token],
+    );
+
+    const packs = await client.query<{ count: string; all_ten_cents: boolean }>(
+      `select count(*)::text as count,
+              bool_and(amount_cents = credits * 10) as all_ten_cents
+         from public.credit_packs where active`,
+    );
+    expect(Number(packs.rows[0].count)).toBe(5);
+    expect(packs.rows[0].all_ten_cents).toBe(true);
+
+    const limits = await client.query<{ per_user_daily: number }>(
+      "select per_user_daily from public.ai_limits where id = 1",
+    );
+    expect(Number(limits.rows[0].per_user_daily)).toBe(0);
+
+    const blocked = await asUser(accountB.userId, async () => {
+      const result = await client.query<{ r: { ok: boolean; code?: string } }>(
+        "select public.reserve_ai_request('unstuck','glm-5.3-flash') as r",
+      );
+      return result.rows[0].r;
+    });
+    expect(blocked.ok).toBe(false);
+    expect(blocked.code).toBe("needs-credits");
+
+    async function buy(label: string) {
+      const created = await asUser(accountA.userId, async () => {
+        const result = await client.query<{
+          r: { ok: boolean; payment_id: string; credits: number; amount_cents: number };
+        }>("select public.create_credit_payment('starter') as r");
+        return result.rows[0].r;
+      });
+      expect(created.ok).toBe(true);
+      expect(created.credits).toBe(50);
+      expect(created.amount_cents).toBe(500);
+
+      const sessionId = `cs_test_${label}_${randomUUID()}`;
+      const paymentIntent = `pi_test_${label}_${randomUUID()}`;
+      const attached = await asUser(accountA.userId, async () => {
+        const result = await client.query<{ r: { ok: boolean } }>(
+          "select public.attach_credit_session($1,$2) as r",
+          [created.payment_id, sessionId],
+        );
+        return result.rows[0].r;
+      });
+      expect(attached.ok).toBe(true);
+
+      const eventId = `evt_${label}_${randomUUID()}`;
+      const granted = await client.query<{ r: { ok: boolean; granted?: number } }>(
+        "select public.credit_handle_event($1,$2,$3,$4,$5,$6) as r",
+        [token, eventId, "checkout.session.completed", sessionId, paymentIntent, null],
+      );
+      expect(granted.rows[0].r.ok).toBe(true);
+      expect(granted.rows[0].r.granted).toBe(50);
+
+      return { paymentId: created.payment_id, sessionId, paymentIntent, eventId };
+    }
+
+    const first = await buy("first");
+    const duplicate = await client.query<{ r: { duplicate?: boolean } }>(
+      "select public.credit_handle_event($1,$2,$3,$4,$5,$6) as r",
+      [token, first.eventId, "checkout.session.completed", first.sessionId, first.paymentIntent, null],
+    );
+    expect(duplicate.rows[0].r.duplicate).toBe(true);
+
+    const balance = await client.query<{ total: string }>(
+      "select coalesce(sum(delta),0)::text as total from public.credit_ledger where user_id = $1",
+      [accountA.userId],
+    );
+    expect(Number(balance.rows[0].total)).toBe(50);
+
+    const reserved = await asUser(accountA.userId, async () => {
+      const result = await client.query<{
+        r: { ok: boolean; request_id: string; balance: number };
+      }>("select public.reserve_ai_request('unstuck','glm-5.3-flash') as r");
+      return result.rows[0].r;
+    });
+    expect(reserved.ok).toBe(true);
+    expect(reserved.balance).toBe(49);
+
+    await asUser(accountA.userId, async () => {
+      await client.query(
+        "select public.finish_ai_request($1,'succeeded',null,1000,200)",
+        [reserved.request_id],
+      );
+    });
+
+    const failed = await asUser(accountA.userId, async () => {
+      const result = await client.query<{
+        r: { ok: boolean; request_id: string; balance: number };
+      }>("select public.reserve_ai_request('plan','glm-5.3-flash') as r");
+      return result.rows[0].r;
+    });
+    expect(failed.ok).toBe(true);
+
+    await asUser(accountA.userId, async () => {
+      await client.query(
+        "select public.finish_ai_request($1,'failed','provider',null,null)",
+        [failed.request_id],
+      );
+    });
+
+    const afterRelease = await client.query<{ total: string; releases: string }>(
+      `select coalesce(sum(delta),0)::text as total,
+              count(*) filter (where reason = 'ai_release')::text as releases
+         from public.credit_ledger where user_id = $1`,
+      [accountA.userId],
+    );
+    expect(Number(afterRelease.rows[0].total)).toBe(49);
+    expect(Number(afterRelease.rows[0].releases)).toBe(1);
+
+    const usedRefundEvent = `evt_refund_used_${randomUUID()}`;
+    const usedRefund = await client.query<{ r: { ok: boolean; code?: string } }>(
+      "select public.credit_handle_event($1,$2,$3,$4,$5,$6) as r",
+      [token, usedRefundEvent, "charge.refunded", null, first.paymentIntent, null],
+    );
+    expect(usedRefund.rows[0].r.ok).toBe(false);
+    expect(usedRefund.rows[0].r.code).toBe("refund-needs-attention");
+
+    const second = await buy("second");
+    const refundEvent = `evt_refund_${randomUUID()}`;
+    const refund = await client.query<{ r: { ok: boolean; refunded?: number } }>(
+      "select public.credit_handle_event($1,$2,$3,$4,$5,$6) as r",
+      [token, refundEvent, "charge.refunded", null, second.paymentIntent, null],
+    );
+    expect(refund.rows[0].r.ok).toBe(true);
+    expect(refund.rows[0].r.refunded).toBe(50);
+
+    const afterRefund = await client.query<{ total: string; status: string }>(
+      `select coalesce(sum(delta),0)::text as total,
+              (select status from public.credit_payments where provider_payment_id = $2) as status
+         from public.credit_ledger where user_id = $1`,
+      [accountA.userId, second.paymentIntent],
+    );
+    expect(Number(afterRefund.rows[0].total)).toBe(49);
+    expect(afterRefund.rows[0].status).toBe("refunded");
+
+    await expect(
+      client.query(
+        `insert into public.credit_ledger (user_id, delta, reason, note)
+         values ($1, -999, 'adjustment', 'overspend probe')`,
+        [accountB.userId],
+      ),
+    ).rejects.toThrow(/insufficient-credits/);
+
+    // A build repair is two credits, and its workspace budget is locked and
+    // charged in the same transaction as the reservation.
+    const repairWorkspace = await client.query<{ id: string }>(
+      `insert into public.app_workspaces
+         (project_id, user_id, status, credit_budget, credits_spent)
+       values ($1, $2, 'checks_failed', 2, 0)
+       on conflict (project_id) do update
+         set user_id = excluded.user_id,
+             status = 'checks_failed',
+             credit_budget = 2,
+             credits_spent = 0
+       returning id`,
+      [accountA.appProjectId, accountA.userId],
+    );
+    const repairWorkspaceId = repairWorkspace.rows[0].id;
+
+    const repair = await asUser(accountA.userId, async () => {
+      const result = await client.query<{
+        r: {
+          ok: boolean;
+          request_id: string;
+          credits: number;
+          balance: number;
+          budget_remaining: number | null;
+        };
+      }>(
+        "select public.reserve_ai_request('app_repair','glm-5.3-flash','build',$1) as r",
+        [repairWorkspaceId],
+      );
+      return result.rows[0].r;
+    });
+    expect(repair.ok).toBe(true);
+    expect(repair.credits).toBe(2);
+    expect(repair.balance).toBe(47);
+    expect(repair.budget_remaining).toBe(0);
+
+    const repairRequest = await client.query<{ budget_kind: string; budget_id: string }>(
+      "select budget_kind, budget_id from public.ai_requests where id = $1",
+      [repair.request_id],
+    );
+    expect(repairRequest.rows[0]).toEqual({ budget_kind: "build", budget_id: repairWorkspaceId });
+
+    await asUser(accountA.userId, async () => {
+      await client.query("select public.finish_ai_request($1,'failed','provider',null,null)", [
+        repair.request_id,
+      ]);
+    });
+
+    const repairReleased = await client.query<{ total: string; spent: number }>(
+      `select coalesce(sum(delta),0)::text as total,
+              (select credits_spent from public.app_workspaces where id = $2) as spent
+         from public.credit_ledger where user_id = $1`,
+      [accountA.userId, repairWorkspaceId],
+    );
+    expect(Number(repairReleased.rows[0].total)).toBe(49);
+    expect(Number(repairReleased.rows[0].spent)).toBe(0);
+
+    const repairAgain = await asUser(accountA.userId, async () => {
+      const result = await client.query<{ r: { ok: boolean; request_id: string } }>(
+        "select public.reserve_ai_request('app_repair','glm-5.3-flash','build',$1) as r",
+        [repairWorkspaceId],
+      );
+      return result.rows[0].r;
+    });
+    expect(repairAgain.ok).toBe(true);
+    await asUser(accountA.userId, async () => {
+      await client.query("select public.finish_ai_request($1,'succeeded',null,10,2)", [
+        repairAgain.request_id,
+      ]);
+    });
+
+    const repairBudgetBlocked = await asUser(accountA.userId, async () => {
+      const result = await client.query<{ r: { ok: boolean; code?: string } }>(
+        "select public.reserve_ai_request('app_repair','glm-5.3-flash','build',$1) as r",
+        [repairWorkspaceId],
+      );
+      return result.rows[0].r;
+    });
+    expect(repairBudgetBlocked.ok).toBe(false);
+    expect(repairBudgetBlocked.code).toBe("budget-exhausted");
+
+    // A workflow chooses a budget, stops at it, and releases a failed draft.
+    const workflowRun = await client.query<{ id: string }>(
+      `insert into public.workflow_runs
+         (user_id, workflow_name, workflow_version, credit_budget, credits_spent)
+       values ($1, 'Budget drill', 1, 1, 0)
+       returning id`,
+      [accountA.userId],
+    );
+    const workflowRunId = workflowRun.rows[0].id;
+
+    const draftFailed = await asUser(accountA.userId, async () => {
+      const result = await client.query<{ r: { ok: boolean; request_id: string; balance: number } }>(
+        "select public.reserve_ai_request('workflow_draft','glm-5.3-flash','workflow',$1) as r",
+        [workflowRunId],
+      );
+      return result.rows[0].r;
+    });
+    expect(draftFailed.ok).toBe(true);
+    expect(draftFailed.balance).toBe(46);
+
+    await asUser(accountA.userId, async () => {
+      await client.query("select public.finish_ai_request($1,'failed','provider',null,null)", [
+        draftFailed.request_id,
+      ]);
+    });
+
+    const draftBudgetReleased = await client.query<{ spent: number; total: string }>(
+      `select (select credits_spent from public.workflow_runs where id = $2) as spent,
+              coalesce(sum(delta),0)::text as total
+         from public.credit_ledger where user_id = $1`,
+      [accountA.userId, workflowRunId],
+    );
+    expect(Number(draftBudgetReleased.rows[0].spent)).toBe(0);
+    expect(Number(draftBudgetReleased.rows[0].total)).toBe(47);
+
+    const draftSucceeded = await asUser(accountA.userId, async () => {
+      const result = await client.query<{ r: { ok: boolean; request_id: string } }>(
+        "select public.reserve_ai_request('workflow_draft','glm-5.3-flash','workflow',$1) as r",
+        [workflowRunId],
+      );
+      return result.rows[0].r;
+    });
+    expect(draftSucceeded.ok).toBe(true);
+    await asUser(accountA.userId, async () => {
+      await client.query("select public.finish_ai_request($1,'succeeded',null,1000,200)", [
+        draftSucceeded.request_id,
+      ]);
+    });
+
+    const draftBudgetBlocked = await asUser(accountA.userId, async () => {
+      const result = await client.query<{ r: { ok: boolean; code?: string } }>(
+        "select public.reserve_ai_request('workflow_draft','glm-5.3-flash','workflow',$1) as r",
+        [workflowRunId],
+      );
+      return result.rows[0].r;
+    });
+    expect(draftBudgetBlocked.ok).toBe(false);
+    expect(draftBudgetBlocked.code).toBe("budget-exhausted");
+  });
+
 });
 
 async function seedAccount(client: Client, seed: Seeded, label: string) {

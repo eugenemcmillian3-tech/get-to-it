@@ -132,8 +132,8 @@ describe("repair prompt", () => {
   });
 
   it("keeps the configured bounds in one place", () => {
-    expect(PREVIEW_LIMITS.maxRepairIterations).toBe(2);
-    expect(PREVIEW_LIMITS.maxAiRequests).toBe(2);
+    expect(PREVIEW_LIMITS.maxRepairIterations).toBe(3);
+    expect(PREVIEW_LIMITS.maxAiRequests).toBe(3);
     expect(PREVIEW_LIMITS.maxRuntimeMs).toBe(600_000);
     expect(PREVIEW_LIMITS.maxLogChars).toBe(200_000);
   });

@@ -35,8 +35,9 @@ Database-side configuration:
 
 | Setting | Where | Notes |
 | --- | --- | --- |
-| AI allowances (`per_user_daily`, `global_daily`, `in_flight_seconds`) | `public.ai_limits`, one row | Change with SQL; the browser cannot read or write it |
-| Credit pack prices | `public.credit_packs` | Placeholders; confirm before selling |
+| AI allowances (`per_user_daily`, `global_daily`, `in_flight_seconds`) | `public.ai_limits`, one row | `per_user_daily = 0` means no free plan; change only with a pricing decision |
+| Credit pack prices | `public.credit_packs` | $0.10 per credit, five packs; the table constrains amount to credits × 10 cents |
+| Operation rate card | `RATE_CARD_DRAFT.md` + `0035_operation_budgets.sql` | Approved for implementation, not live. Fixed per-operation credits, build/workflow/swarm budgets. `ai_prices` remains empty; migration, live billing and deployment still need separate approval |
 | `credit_webhook` secret | `public.app_secrets` | Must equal `CREDIT_RPC_TOKEN`; the webhook has no signed-in user |
 | Owners | `public.app_owners` | Only these accounts may open `/owner` |
 
@@ -146,7 +147,7 @@ project keeps no separate log store.
 ## Migrations
 
 - Files live in `supabase/migrations/` and are applied in filename order, once each:
-  `0001` … `0024_phase25_improvement.sql`.
+  `0001` … `0035_operation_budgets.sql`.
 - They are forward-only. There are no down migrations, and no rollback has been
   tested. Treat every migration as one-way.
 - Migrations are written to be re-runnable where possible (`create table if not
@@ -283,6 +284,9 @@ Destructive checks no longer run against the live application database.
 
 `npm test` covers the pure export, import, workflow, workspace, learning and
 planning rules with fixtures and makes no network or database calls.
+
+Pricing-specific rollout and rollback steps, including the `0034`/`0035` order and
+the live Stripe gate, are in [`DEPLOYMENT.md`](DEPLOYMENT.md#pricing-rollout-0034-and-0035).
 
 ## Release checklist
 

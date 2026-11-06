@@ -3,7 +3,6 @@ import { describe, expect, it, afterEach } from "vitest";
 import {
   ACCOUNT_DELETION_POLICY,
   creditLimitMessage,
-  creditNote,
   formatCredits,
   formatSignedCredits,
   formatUsd,
@@ -11,6 +10,20 @@ import {
   paymentStatusLabel,
   REFUND_POLICY,
 } from "@/lib/credits/format";
+import {
+  AI_OPERATION_CREDIT_COSTS,
+  AI_OPERATION_PRICES,
+  BUILD_MAX_CREDITS,
+  CREDIT_PACK_DEFINITIONS,
+  CREDIT_VALUE_CENTS,
+  CREDIT_VALUE_LABEL,
+  WORKFLOW_MAX_CREDITS,
+  creditNote,
+  creditsToCents,
+  formatCreditsWithUsd,
+  operationChargeLabel,
+  operationCreditCost,
+} from "@/lib/credits/pricing";
 import {
   createCheckoutSession,
   factsFromEvent,
@@ -168,26 +181,67 @@ describe("credit formatting", () => {
   });
 });
 
+describe("credit pricing", () => {
+  it("sets the retail value of one credit to ten cents", () => {
+    expect(CREDIT_VALUE_CENTS).toBe(10);
+    expect(CREDIT_VALUE_LABEL).toBe("$0.10");
+    expect(creditsToCents(50)).toBe(500);
+    expect(formatCreditsWithUsd(50)).toBe("50 credits ($5.00)");
+  });
+
+  it("keeps all five packs at exactly ten cents per credit", () => {
+    expect(CREDIT_PACK_DEFINITIONS).toHaveLength(5);
+    for (const pack of CREDIT_PACK_DEFINITIONS) {
+      expect(pack.amount_cents).toBe(pack.credits * CREDIT_VALUE_CENTS);
+    }
+    expect(CREDIT_PACK_DEFINITIONS.map((pack) => pack.credits)).toEqual([
+      50, 100, 250, 500, 1000,
+    ]);
+  });
+});
+
+describe("operation prices", () => {
+  it("prices every approved operation in whole credits", () => {
+    expect(AI_OPERATION_PRICES).toHaveLength(10);
+    for (const operation of AI_OPERATION_PRICES) {
+      expect(operation.credits).toBe(AI_OPERATION_CREDIT_COSTS[operation.kind]);
+      expect(operation.credits).toBeGreaterThan(0);
+    }
+  });
+
+  it("charges two credits for a build repair and one for everything else", () => {
+    expect(operationCreditCost("app_repair")).toBe(2);
+    expect(operationCreditCost("plan")).toBe(1);
+    expect(operationCreditCost("workflow_draft")).toBe(1);
+    expect(operationChargeLabel("app_repair")).toBe("2 credits ($0.20)");
+    expect(operationChargeLabel("plan")).toBe("1 credit ($0.10)");
+  });
+
+  it("keeps the build and workflow caps in one place", () => {
+    expect(BUILD_MAX_CREDITS).toBe(6);
+    expect(WORKFLOW_MAX_CREDITS).toBe(10);
+  });
+});
+
 describe("credit copy", () => {
-  it("names the free allowance when credits run out", () => {
-    const message = creditLimitMessage("needs-credits", 15);
-    expect(message).toContain("15 free AI requests");
+  it("does not invent a free allowance when credits run out", () => {
+    const message = creditLimitMessage("needs-credits");
+    expect(message).toContain("out of credits");
     expect(message).toContain("Add credits");
-    expect(message).toContain("by hand");
+    expect(message).not.toContain("free");
   });
 
   it("still reads sensibly without a known allowance", () => {
-    expect(creditLimitMessage("needs-credits")).toContain("no credits");
+    expect(creditLimitMessage("needs-credits")).toContain("credits");
   });
 
   it("says nothing for codes it does not own", () => {
     expect(creditLimitMessage("in-flight")).toBe("");
   });
 
-  it("shows a balance note only when there is something to say", () => {
-    expect(creditNote(3, 0)).toBe("3 credits available.");
-    expect(creditNote(0, 0)).toContain("No free AI requests");
-    expect(creditNote(0, 4)).toBeNull();
+  it("shows a balance note with its dollar value", () => {
+    expect(creditNote(3)).toBe("3 credits available ($0.30).");
+    expect(creditNote(0)).toContain("No credits available");
   });
 
   it("states that refunds only cover unused credits", () => {

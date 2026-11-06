@@ -205,6 +205,9 @@ export type TeamRunRecord = {
   max_calls: number;
   max_runtime_seconds: number;
   calls_used: number;
+  /** Fixture-only runs have no paid path, so their AI credit budget is zero. */
+  credit_budget: number;
+  credits_spent: number;
   runtime_seconds: number;
   active_count: number;
   integration_status: TeamIntegrationStatus;

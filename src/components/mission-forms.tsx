@@ -20,6 +20,7 @@ import {
   updateMissionAction,
 } from "@/lib/actions/missions";
 import { AI_MODELS, DEFAULT_AI_MODEL } from "@/lib/ai/models";
+import { operationChargeLabel } from "@/lib/credits/pricing";
 import {
   EVIDENCE_KINDS,
   MISSION_CATEGORIES,
@@ -655,9 +656,10 @@ export function AssistanceForm({ mission }: { mission: Mission }) {
       <input type="hidden" name="mission_id" value={mission.id} />
       <h3 className="text-base font-bold">Ask for assistance</h3>
       <p className="mt-1 text-sm leading-relaxed text-muted">
-        One request, one suggestion. AI cannot vote, cannot be a decision owner,
-        cannot speak as a participant and cannot publish anything. Personal
-        stories without recorded consent are not sent to the model.
+        One request ({operationChargeLabel("mission_assist")}), one suggestion.
+        AI cannot vote, cannot be a decision owner, cannot speak as a participant
+        and cannot publish anything. Personal stories without recorded consent
+        are not sent to the model.
       </p>
 
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -694,16 +696,14 @@ export function AssistanceForm({ mission }: { mission: Mission }) {
       </div>
 
       <p aria-live="polite" className="mt-3 min-h-5 text-sm">
-        <StateNote state={state} idle="Each request spends one AI request from today's allowance." />
+        <StateNote
+          state={state}
+          idle={`Each request reserves ${operationChargeLabel("mission_assist")}. A failed request releases it.`}
+        />
       </p>
-      {typeof state.remaining === "number" ? (
-        <p className="text-xs text-muted">
-          {state.remaining} AI {state.remaining === 1 ? "request" : "requests"} left today.
-        </p>
-      ) : null}
 
       <SubmitButton className={secondaryButton} pendingLabel="Asking…">
-        Request one suggestion (1 AI request)
+        Request one suggestion ({operationChargeLabel("mission_assist")})
       </SubmitButton>
     </form>
   );

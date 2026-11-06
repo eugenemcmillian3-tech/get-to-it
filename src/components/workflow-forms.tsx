@@ -20,6 +20,7 @@ import {
   updateWorkflowAction,
 } from "@/lib/actions/workflows";
 import { CONNECTORS, NO_REAL_CONNECTOR_NOTE, getConnector } from "@/lib/connectors";
+import { WORKFLOW_MAX_CREDITS, operationChargeLabel } from "@/lib/credits/pricing";
 import {
   MAX_DRAFT_LENGTH,
   MAX_INPUT_NOTES,
@@ -444,6 +445,21 @@ export function StartWorkflowForm({ workflowId }: { workflowId: string }) {
   return (
     <form action={formAction} className="space-y-3">
       <input type="hidden" name="workflow_id" value={workflowId} />
+      <label className="block text-sm font-medium">
+        Maximum AI credits
+        <input
+          type="number"
+          name="max_credits"
+          min={1}
+          max={WORKFLOW_MAX_CREDITS}
+          defaultValue={WORKFLOW_MAX_CREDITS}
+          className={`mt-1 w-full max-w-32 ${inputClass}`}
+        />
+      </label>
+      <p className="text-xs text-muted">
+        Each AI draft costs {operationChargeLabel("workflow_draft")}. The run stops
+        starting new drafts at this limit; completed steps keep their output.
+      </p>
       <Message state={state} />
       <SubmitButton pendingLabel="Starting…" className={primaryButton}>
         Start a run
@@ -635,6 +651,10 @@ export function WorkflowRunPanel({ detail }: { detail: WorkflowRunDetail }) {
 
         <p className="mt-3 text-sm text-muted">
           {progress.done} of {progress.total} steps done ({progress.percent}%).
+        </p>
+        <p className="mt-1 text-xs text-muted">
+          AI credits: {run.credits_spent ?? 0} of {run.credit_budget ?? WORKFLOW_MAX_CREDITS} used.
+          Each draft costs {operationChargeLabel("workflow_draft")}.
         </p>
 
         {terminal ? (

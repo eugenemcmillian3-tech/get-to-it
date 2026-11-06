@@ -11,6 +11,7 @@
  */
 
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { CREDIT_PACK_DEFINITIONS } from "./pricing";
 
 export const STRIPE_API_DEFAULT = "https://api.stripe.com";
 
@@ -75,6 +76,8 @@ export type CheckoutInput = {
   email: string | null;
   packSlug: string;
   label: string;
+  /** Database pack credits; omitted callers cannot use a saved price. */
+  credits?: number;
   amountCents: number;
   currency: string;
   successUrl: string;
@@ -84,6 +87,30 @@ export type CheckoutInput = {
 export type CheckoutResult =
   | { ok: true; sessionId: string; url: string }
   | { ok: false; message: string };
+
+/**
+ * Returns the configured Stripe price for this pack only when the database
+ * amount and credit count still match the five-pack definition. This prevents
+ * an old database row from being paired with a newly sized Stripe price before
+ * the catalogue migration is applied.
+ */
+export function packPriceId(
+  input: Pick<CheckoutInput, "packSlug" | "credits" | "amountCents">,
+): string | null {
+  const pack = CREDIT_PACK_DEFINITIONS.find(
+    (definition) => definition.slug === input.packSlug,
+  );
+  if (
+    !pack ||
+    pack.credits !== input.credits ||
+    pack.amount_cents !== input.amountCents
+  ) {
+    return null;
+  }
+
+  const value = process.env[`STRIPE_PRICE_ID_${pack.slug.toUpperCase()}`]?.trim();
+  return value && /^price_[A-Za-z0-9]+$/.test(value) ? value : null;
+}
 
 /**
  * Creates a one-time Checkout Session. `client_reference_id` and the metadata
@@ -111,10 +138,15 @@ export async function createCheckoutSession(
   body.set("payment_intent_data[metadata][payment_id]", input.paymentId);
   if (input.email) body.set("customer_email", input.email);
 
+  const priceId = packPriceId(input);
   body.set("line_items[0][quantity]", "1");
-  body.set("line_items[0][price_data][currency]", input.currency);
-  body.set("line_items[0][price_data][unit_amount]", String(input.amountCents));
-  body.set("line_items[0][price_data][product_data][name]", input.label);
+  if (priceId) {
+    body.set("line_items[0][price]", priceId);
+  } else {
+    body.set("line_items[0][price_data][currency]", input.currency);
+    body.set("line_items[0][price_data][unit_amount]", String(input.amountCents));
+    body.set("line_items[0][price_data][product_data][name]", input.label);
+  }
 
   let response: Response;
   try {

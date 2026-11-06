@@ -10,6 +10,7 @@ import {
   StopWorkspaceForm,
 } from "@/components/preview-workspace-forms";
 import { requireSession } from "@/lib/auth";
+import { BUILD_MAX_CREDITS, BUILD_REPAIR_CREDITS } from "@/lib/credits/pricing";
 import { getAppProjectDetail } from "@/lib/data/app-projects";
 import { getAppWorkspace } from "@/lib/data/app-workspaces";
 import { getIdentity } from "@/lib/identity";
@@ -63,7 +64,11 @@ export default async function WorkspacePage({
   const latestRepair = runs.find((run) => run.kind === "repair") ?? null;
   const failed = latestChecks?.status === "failed" || latestChecks?.status === "timed_out";
   const canStart = files.length > 0 && configured;
-  const canRepair = Boolean(workspace?.runner_key) && failed && (workspace?.iterations ?? 0) < PREVIEW_LIMITS.maxRepairIterations;
+  const canRepair =
+    Boolean(workspace?.runner_key) &&
+    failed &&
+    (workspace?.iterations ?? 0) < PREVIEW_LIMITS.maxRepairIterations &&
+    (workspace?.credits_spent ?? 0) + BUILD_REPAIR_CREDITS <= (workspace?.credit_budget ?? BUILD_MAX_CREDITS);
 
   return (
     <div className="min-h-dvh">
@@ -92,9 +97,14 @@ export default async function WorkspacePage({
               {workspace ? STATUS_LABELS[workspace.status] ?? workspace.status : "Not started"}
             </span>
             {workspace ? (
-              <span className={chipClass}>
-                {workspace.iterations}/{PREVIEW_LIMITS.maxRepairIterations} repairs
-              </span>
+              <>
+                <span className={chipClass}>
+                  {workspace.iterations}/{PREVIEW_LIMITS.maxRepairIterations} repairs
+                </span>
+                <span className={chipClass}>
+                  {workspace.credits_spent ?? 0}/{workspace.credit_budget ?? BUILD_MAX_CREDITS} AI credits
+                </span>
+              </>
             ) : null}
             <span className={chipClass}>No public deployment</span>
           </div>
@@ -115,8 +125,9 @@ export default async function WorkspacePage({
         <section aria-labelledby="controls-heading" className={`${cardClass} mt-6`}>
           <h2 id="controls-heading" className="text-lg font-bold">Controls</h2>
           <p className="mt-1 text-sm leading-relaxed text-muted">
-            Limits: {PREVIEW_LIMITS.maxRepairIterations} repair iterations,{" "}
-            {PREVIEW_LIMITS.maxAiRequests} AI requests, {Math.round(PREVIEW_LIMITS.maxRuntimeMs / 60_000)} minutes,
+            Limits: {PREVIEW_LIMITS.maxRepairIterations} repair iterations ({" "}
+            {BUILD_REPAIR_CREDITS} credits each), {PREVIEW_LIMITS.maxAiRequests} AI requests,{" "}
+            {BUILD_MAX_CREDITS} credits per workspace, {Math.round(PREVIEW_LIMITS.maxRuntimeMs / 60_000)} minutes,
             and {PREVIEW_LIMITS.maxLogChars.toLocaleString()} characters of log per run.
           </p>
 

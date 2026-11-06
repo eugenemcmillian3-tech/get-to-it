@@ -547,6 +547,10 @@ export type WorkflowRun = {
   started_at: string;
   finished_at: string | null;
   cancelled_at: string | null;
+  /** Maximum AI credits this run may spend. */
+  credit_budget: number;
+  /** Credits reserved or spent by AI drafts in this run. */
+  credits_spent: number;
   created_at: string;
   updated_at: string;
 };
@@ -1161,6 +1165,10 @@ export type AppWorkspace = {
   last_error: string | null;
   iterations: number;
   ai_requests: number;
+  /** Maximum AI credits this workspace may spend. */
+  credit_budget: number;
+  /** Credits reserved or spent by repairs in this workspace. */
+  credits_spent: number;
   created_at: string;
   updated_at: string;
 };

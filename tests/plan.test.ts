@@ -288,10 +288,9 @@ describe("AI request limit messages", () => {
     );
   });
 
-  it("forms a remaining-count note", () => {
-    expect(remainingNote(3)).toBe("3 AI requests left today.");
-    expect(remainingNote(1)).toBe("1 AI request left today.");
-    expect(remainingNote(0)).toBe("No AI requests left today.");
-    expect(remainingNote(undefined)).toBeNull();
+  it("shows the operation price, not a free allowance", () => {
+    expect(remainingNote()).toContain("This request: 1 credit ($0.10)");
+    expect(remainingNote()).toContain("failed request releases it");
+    expect(remainingNote("app_repair")).toContain("2 credits ($0.20)");
   });
 });

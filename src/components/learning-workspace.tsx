@@ -13,6 +13,7 @@ import {
   saveLearningFeedbackAction,
 } from "@/lib/actions/learning";
 import { AI_MODELS, DEFAULT_AI_MODEL } from "@/lib/ai/models";
+import { operationChargeLabel } from "@/lib/credits/pricing";
 import { mergeSuggestion } from "@/lib/ai/task-help";
 import {
   CONFIDENCE_OPTIONS,
@@ -220,8 +221,9 @@ export function LearningWorkspace({
 
         <h2 className="text-lg font-bold">Get help with this step</h2>
         <p className="mt-1 text-sm leading-relaxed text-muted">
-          Ask for a hint before an answer. Each request is one AI request, and
-          nothing is saved automatically.
+          Ask for a hint before an answer. Each request costs{" "}
+          {operationChargeLabel("learning_help")}, and nothing is saved
+          automatically.
         </p>
 
         <div className="mt-3 sm:max-w-xs">

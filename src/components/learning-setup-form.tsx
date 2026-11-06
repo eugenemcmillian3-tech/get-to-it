@@ -7,6 +7,7 @@ import {
 } from "@/lib/action-state";
 import { createLearningPlanAction } from "@/lib/actions/learning";
 import { AI_MODELS, DEFAULT_AI_MODEL } from "@/lib/ai/models";
+import { operationChargeLabel } from "@/lib/credits/pricing";
 import {
   LEARNING_EXPERIENCE_OPTIONS,
   GENERATED_CONTENT_NOTE,
@@ -129,7 +130,8 @@ export function LearningSetupForm({ goalId }: { goalId: string }) {
             ))}
           </select>
           <p className={hintClass}>
-            One AI request. Served by Ollama; the key stays on the server.
+            This request: {operationChargeLabel("learning")}. Served by Ollama;
+            the key stays on the server.
           </p>
         </div>
       </div>

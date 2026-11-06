@@ -46,7 +46,7 @@ export function PlanPanel({ goalId }: { goalId: string }) {
       ? planState
       : null;
   const savedVisible = saveState.status === "saved" && !dismissed;
-  const note = remainingNote(planState.remaining);
+  const note = remainingNote("plan");
 
   return (
     <section
