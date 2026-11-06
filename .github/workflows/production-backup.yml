@@ -1,0 +1,138 @@
+name: Production backup and restore test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      restore-db:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: restore-only
+          POSTGRES_DB: restore_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d restore_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Require backup secrets
+        env:
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          test -n "$PRODUCTION_DATABASE_URL" || { echo "::error::PRODUCTION_DATABASE_URL is missing"; exit 1; }
+          test -n "$BACKUP_PASSPHRASE" || { echo "::error::BACKUP_PASSPHRASE is missing"; exit 1; }
+
+      - name: Install encryption tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gnupg
+
+      - name: Dump production database
+        env:
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          mkdir -p backup
+          docker run --rm \
+            -v "$PWD/backup:/backup" \
+            -e PGURL="$PRODUCTION_DATABASE_URL" \
+            postgres:17 \
+            sh -ec 'pg_dump "$PGURL" --format=custom --no-owner --no-privileges --schema=public --schema=auth --schema=supabase_migrations --file=/backup/production.dump'
+          test -s backup/production.dump
+          ls -lh backup/production.dump
+
+      - name: Restore into disposable Postgres
+        run: |
+          set -euo pipefail
+          docker run --rm --network host -e PGPASSWORD=restore-only postgres:17 \
+            psql -h 127.0.0.1 -U postgres -d restore_test -v ON_ERROR_STOP=1 <<'SQL'
+          create role anon nologin;
+          create role authenticated nologin;
+          create role service_role nologin bypassrls;
+          create role authenticator login noinherit;
+          create role supabase_auth_admin nologin;
+          create role supabase_storage_admin nologin;
+          create role supabase_admin nologin;
+          create role dashboard_user nologin;
+          create schema if not exists extensions;
+          create extension if not exists pgcrypto with schema extensions;
+          create extension if not exists "uuid-ossp" with schema extensions;
+          SQL
+          docker run --rm --network host \
+            -v "$PWD/backup:/backup" \
+            -e PGPASSWORD=restore-only \
+            postgres:17 \
+            pg_restore --clean --if-exists --no-owner --no-privileges --exit-on-error \
+              --dbname=postgresql://postgres:restore-only@127.0.0.1:5432/restore_test \
+              /backup/production.dump
+          docker run --rm --network host -e PGPASSWORD=restore-only postgres:17 \
+            psql -h 127.0.0.1 -U postgres -d restore_test -v ON_ERROR_STOP=1 -P pager=off <<'SQL'
+          select current_database() as database,
+                 (select count(*) from information_schema.tables where table_schema = 'public') as public_tables,
+                 (select count(*) from public.credit_packs) as packs,
+                 (select count(*) from public.credit_ledger) as ledger,
+                 (select count(*) from public.credit_payments) as payments,
+                 (select count(*) from public.ai_requests) as ai_requests,
+                 (select count(*) from auth.users) as users,
+                 (select per_user_daily from public.ai_limits) as per_user_daily,
+                 (select global_daily from public.ai_limits) as global_daily,
+                 (select to_regprocedure('public.reserve_ai_request(text,text,text,uuid)') is not null) as reserve_fn;
+          select public.health_probe();
+          SQL
+          touch backup/restore.ok
+
+      - name: Encrypt and package
+        if: always()
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          if [ ! -s backup/production.dump ]; then
+            echo "::warning::No dump was produced; nothing to encrypt."
+            exit 0
+          fi
+          {
+            echo "source_revision=$(git rev-parse HEAD)"
+            echo "created_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "schemas=public,auth,supabase_migrations"
+            echo "restore_database=restore_test"
+            if [ -f backup/restore.ok ]; then
+              echo "restore_verified=yes"
+            else
+              echo "restore_verified=no"
+            fi
+          } > backup/metadata.txt
+          gpg --batch --yes --symmetric --cipher-algo AES256 \
+            --passphrase-fd 3 \
+            --output backup/production.dump.gpg \
+            backup/production.dump 3<<<"$BACKUP_PASSPHRASE"
+          rm -f backup/production.dump
+          sha256sum backup/production.dump.gpg > backup/SHA256SUMS
+          ls -lh backup/production.dump.gpg backup/SHA256SUMS backup/metadata.txt
+
+      - name: Upload encrypted backup
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-backup-${{ github.run_id }}
+          path: |
+            backup/production.dump.gpg
+            backup/SHA256SUMS
+            backup/metadata.txt
+          if-no-files-found: warn
+          retention-days: 30
