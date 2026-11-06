@@ -71,7 +71,7 @@ jobs:
       - name: Restore into disposable Postgres
         run: |
           set -euo pipefail
-          docker run --rm --network host -e PGPASSWORD=restore-only postgres:17 \
+          docker run --rm -i --network host -e PGPASSWORD=restore-only postgres:17 \
             psql -h 127.0.0.1 -U postgres -d restore_test -v ON_ERROR_STOP=1 <<'SQL'
           create role anon nologin;
           create role authenticated nologin;
@@ -92,7 +92,7 @@ jobs:
             pg_restore --clean --if-exists --no-owner --no-privileges --exit-on-error \
               --dbname=postgresql://postgres:restore-only@127.0.0.1:5432/restore_test \
               /backup/production.dump
-          docker run --rm --network host -e PGPASSWORD=restore-only postgres:17 \
+          docker run --rm -i --network host -e PGPASSWORD=restore-only postgres:17 \
             psql -h 127.0.0.1 -U postgres -d restore_test -v ON_ERROR_STOP=1 -P pager=off <<'SQL'
           select current_database() as database,
                  (select count(*) from information_schema.tables where table_schema = 'public') as public_tables,
