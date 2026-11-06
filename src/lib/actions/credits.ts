@@ -72,6 +72,7 @@ export async function startCheckoutAction(
     email: session.user.email ?? null,
     packSlug,
     label: payment.label ?? "AI credits",
+    credits: Number(payment.credits ?? 0),
     amountCents: Number(payment.amount_cents ?? 0),
     currency: payment.currency ?? "usd",
     successUrl: `${origin}/credits?checkout=done&payment=${payment.payment_id}`,
