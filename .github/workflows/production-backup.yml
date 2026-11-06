@@ -45,15 +45,24 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends gnupg
 
-      - name: Dump production database
+      - name: Dump production database through IPv4 pooler
         env:
           PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
         run: |
           set -euo pipefail
+          PGURL="$(node -e '
+            const u = new URL(process.env.PRODUCTION_DATABASE_URL);
+            u.hostname = "aws-0-us-east-1.pooler.supabase.com";
+            u.port = "5432";
+            u.username = "postgres.qhlzjhdcnlokbsdsrqqy";
+            u.searchParams.set("sslmode", "require");
+            process.stdout.write(u.toString());
+          ')"
+          export PGURL
           mkdir -p backup
           docker run --rm \
             -v "$PWD/backup:/backup" \
-            -e PGURL="$PRODUCTION_DATABASE_URL" \
+            -e PGURL \
             postgres:17 \
             sh -ec 'pg_dump "$PGURL" --format=custom --no-owner --no-privileges --schema=public --schema=auth --schema=supabase_migrations --file=/backup/production.dump'
           test -s backup/production.dump
