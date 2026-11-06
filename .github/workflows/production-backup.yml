@@ -1,6 +1,9 @@
 name: Production backup and restore test
 
 on:
+  push:
+    branches:
+      - ops/production-backup-20261106
   workflow_dispatch:
 
 permissions:
