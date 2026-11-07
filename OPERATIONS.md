@@ -340,7 +340,9 @@ fallback. It runs `node scripts/resend-monitor.mjs`, reads recent messages from
 the Resend API and opens the same issue if the webhook missed an event. It needs
 the repository secret `RESEND_API_KEY` and the `issues: write` permission.
 Re-running it reuses an existing issue, so a bad email does not create a new
-issue every hour.
+issue every hour. Both the webhook and the monitor check recent issues directly
+before falling back to GitHub search, so a newly opened alert is recognized even
+while search indexing catches up.
 
 Then check by hand, and record the result rather than assuming it:
 
