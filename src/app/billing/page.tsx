@@ -5,7 +5,7 @@ import { SetupNotice } from "@/components/setup-notice";
 import { SiteHeader } from "@/components/site-header";
 import { cancelBillingPurchaseAction } from "@/lib/actions/billing";
 import { requireSession } from "@/lib/auth";
-import { BILLING_NOT_CREDITS, offerPriceLabel } from "@/lib/billing/offers";
+import { BILLING_NOT_CREDITS, billingGrantLabel, offerPriceLabel } from "@/lib/billing/offers";
 import { stripeConfigState } from "@/lib/credits/stripe";
 import { activeGrants, getBillingOverview } from "@/lib/data/billing";
 import { getIdentity } from "@/lib/identity";
@@ -134,7 +134,7 @@ export default async function BillingPage({
                       {entitlement.quantity > 1 ? ` · ×${entitlement.quantity}` : ""}
                     </p>
                     <p className="mt-2 text-xs leading-relaxed text-muted">
-                      {entitlement.grants.join(" · ")}
+                      {entitlement.grants.map(billingGrantLabel).join(" · ")}
                     </p>
                   </li>
                 );
