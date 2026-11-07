@@ -87,9 +87,14 @@ and needs no `service_role` key.
 The weekly **Email delivery smoke** workflow runs `npm run test:email` against
 the production project. It needs the repository secrets
 `EMAIL_SMOKE_SUPABASE_URL`, `EMAIL_SMOKE_SUPABASE_ANON_KEY` and
-`EMAIL_SMOKE_SERVICE_ROLE_KEY`. The hourly **Resend delivery monitor** workflow
-uses a repository `RESEND_API_KEY` secret and opens one GitHub issue per recent
-bounced, complained, failed, suppressed or delayed email.
+`EMAIL_SMOKE_SERVICE_ROLE_KEY`.
+
+Resend posts delivery events to `/api/webhooks/resend`. The endpoint verifies
+the Svix signature with the server-only `RESEND_WEBHOOK_SECRET`, then uses
+`GITHUB_ALERT_TOKEN` and `GITHUB_ALERT_REPO` to open the same deduplicated
+GitHub issue for bounced, complained, failed, suppressed or delivery-delayed
+email. The hourly **Resend delivery monitor** remains a reconciliation fallback
+and uses a repository `RESEND_API_KEY` secret; the webhook is the real-time path.
 
 ## Scripts
 

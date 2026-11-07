@@ -324,14 +324,23 @@ falls back to `NEXT_PUBLIC_SUPABASE_*`, `E2E_SERVICE_ROLE_KEY` or
 `SUPABASE_SERVICE_ROLE_KEY`. The weekly **Email delivery smoke** workflow runs it
 with repository secrets.
 
-The hourly **Resend delivery monitor** workflow runs
-`node scripts/resend-monitor.mjs`. It reads recent messages from the Resend API
-and opens one GitHub issue per email whose latest event is `bounced`,
-`complained`, `failed`, `suppressed` or `delivery_delayed`. The issue contains
-the Resend email id, event and timestamp only; recipient addresses and message
-bodies are not included. The workflow needs the repository secret `RESEND_API_KEY`
-and the `issues: write` permission. Re-running it reuses an existing issue, so a
-bad email does not create a new issue every hour.
+The real-time Resend webhook is `/api/webhooks/resend`. Resend signs every
+delivery with Svix headers; the route verifies the signature against the raw body
+before parsing, then maps `email.bounced`, `email.complained`, `email.failed`,
+`email.suppressed` and `email.delivery_delayed` to the same GitHub issue format.
+It needs the server-only `RESEND_WEBHOOK_SECRET`, `GITHUB_ALERT_TOKEN` and
+`GITHUB_ALERT_REPO` variables. The token should be scoped to issues:write for
+this repository. Invalid signatures, missing configuration and GitHub failures
+are not acknowledged, so Resend can retry. The issue contains the Resend email
+id, event and timestamp only; recipient addresses and message bodies are not
+included.
+
+The hourly **Resend delivery monitor** workflow remains a reconciliation
+fallback. It runs `node scripts/resend-monitor.mjs`, reads recent messages from
+the Resend API and opens the same issue if the webhook missed an event. It needs
+the repository secret `RESEND_API_KEY` and the `issues: write` permission.
+Re-running it reuses an existing issue, so a bad email does not create a new
+issue every hour.
 
 Then check by hand, and record the result rather than assuming it:
 
@@ -372,9 +381,11 @@ advisory flow in `SECURITY.md`, never a public issue.
   bounded (2 MB / 200 goals / 1,000 tasks / 300 reflections, 8 MB export).
 - No per-row purge in backups.
 - Health checks cover the app and the database only, not Stripe, Ollama or email;
-  use the scheduled email smoke test and Resend monitor for delivery checks.
-- The Resend monitor polls hourly and opens GitHub issues; it is not a real-time
-  webhook and does not measure inbox placement or reputation.
+  use the scheduled email smoke test, Resend webhook and fallback monitor for
+  delivery checks.
+- The Resend webhook handles delivery failures in real time; the hourly monitor
+  remains a reconciliation fallback. Neither measures inbox placement or sender
+  reputation.
 - Restore drills run on the same schema but not the same data volume as production.
 - Agent-team execution is request-scoped fixture work, not a background worker. A
   click advances at most the configured number of tasks; pausing stops future
