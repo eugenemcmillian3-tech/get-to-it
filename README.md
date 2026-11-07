@@ -1491,7 +1491,10 @@ new reversible source version, then approve deployment separately through Phase
 - **Auth email depends on Supabase settings.** With confirmation on, the
   confirmation link must work from the deployed hostname; without it, accounts
   are usable immediately. No password-reset or email-change screen exists yet.
-- **No data export or backup.** Deletion is permanent, and there is no restore.
+- **Export, import and backup.** Data can be exported and imported from
+  `/data`; account recovery is a database restore, not an import. Scheduled
+  encrypted backups are written to R2; see `DEPLOYMENT.md`. Deletion is
+  permanent and there is no per-row purge.
 - **Timer boundaries.** One session counts at most 8 hours; a session left open
   more than 12 hours is closed at the time it reached. Today/week totals are
   grouped by when a session started, in UTC, so a session crossing midnight
@@ -1550,15 +1553,18 @@ executor; the approval and action records are designed to be reused for it.
   live regions exist; there has been no formal WCAG audit.
 - **Real-browser checks are outstanding.** They are listed as an owner checklist
   in the release note rather than marked as passed.
-- **No analytics, error monitoring or billing.** Server logs are whatever the
-  host collects.
+- **No analytics or billing.** A scheduled GitHub Actions monitor checks the
+  production health endpoint and critical API boundaries and opens an issue on
+  failure; it is synthetic HTTP monitoring, not exception-level tracing. Server
+  logs are whatever the host collects.
 - **Feedback is stored, not emailed.** Read it in the `feedback` table.
 
-## Deployment (release candidate)
+## Deployment
 
-**Nothing is deployed yet.** The proposed target, the required configuration,
-costs and rollback plan are presented for approval before anything is published;
-see the release note in `BUILD_STATUS.md`.
+GET TO IT is deployed at https://get-to-it-wvpy.vercel.app. `/api/health` is the
+source of truth for the live revision. See `DEPLOYMENT.md` for the production
+target, migrations, backups and rollback constraints, and `OPERATIONS.md` for
+the release checklist.
 
 ## Private pilot
 

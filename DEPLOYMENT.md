@@ -4,12 +4,12 @@ GET TO IT deploys from the `main` branch of `eugenemcmillian3-tech/get-to-it` to
 
 - Vercel Git auto-deploy is enabled for `main`; pushes to `main` deploy production automatically. Do not run manual production deploys.
 - Production URL: https://get-to-it-wvpy.vercel.app
-- Production revision at last verification: `c04c0f5` on 2026-11-04; `/api/health` is the source of truth for the currently deployed revision.
+- Production revision at last verification: `ac7dedd6dde4` on 2026-11-07; `/api/health` is the source of truth for the currently deployed revision.
 - Vercel project ID: `prj_7ZFE4kOPQgsrubitOv1cDcIMPCOx`
 - Vercel production branch: `main`
 - Supabase project: `qhlzjhdcnlokbsdsrqqy` (created through the Vercel Supabase integration)
-- Supabase migrations applied in production: all files through `0033_composio_connections.sql` (129 public tables). The tracked migration history contains `0028`–`0033`; earlier files were applied outside migration tracking.
-- Pending production migrations: `0034_credit_pricing.sql` and `0035_operation_budgets.sql` are in PR #15 and are **not** applied. See [Pricing rollout](#pricing-rollout-0034-and-0035) below.
+- Supabase migration history: tracked history ends at `0033_composio_connections.sql` (13 recorded rows). The 0034/0035 schema effects are present in production (five active packs, `per_user_daily = 0`, four-argument `reserve_ai_request`), but those versions are **not recorded** in `supabase_migrations.schema_migrations`. Reconcile the history before the next migration.
+- Pending production migrations: none identified beyond the history gap above. See [Pricing rollout](#pricing-rollout-0034-and-0035) below.
 - Auth callback: `https://get-to-it-wvpy.vercel.app/auth/callback`
 - Vercel environment names: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `DEPLOYMENT_VAULT_KEY`, `CRON_SECRET`, `CREDIT_RPC_TOKEN`, `SUPABASE_OAUTH_REDIRECT_URI`
 
@@ -244,9 +244,18 @@ billing.
 
 ### Backup remediation
 
-Confirmed 2026-11-05: the organization is on the **Free** plan. The production
-database is 19 MB and has no Storage buckets or objects. Free projects have no
-automatic backups and no PITR, so the missing backup is a hard rollout blocker.
+**Current status (2026-11-07):** the scheduled **Production backup and restore
+test** workflow completed successfully on 2026-11-06. R2 contains an encrypted
+dump, `SHA256SUMS` and metadata under
+`production/2026/11/06/run-42172505397/` (dump size 180,551 bytes), and the
+workflow's restore-into-disposable-Postgres step succeeded; its metadata reports
+`restore_verified=yes` for source revision `ff741d9`. Verify retention and an
+owner-approved restore before relying on this as the disaster recovery path. The 2026-11-05 preflight below is retained as history.
+
+Historical preflight (2026-11-05): the organization was on the **Free** plan.
+The production database was 19 MB and had no Storage buckets or objects. Free
+projects have no automatic backups or PITR, so the missing backup was a hard
+rollout blocker at that time.
 Use one of these paths, then record the reference and a successful restore test.
 
 **Option A — logical dump (no plan change, recommended).** Run from the owner's
