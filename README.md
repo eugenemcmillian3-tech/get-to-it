@@ -1554,9 +1554,10 @@ executor; the approval and action records are designed to be reused for it.
 - **Real-browser checks are outstanding.** They are listed as an owner checklist
   in the release note rather than marked as passed.
 - **No analytics or billing.** A scheduled GitHub Actions monitor checks the
-  production health endpoint and critical API boundaries and opens an issue on
-  failure; it is synthetic HTTP monitoring, not exception-level tracing. Server
-  logs are whatever the host collects.
+  production health endpoint, critical API boundaries and backup freshness and
+  opens an issue on failure. Unhandled server, edge and browser errors are sent
+  to Sentry when `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN` is configured; without a
+  DSN this is a no-op. Server logs are whatever the host collects.
 - **Feedback is stored, not emailed.** Read it in the `feedback` table.
 
 ## Deployment

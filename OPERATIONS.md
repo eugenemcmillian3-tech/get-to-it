@@ -134,9 +134,21 @@ webhook or that any feature works.
 The **Production monitor** workflow runs every five minutes and checks the
 production home and sign-in pages, `/api/health`, the public developer API and
 the unauthenticated boundaries of the projects, MCP, reminders and Stripe
-webhook routes. It opens or updates one GitHub issue on failure and closes it
-after recovery. It is synthetic HTTP and health monitoring, not exception-level
-application tracing; scheduled GitHub Actions can be delayed.
+webhook routes. It also verifies that the latest successful
+`production-backup.yml` run is no more than 36 hours old; this proves the backup
+schedule is producing runs, not that every R2 object is retained. It opens or
+updates one GitHub issue on failure and closes it after recovery. It is synthetic
+HTTP, health and backup-freshness monitoring, not exception-level application
+tracing; scheduled GitHub Actions can be delayed.
+
+### Exception monitoring
+
+`src/instrumentation.ts` registers Sentry for the Node and edge runtimes;
+`src/instrumentation-client.ts` covers the browser. App Router error boundaries
+report render failures. Set `SENTRY_DSN` and `NEXT_PUBLIC_SENTRY_DSN` in the host
+secret store to enable capture; without a DSN, initialization is a no-op. Source
+map upload is not configured, so stack traces may be minified until Sentry org,
+project and auth-token settings are added.
 
 ## Logs
 
@@ -157,6 +169,10 @@ project keeps no separate log store.
 
 - Files live in `supabase/migrations/` and are applied in filename order, once each:
   `0001` … `0035_operation_budgets.sql`.
+- Production migration history was reconciled on 2026-11-07: rows
+  `0034_credit_pricing` (`20261107000000`) and `0035_operation_budgets`
+  (`20261107000001`) were added after schema verification, without re-running
+  either migration.
 - They are forward-only. There are no down migrations, and no rollback has been
   tested. Treat every migration as one-way.
 - Migrations are written to be re-runnable where possible (`create table if not
