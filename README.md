@@ -110,6 +110,7 @@ and uses a repository `RESEND_API_KEY` secret; the webhook is the real-time path
 | `npm test` | Vitest unit tests |
 | `npm run test:e2e` | Authenticated HTTP crawl against a running app; creates and deletes a disposable Supabase user |
 | `npm run test:functional` | Browser smoke test for a workflow server action, task reopen and cross-account export/import; creates and deletes two disposable users |
+| `npm run test:seats` | Browser team-seat regression for removal, pending-invitation cancellation and seat reuse; seeds a disposable two-seat entitlement and creates and deletes two disposable users |
 | `npm run test:email` | Production signup, confirmation-email delivery, confirmation-link and sign-in check; creates and deletes a disposable user and mailbox |
 
 ### Authenticated HTTP E2E
@@ -152,6 +153,22 @@ must be running, every migration must be applied, and the same
 `E2E_SERVICE_ROLE_KEY` is required; both temporary accounts are deleted on every
 exit path. This is not a visual or keyboard-accessibility audit.
 
+### Team-seat browser regression
+
+`npm run test:seats` removes a member through the workspace UI, verifies the
+freed seat, invites and cancels a replacement, confirms the invitation link
+remains copyable, and re-invites the removed member. It needs the app running,
+the same `E2E_SERVICE_ROLE_KEY`, and an explicit fixture opt-in:
+
+```bash
+E2E_ALLOW_BILLING_FIXTURE=1 npm run test:seats
+```
+
+The opt-in allows the drill to seed a disposable paid `team_seats` purchase and
+entitlement directly in the test database. No payment is made and no AI credits
+are added. The disposable workspace and both accounts are removed on every exit
+path. Run it only against the dedicated E2E project.
+
 ### CI
 
 Two workflows cover pushes to `main`, pull requests and a weekly E2E check:
@@ -159,12 +176,12 @@ Two workflows cover pushes to `main`, pull requests and a weekly E2E check:
 - `.github/workflows/ci.yml` runs typecheck, lint, unit tests, a dependency
   audit at high severity and the secret scan. It needs no secrets and also runs
   for fork pull requests.
-- `.github/workflows/e2e.yml` runs the authenticated crawl and the browser
-  functional smoke test. Its Monday 06:17 UTC schedule runs the AI
-  draft/review/checkpoint path. A manual dispatch can request the same path with
-  `full_workflow: true`. Both full-workflow paths need `OLLAMA_API_KEY` and spend
-  one AI request. It skips fork and Dependabot pull requests because GitHub
-  withholds secrets from them.
+- `.github/workflows/e2e.yml` runs the authenticated crawl, the browser
+  functional smoke test, and the team-seat browser regression. Its Monday 06:17
+  UTC schedule runs the AI draft/review/checkpoint path. A manual dispatch can
+  request the same path with `full_workflow: true`. Both full-workflow paths need
+  `OLLAMA_API_KEY` and spend one AI request. It skips fork and Dependabot pull
+  requests because GitHub withholds secrets from them.
 
 Branch protection requires a pull request and the `checks` status for `main`.
 Administrators are subject to the rule, so a direct push or admin merge cannot
@@ -188,7 +205,8 @@ Add these repository secrets before enabling the E2E workflow:
 | `OLLAMA_API_KEY` | Required for the weekly full-workflow run and a `full_workflow` manual dispatch; otherwise optional |
 
 Apply every migration to that project first. The workflow builds and starts the
-app on port 3100, then runs the crawl and the browser smoke test. The app process
+app on port 3100, then runs the crawl, the browser smoke test and the team-seat
+regression. The app process
 receives only the URL and anon key; the service-role key is scoped to the test
 steps so the running app never sees it. A normal failed run still deletes its
 accounts and rows; a hard cancellation can leave the uniquely named test accounts

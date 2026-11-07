@@ -110,6 +110,12 @@ jobs:
           E2E_FULL_WORKFLOW: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.full_workflow)) && '1' || '' }}
         run: npm run test:functional
 
+      - name: Run team-seat browser drill
+        env:
+          E2E_SERVICE_ROLE_KEY: ${{ secrets.E2E_SUPABASE_SERVICE_ROLE_KEY }}
+          E2E_ALLOW_BILLING_FIXTURE: "1"
+        run: npm run test:seats
+
       - name: Stop app
         if: always()
         run: |
@@ -137,4 +143,5 @@ jobs:
           path: |
             ${{ runner.temp }}/app.log
             artifacts/e2e-functional-failure.png
+            artifacts/e2e-team-seats-failure.png
           if-no-files-found: ignore
