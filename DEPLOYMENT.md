@@ -4,11 +4,11 @@ GET TO IT deploys from the `main` branch of `eugenemcmillian3-tech/get-to-it` to
 
 - Vercel Git auto-deploy is enabled for `main`; pushes to `main` deploy production automatically. Do not run manual production deploys.
 - Production URL: https://get-to-it-wvpy.vercel.app
-- Production revision at last verification: `ac7dedd6dde4` on 2026-11-07; `/api/health` is the source of truth for the currently deployed revision.
+- Production revision: `/api/health` is the source of truth for the currently deployed revision; the latest verified release is recorded in the release issues.
 - Vercel project ID: `prj_7ZFE4kOPQgsrubitOv1cDcIMPCOx`
 - Vercel production branch: `main`
 - Supabase project: `qhlzjhdcnlokbsdsrqqy` (created through the Vercel Supabase integration)
-- Supabase migration history: tracked history ends at `0033_composio_connections.sql` (13 recorded rows). The 0034/0035 schema effects are present in production (five active packs, `per_user_daily = 0`, four-argument `reserve_ai_request`), but those versions are **not recorded** in `supabase_migrations.schema_migrations`. Reconcile the history before the next migration.
+- Supabase migration history: 13 recorded rows end at version `20261104051652` (recorded name `0033_composio_connections_part2`); the repository's `0033_composio_connections.sql` does not match that recorded name. The 0034/0035 schema effects are present in production (five active packs, `per_user_daily = 0`, four-argument `reserve_ai_request`), but those migrations are **not recorded**. Reconcile the history before the next migration.
 - Pending production migrations: none identified beyond the history gap above. See [Pricing rollout](#pricing-rollout-0034-and-0035) below.
 - Auth callback: `https://get-to-it-wvpy.vercel.app/auth/callback`
 - Vercel environment names: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `DEPLOYMENT_VAULT_KEY`, `CRON_SECRET`, `CREDIT_RPC_TOKEN`, `SUPABASE_OAUTH_REDIRECT_URI`
