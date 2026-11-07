@@ -317,9 +317,10 @@ npm run check:e2e:post-merge -- --commit <merge-sha>
 
 The check fetches `origin/main` if the merge commit is missing locally, then waits
 for the push-triggered **Authenticated E2E** run for that commit, exits non-zero
-on failure or timeout, and prints the run URL. It uses the GitHub CLI, so
-authenticate with `gh auth login` (or provide `GH_TOKEN`) first. Record the run
-URL in the release record below.
+on failure or timeout, and prints the run URL. On success it also prints a
+copyable release-record block with the merge revision and run URL filled in. It
+uses the GitHub CLI, so authenticate with `gh auth login` (or provide `GH_TOKEN`)
+first. Record the URL in the release record below.
 
 The CI quality gate runs `npm audit --audit-level=high` over both development and
 production dependencies. `release:check` keeps its production-only audit because
@@ -387,8 +388,9 @@ and passing it does not mean the deployment is secure.
 
 ### Release record
 
-Copy this table into the release PR or operations log at execution time. Leave it
-unfilled until then; a blank required field means **NO-GO**.
+Use the **Release record** GitHub issue template, or copy this table into the
+release PR or operations log at execution time. Leave it unfilled until then; a
+blank required field means **NO-GO**.
 
 | Field | Value |
 | --- | --- |
