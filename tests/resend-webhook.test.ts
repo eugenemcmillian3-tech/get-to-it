@@ -6,6 +6,7 @@ import {
   parseResendEvent,
   publishResendAlert,
   resendAlertBody,
+  resendAlertLabel,
   verifyResendWebhook,
   type GithubAlertConfig,
 } from "@/lib/resend/webhook";
@@ -122,6 +123,16 @@ describe("Resend webhook signatures", () => {
   });
 });
 
+describe("Resend alert claims", () => {
+  it("uses a deterministic, bounded label that does not expose the email id", () => {
+    const label = resendAlertLabel("email_123");
+    expect(label).toMatch(/^resend-[a-f0-9]{40}$/);
+    expect(resendAlertLabel("email_123")).toBe(label);
+    expect(resendAlertLabel("email_456")).not.toBe(label);
+    expect(label).not.toContain("email_123");
+  });
+});
+
 describe("Resend event mapping", () => {
   it("keeps only the alert fields and drops recipient content", () => {
     const event = parseResendEvent(BODY);
@@ -203,6 +214,11 @@ describe("Resend GitHub alert publishing", () => {
       if (String(url).includes("/search/issues")) {
         return new Response(JSON.stringify({ total_count: 0 }), { status: 200 });
       }
+      if (String(url).endsWith("/labels")) {
+        return new Response(JSON.stringify({ name: resendAlertLabel("email_123") }), {
+          status: 201,
+        });
+      }
       posted.value = JSON.parse(String(init?.body)) as Record<string, unknown>;
       return new Response(JSON.stringify({ number: 1 }), { status: 201 });
     });
@@ -219,14 +235,18 @@ describe("Resend GitHub alert publishing", () => {
     );
 
     expect(result).toBe("created");
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
       "https://github.test/repos/owner/repo/issues?state=all&sort=created&direction=desc&per_page=100",
     );
     expect(String(fetchMock.mock.calls[2]?.[0])).toBe(
+      "https://github.test/repos/owner/repo/labels",
+    );
+    expect(String(fetchMock.mock.calls[3]?.[0])).toBe(
       "https://github.test/repos/owner/repo/issues",
     );
     expect(posted.value?.title).toBe("Resend delivery alert: email_123");
+    expect(posted.value?.labels).toEqual([resendAlertLabel("email_123")]);
     expect(String(posted.value?.body)).not.toContain("private@example.test");
   });
 
@@ -277,6 +297,32 @@ describe("Resend GitHub alert publishing", () => {
 
     expect(result).toBe("existing");
     expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("reuses an existing claim when the label already exists", async () => {
+    const fetchMock = vi.fn(async (url: string | URL | Request) => {
+      if (String(url).includes("state=all")) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      if (String(url).includes("/search/issues")) {
+        return new Response(JSON.stringify({ total_count: 0 }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ message: "already_exists" }), { status: 422 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await publishResendAlert(
+      {
+        id: "email_123",
+        event: "email.complained",
+        label: "complained",
+        createdAt: "2026-11-07T00:00:00.000Z",
+      },
+      CONFIG,
+    );
+
+    expect(result).toBe("existing");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it("falls back to search for an issue older than the recent page", async () => {

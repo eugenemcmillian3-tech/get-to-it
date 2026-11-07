@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 
 /**
  * Resend delivery webhook support.
@@ -22,6 +22,10 @@ export const RESEND_ALERT_STATUSES = new Map<string, string>([
   ["email.suppressed", "suppressed"],
   ["email.delivery_delayed", "delivery delayed"],
 ]);
+
+const ALERT_LABEL_PREFIX = "resend-";
+const ALERT_LABEL_COLOR = "b60205";
+const ALERT_LABEL_DESCRIPTION = "Resend delivery alert claim";
 
 const SAFE_ID = /^[A-Za-z0-9_-]{1,100}$/;
 const SAFE_REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
@@ -234,6 +238,51 @@ async function github<T = Record<string, unknown>>(
   return body as T;
 }
 
+/** A deterministic, bounded claim label for one Resend email id. */
+export function resendAlertLabel(id: string): string {
+  const digest = createHash("sha256").update(id, "utf8").digest("hex").slice(0, 40);
+  return `${ALERT_LABEL_PREFIX}${digest}`;
+}
+
+/**
+ * Label creation is atomic on GitHub. Unlike issue search or listing, a second
+ * claim sees the first label immediately and returns 422, so concurrent or
+ * rapid duplicate events cannot both create an issue.
+ */
+async function claimAlertLabel(
+  config: GithubAlertConfig,
+  label: string,
+): Promise<boolean> {
+  try {
+    await github(config, `/repos/${config.repo}/labels`, {
+      method: "POST",
+      body: JSON.stringify({
+        name: label,
+        color: ALERT_LABEL_COLOR,
+        description: ALERT_LABEL_DESCRIPTION,
+      }),
+    });
+    return true;
+  } catch (error) {
+    if (error instanceof GithubAlertError && error.status === 422) return false;
+    throw error;
+  }
+}
+
+async function releaseAlertLabel(
+  config: GithubAlertConfig,
+  label: string,
+): Promise<void> {
+  try {
+    await github(config, `/repos/${config.repo}/labels/${encodeURIComponent(label)}`, {
+      method: "DELETE",
+    });
+  } catch {
+    // Best effort: a failed release leaves a claim without an issue. The caller
+    // still returns 502 so the event is retried and the alert is not lost.
+  }
+}
+
 type GithubIssue = {
   title?: unknown;
   pull_request?: unknown;
@@ -282,10 +331,17 @@ export async function publishResendAlert(
 
   if (Number(existing.total_count ?? 0) > 0) return "existing";
 
-  await github(config, `/repos/${config.repo}/issues`, {
-    method: "POST",
-    body: JSON.stringify({ title, body: resendAlertBody(alert) }),
-  });
+  const label = resendAlertLabel(alert.id);
+  if (!(await claimAlertLabel(config, label))) return "existing";
 
-  return "created";
+  try {
+    await github(config, `/repos/${config.repo}/issues`, {
+      method: "POST",
+      body: JSON.stringify({ title, body: resendAlertBody(alert), labels: [label] }),
+    });
+    return "created";
+  } catch (error) {
+    await releaseAlertLabel(config, label);
+    throw error;
+  }
 }

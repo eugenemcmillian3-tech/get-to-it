@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { createHash } from "node:crypto";
+
 /**
  * Scheduled Resend delivery monitor.
  *
@@ -31,6 +33,16 @@ const DRY_RUN = process.env.RESEND_MONITOR_DRY_RUN === "1";
 const RESEND_KEY = process.env.RESEND_API_KEY?.trim() ?? "";
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN?.trim() ?? "";
 const GITHUB_REPOSITORY = process.env.GITHUB_REPOSITORY?.trim() ?? "";
+const ALERT_LABEL_COLOR = "b60205";
+const ALERT_LABEL_DESCRIPTION = "Resend delivery alert claim";
+
+class GithubRequestError extends Error {
+  constructor(status, message) {
+    super(message);
+    this.name = "GithubRequestError";
+    this.status = status;
+  }
+}
 
 function requireConfiguration() {
   if (!RESEND_KEY) {
@@ -59,7 +71,7 @@ async function requestJson(url, options, label) {
     }
   }
   if (!response.ok) {
-    throw new Error(`${label} failed (${response.status}).`);
+    throw new GithubRequestError(response.status, `${label} failed (${response.status}).`);
   }
   return body;
 }
@@ -117,6 +129,40 @@ async function github(path, options = {}) {
   );
 }
 
+function alertLabel(id) {
+  const digest = createHash("sha256").update(id, "utf8").digest("hex").slice(0, 40);
+  return `resend-${digest}`;
+}
+
+async function claimAlert(alert) {
+  const label = alertLabel(alert.id);
+  try {
+    await github(`/repos/${GITHUB_REPOSITORY}/labels`, {
+      method: "POST",
+      body: JSON.stringify({
+        name: label,
+        color: ALERT_LABEL_COLOR,
+        description: ALERT_LABEL_DESCRIPTION,
+      }),
+    });
+    return label;
+  } catch (error) {
+    if (error instanceof GithubRequestError && error.status === 422) return null;
+    throw error;
+  }
+}
+
+async function releaseAlert(label) {
+  try {
+    await github(`/repos/${GITHUB_REPOSITORY}/labels/${encodeURIComponent(label)}`, {
+      method: "DELETE",
+    });
+  } catch {
+    // Best effort: a failed release leaves a claim without an issue. The monitor
+    // exits non-zero so the next hourly run can retry the alert.
+  }
+}
+
 async function issueExists(alert) {
   const title = `Resend delivery alert: ${alert.id}`;
   const issues = await github(
@@ -141,7 +187,7 @@ async function issueExists(alert) {
   return Number(result?.total_count ?? 0) > 0;
 }
 
-async function createIssue(alert) {
+async function createIssue(alert, label) {
   const title = `Resend delivery alert: ${alert.id}`;
   const body = [
     "Resend reported an email delivery event that needs attention.",
@@ -156,7 +202,7 @@ async function createIssue(alert) {
 
   await github(`/repos/${GITHUB_REPOSITORY}/issues`, {
     method: "POST",
-    body: JSON.stringify({ title, body }),
+    body: JSON.stringify({ title, body, labels: [label] }),
   });
 }
 
@@ -189,8 +235,20 @@ async function main() {
       existing += 1;
       continue;
     }
-    await createIssue(alert);
-    created += 1;
+
+    const label = await claimAlert(alert);
+    if (!label) {
+      existing += 1;
+      continue;
+    }
+
+    try {
+      await createIssue(alert, label);
+      created += 1;
+    } catch (error) {
+      await releaseAlert(label);
+      throw error;
+    }
   }
 
   console.log(
