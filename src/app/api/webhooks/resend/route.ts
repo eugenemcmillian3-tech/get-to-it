@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { logOperational, logOperationalError } from "@/lib/log";
 import {
+  GithubAlertError,
   RESEND_WEBHOOK_MAX_BODY_BYTES,
   alertForResendEvent,
   getGithubAlertConfig,
@@ -105,9 +106,15 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({ ok: true, result }, { status: 202, headers: NO_STORE });
   } catch (error) {
-    logOperationalError("resend_webhook", error instanceof Error ? "github_failed" : "unknown");
+    const reason =
+      error instanceof GithubAlertError
+        ? `github_${error.status}`
+        : error instanceof Error && error.name === "TimeoutError"
+          ? "github_timeout"
+          : "github_failed";
+    logOperationalError("resend_webhook", reason);
     return NextResponse.json(
-      { ok: false, error: "The alert could not be published yet." },
+      { ok: false, error: "The alert could not be published yet.", reason },
       { status: 502, headers: NO_STORE },
     );
   }

@@ -46,6 +46,13 @@ export type GithubAlertConfig = {
   apiBase: string;
 };
 
+export class GithubAlertError extends Error {
+  constructor(readonly status: number) {
+    super(`GitHub request failed with status ${status}.`);
+    this.name = "GithubAlertError";
+  }
+}
+
 export function getResendWebhookSecret(): string | null {
   const secret = process.env.RESEND_WEBHOOK_SECRET?.trim();
   return secret && secret.startsWith("whsec_") ? secret : null;
@@ -221,7 +228,7 @@ async function github(
   }
 
   if (!response.ok) {
-    throw new Error(`GitHub ${path} failed (${response.status}).`);
+    throw new GithubAlertError(response.status);
   }
 
   return body;
