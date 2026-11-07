@@ -140,6 +140,7 @@ async function checkOne(check) {
 
 function issueCell(value) {
   return String(value ?? "")
+    .replace(/\\/g, "\\\\")
     .replace(/\|/g, "\\|")
     .replace(/\r?\n/g, " ")
     .slice(0, 300);
