@@ -118,7 +118,25 @@ async function github(path, options = {}) {
 }
 
 async function issueExists(alert) {
-  const query = `repo:${GITHUB_REPOSITORY} is:issue in:title "Resend delivery alert: ${alert.id}"`;
+  const title = `Resend delivery alert: ${alert.id}`;
+  const issues = await github(
+    `/repos/${GITHUB_REPOSITORY}/issues?state=all&sort=created&direction=desc&per_page=100`,
+  );
+
+  if (
+    Array.isArray(issues) &&
+    issues.some(
+      (issue) =>
+        issue &&
+        typeof issue === "object" &&
+        issue.title === title &&
+        !("pull_request" in issue),
+    )
+  ) {
+    return true;
+  }
+
+  const query = `repo:${GITHUB_REPOSITORY} is:issue in:title "${title}"`;
   const result = await github(`/search/issues?q=${encodeURIComponent(query)}`);
   return Number(result?.total_count ?? 0) > 0;
 }
@@ -136,7 +154,7 @@ async function createIssue(alert) {
     "This alert intentionally omits recipient addresses and message bodies.",
   ].join("\n");
 
-  await github("/issues", {
+  await github(`/repos/${GITHUB_REPOSITORY}/issues`, {
     method: "POST",
     body: JSON.stringify({ title, body }),
   });

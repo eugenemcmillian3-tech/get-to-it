@@ -197,6 +197,9 @@ describe("Resend GitHub alert publishing", () => {
   it("creates one issue and keeps private fields out of it", async () => {
     const posted: { value: Record<string, unknown> | null } = { value: null };
     const fetchMock = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      if (String(url).includes("state=all")) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
       if (String(url).includes("/search/issues")) {
         return new Response(JSON.stringify({ total_count: 0 }), { status: 200 });
       }
@@ -216,8 +219,11 @@ describe("Resend GitHub alert publishing", () => {
     );
 
     expect(result).toBe("created");
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(String(fetchMock.mock.calls[1]?.[0])).toBe(
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "https://github.test/repos/owner/repo/issues?state=all&sort=created&direction=desc&per_page=100",
+    );
+    expect(String(fetchMock.mock.calls[2]?.[0])).toBe(
       "https://github.test/repos/owner/repo/issues",
     );
     expect(posted.value?.title).toBe("Resend delivery alert: email_123");
@@ -247,10 +253,16 @@ describe("Resend GitHub alert publishing", () => {
     expect((failure as GithubAlertError).status).toBe(403);
   });
 
-  it("reuses an existing issue instead of opening another", async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ total_count: 1 }), { status: 200 }),
-    );
+  it("reuses an issue from the recent list even when search has not indexed it", async () => {
+    const fetchMock = vi.fn(async (url: string | URL | Request) => {
+      if (String(url).includes("state=all")) {
+        return new Response(
+          JSON.stringify([{ title: "Resend delivery alert: email_123" }]),
+          { status: 200 },
+        );
+      }
+      return new Response(JSON.stringify({ total_count: 0 }), { status: 200 });
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await publishResendAlert(
@@ -265,5 +277,28 @@ describe("Resend GitHub alert publishing", () => {
 
     expect(result).toBe("existing");
     expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("falls back to search for an issue older than the recent page", async () => {
+    const fetchMock = vi.fn(async (url: string | URL | Request) => {
+      if (String(url).includes("state=all")) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      return new Response(JSON.stringify({ total_count: 1 }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await publishResendAlert(
+      {
+        id: "email_123",
+        event: "email.complained",
+        label: "complained",
+        createdAt: "2026-11-07T00:00:00.000Z",
+      },
+      CONFIG,
+    );
+
+    expect(result).toBe("existing");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

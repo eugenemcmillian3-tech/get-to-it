@@ -199,11 +199,11 @@ export function resendAlertBody(alert: ResendAlert): string {
   ].join("\n");
 }
 
-async function github(
+async function github<T = Record<string, unknown>>(
   config: GithubAlertConfig,
   path: string,
   init: RequestInit = {},
-): Promise<Record<string, unknown>> {
+): Promise<T> {
   const response = await fetch(`${config.apiBase}${path}`, {
     ...init,
     signal: AbortSignal.timeout(8_000),
@@ -218,10 +218,10 @@ async function github(
   });
 
   const text = await response.text();
-  let body: Record<string, unknown> = {};
+  let body: unknown = {};
   if (text) {
     try {
-      body = JSON.parse(text) as Record<string, unknown>;
+      body = JSON.parse(text);
     } catch {
       body = {};
     }
@@ -231,7 +231,35 @@ async function github(
     throw new GithubAlertError(response.status);
   }
 
-  return body;
+  return body as T;
+}
+
+type GithubIssue = {
+  title?: unknown;
+  pull_request?: unknown;
+};
+
+/**
+ * GitHub search is eventually consistent. A newly created alert can be absent
+ * from search for a short time, so check the recent issue list first. Search is
+ * retained as a fallback for issues older than the first page.
+ */
+async function recentAlertIssueExists(
+  config: GithubAlertConfig,
+  title: string,
+): Promise<boolean> {
+  const issues = await github<unknown>(
+    config,
+    `/repos/${config.repo}/issues?state=all&sort=created&direction=desc&per_page=100`,
+  );
+
+  if (!Array.isArray(issues)) return false;
+
+  return issues.some((issue) => {
+    if (issue === null || typeof issue !== "object") return false;
+    const record = issue as GithubIssue;
+    return !("pull_request" in record) && record.title === title;
+  });
 }
 
 /**
@@ -243,8 +271,14 @@ export async function publishResendAlert(
   config: GithubAlertConfig,
 ): Promise<"created" | "existing"> {
   const title = `Resend delivery alert: ${alert.id}`;
+
+  if (await recentAlertIssueExists(config, title)) return "existing";
+
   const query = `repo:${config.repo} is:issue in:title "${title}"`;
-  const existing = await github(config, `/search/issues?q=${encodeURIComponent(query)}`);
+  const existing = await github<{ total_count?: unknown }>(
+    config,
+    `/search/issues?q=${encodeURIComponent(query)}`,
+  );
 
   if (Number(existing.total_count ?? 0) > 0) return "existing";
 
