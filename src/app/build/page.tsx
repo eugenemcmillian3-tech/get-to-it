@@ -64,6 +64,14 @@ export default async function BuildPage() {
           isolated preview workspace, in a separate sandbox process with no host
           access and no platform credentials.
         </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Link href="/build/import" className={secondaryButton}>
+            Import my app
+          </Link>
+          <Link href="/evaluations" className={secondaryButton}>
+            Evaluate agent configurations
+          </Link>
+        </div>
 
         <section aria-labelledby="new-app-heading" className="mt-8">
           <h2 id="new-app-heading" className="sr-only">

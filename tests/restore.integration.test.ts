@@ -2,10 +2,44 @@ import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { Client } from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildExportBundle, type ExportSource } from "@/lib/export";
 import { parseImportFile, importRows } from "@/lib/import";
 import { inspectPostgresSchema, testPostgresConnection } from "@/lib/integrations/database";
+import {
+  diffProjectModels,
+  formatProjectModelChangelog,
+  type ProjectModel,
+} from "@/lib/project-model";
+import { getSession, requireSession, type Session } from "@/lib/auth";
+import type { ServerSupabaseClient } from "@/lib/supabase/server";
+import { BUILD_ROLE_LABELS } from "@/lib/build-room";
+import { getBuildRoom } from "@/lib/data/build-room";
+import { renderToStaticMarkup } from "react-dom/server";
+import { GET as downloadProjectModelChangelog } from "@/app/build/[projectId]/model/changelog/route";
+import { GET as downloadProjectArchive } from "@/app/build/[projectId]/download/route";
+import BuildRoomPage from "@/app/build/[projectId]/room/page";
+
+vi.mock("@/lib/auth", () => ({
+  getSession: vi.fn(),
+  requireSession: vi.fn(),
+  displayNameFor: (user: { email?: string | null }) => user.email ?? "there",
+}));
+vi.mock("next/navigation", () => ({
+  notFound: () => {
+    throw new Error("NEXT_NOT_FOUND");
+  },
+}));
+vi.mock("@/lib/identity", () => ({
+  getIdentity: vi.fn(async () => ({ displayName: "Drill user", email: "drill@example.test" })),
+}));
+vi.mock("@/lib/supabase/config", () => ({
+  getSupabaseSettings: () => ({ url: "http://localhost:54321", anonKey: "test-anon-key" }),
+}));
+vi.mock("@/lib/data/build-room", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/data/build-room")>();
+  return { ...actual, listBuildRoomWorkspaces: vi.fn(async () => []) };
+});
 
 /**
  * Restore and authorization drill against an ISOLATED database.
@@ -27,7 +61,7 @@ const connectionString = process.env.RESTORE_TEST_DATABASE_URL;
 
 const describeRestore = connectionString ? describe : describe.skip;
 
-const EXPECTED_CORE_TABLES = 84;
+const EXPECTED_CORE_TABLES = 94;
 
 type Seeded = {
   userId: string;
@@ -209,6 +243,121 @@ describeRestore("isolated restore and authorization drill", () => {
       await client.query("reset role");
       await client.query("select set_config('request.jwt.claims', '', false)");
     }
+  }
+
+  /**
+   * Minimal PostgREST-shaped query builder over the isolated connection.
+   * The real data layer keeps its normal select/eq/order/limit chain, so the
+   * queries and RLS checks run against Postgres exactly as they do in the app.
+   * Rows are JSON round-tripped because PostgREST returns ISO timestamp
+   * strings, not the Date objects node-postgres parses.
+   */
+  function pgSupabaseClient(): ServerSupabaseClient {
+    const from = (table: string) => ({
+      select(columns: string) {
+        const filters: { column: string; value: unknown }[] = [];
+        const orders: { column: string; ascending: boolean }[] = [];
+        let rowLimit: number | null = null;
+
+        async function run(single: boolean) {
+          const params: unknown[] = [];
+          const where = filters
+            .map((filter) => {
+              params.push(filter.value);
+              return `"${filter.column}" = $${params.length}`;
+            })
+            .join(" and ");
+          const orderBy = orders
+            .map((order) => `"${order.column}" ${order.ascending ? "asc" : "desc"}`)
+            .join(", ");
+          const sql = [
+            `select ${columns} from public."${table}"`,
+            where ? `where ${where}` : "",
+            orderBy ? `order by ${orderBy}` : "",
+            rowLimit === null ? "" : `limit ${rowLimit}`,
+          ]
+            .filter(Boolean)
+            .join(" ");
+          const result = await client.query(sql, params);
+          const rows = JSON.parse(JSON.stringify(result.rows)) as unknown[];
+          return single
+            ? { data: rows[0] ?? null, error: null }
+            : { data: rows, error: null };
+        }
+
+        const builder = {
+          eq(column: string, value: unknown) {
+            filters.push({ column, value });
+            return builder;
+          },
+          order(column: string, options: { ascending?: boolean } = {}) {
+            orders.push({ column, ascending: options.ascending !== false });
+            return builder;
+          },
+          limit(count: number) {
+            rowLimit = count;
+            return builder;
+          },
+          maybeSingle() {
+            return run(true);
+          },
+          then(
+            onFulfilled?: (value: { data: unknown; error: null }) => unknown,
+            onRejected?: (reason: unknown) => unknown,
+          ) {
+            return run(false).then(onFulfilled, onRejected);
+          },
+        };
+
+        return builder;
+      },
+    });
+
+    const rpc = (name: string, args: Record<string, unknown> = {}) => {
+      const params = Object.values(args);
+      const placeholders = params.map((_, index) => `$${index + 1}`).join(", ");
+      return client
+        .query(`select public."${name}"(${placeholders}) as result`, params)
+        .then(
+          (result) => ({
+            data: JSON.parse(JSON.stringify(result.rows[0]?.result ?? null)),
+            error: null,
+          }),
+          (error: Error) => ({ data: null, error: { message: error.message } }),
+        );
+    };
+
+    return { from, rpc } as unknown as ServerSupabaseClient;
+  }
+
+  function sessionFor(userId: string): Session {
+    return {
+      supabase: pgSupabaseClient(),
+      user: { id: userId, email: `${userId}@restore.test` } as unknown as Session["user"],
+    };
+  }
+
+  /**
+   * Reads the stored (uncompressed) entries `createZip` writes, so the drill can
+   * assert what the archive actually contains rather than only its size.
+   */
+  function readStoredZipEntries(bytes: Uint8Array): Map<string, string> {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const decoder = new TextDecoder();
+    const entries = new Map<string, string>();
+    let offset = 0;
+    while (offset + 30 <= bytes.byteLength && view.getUint32(offset, true) === 0x04034b50) {
+      expect(view.getUint16(offset + 8, true)).toBe(0);
+      const size = view.getUint32(offset + 18, true);
+      const nameLength = view.getUint16(offset + 26, true);
+      const extraLength = view.getUint16(offset + 28, true);
+      const nameStart = offset + 30;
+      const name = decoder.decode(bytes.subarray(nameStart, nameStart + nameLength));
+      const dataStart = nameStart + nameLength + extraLength;
+      entries.set(name, decoder.decode(bytes.subarray(dataStart, dataStart + size)));
+      offset = dataStart + size;
+    }
+    return entries;
   }
 
   async function exportFor(seed: Seeded) {
@@ -399,9 +548,1141 @@ describeRestore("isolated restore and authorization drill", () => {
                              'app_composio_auth_attempts','app_composio_connections',
                              'app_composio_sessions','app_composio_tools','app_composio_tool_grants',
                              'app_composio_actions','app_composio_usage',
-                             'supabase_account_connections','supabase_oauth_states')`,
+                             'supabase_account_connections','supabase_oauth_states',
+                             'app_eval_workspaces','app_eval_tasks','app_eval_configurations',
+                             'app_eval_budgets','app_eval_runs','app_eval_capability_profiles',
+                             'app_eval_recommendations',
+                             'app_project_models','app_change_scenarios','app_change_experiments')`,
     );
     expect(Number(tables.rows[0].count)).toBe(EXPECTED_CORE_TABLES);
+  });
+
+  it("keeps evaluation evidence owner-only, budgeted and append-only", async () => {
+    const workspaceId = randomUUID();
+    const taskId = randomUUID();
+    const configA = randomUUID();
+    const configB = randomUUID();
+    const recommendationId = randomUUID();
+    const snapshot = JSON.stringify([{ path: "app/page.tsx", content: "export default function Page(){return null}" }]);
+    const checks = JSON.stringify([
+      { id: "routing", label: "Routing", deterministic: true, description: "Roles and tools are present." },
+    ]);
+
+    await asUser(accountA.userId, async () => {
+      await client.query(
+        `insert into public.app_eval_workspaces (id, user_id, name, source_kind, status)
+         values ($1, $2, 'Evaluation drill', 'synthetic', 'active')`,
+        [workspaceId, accountA.userId],
+      );
+      await client.query(
+        `insert into public.app_eval_tasks
+           (id, workspace_id, user_id, category, split, title, input_snapshot,
+            expected_output, acceptance_checks, allowed_tools)
+         values ($1, $2, $3, 'bug_repair', 'development', 'Evaluation drill task',
+                 $4::jsonb, 'A corrected formatter.', $5::jsonb, '["read_files"]'::jsonb)`,
+        [taskId, workspaceId, accountA.userId, snapshot, checks],
+      );
+      for (const [id, label] of [[configA, "Config A"], [configB, "Config B"]] as const) {
+        await client.query(
+          `insert into public.app_eval_configurations
+             (id, workspace_id, user_id, label, prompt_version, model_identifier, agent_roles)
+           values ($1, $2, $3, $4, 'v1', 'fixture-model', '["backend"]'::jsonb)`,
+          [id, workspaceId, accountA.userId, label],
+        );
+      }
+
+      const run = (trial: number, configId: string) =>
+        client.query(
+          `insert into public.app_eval_runs
+             (workspace_id, task_id, config_id, user_id, category, split, trial,
+              status, completion_status, model_configured, prompt_version, agent_roles)
+           values ($1, $2, $3, $4, 'bug_repair', 'development', $5,
+                   'passed', 'completed', 'fixture-model', 'v1', '["backend"]'::jsonb)`,
+          [workspaceId, taskId, configId, accountA.userId, trial],
+        );
+
+      await expect(run(1, configA)).rejects.toThrow(/approved run budget/i);
+
+      await client.query(
+        `insert into public.app_eval_budgets (workspace_id, user_id, approved_runs)
+         values ($1, $2, 5)`,
+        [workspaceId, accountA.userId],
+      );
+      await run(1, configA);
+      await run(2, configA);
+      await run(3, configA);
+      await run(1, configB);
+      await run(2, configB);
+      await expect(run(3, configB)).rejects.toThrow(/budget is exhausted/i);
+
+      await expect(
+        client.query(
+          `update public.app_eval_tasks set expected_output = 'Weakened acceptance'
+            where id = $1`,
+          [taskId],
+        ),
+      ).rejects.toThrow(/immutable after the first run/i);
+
+      await expect(
+        client.query(
+          `update public.app_eval_runs set status = 'failed', completion_status = 'failed'
+            where task_id = $1 and config_id = $2 and trial = 2`,
+          [taskId, configB],
+        ),
+      ).rejects.toThrow(/append-only/i);
+
+      await client.query(
+        `insert into public.app_eval_recommendations
+           (id, workspace_id, user_id, title, rationale, config_diff, rollback)
+         values ($1, $2, $3, 'Route to Config B', 'Shared-task fixture evidence supports this proposal.',
+                 '{"automatic_application":false}'::jsonb, '{"configuration_id":"original"}'::jsonb)`,
+        [recommendationId, workspaceId, accountA.userId],
+      );
+      await expect(
+        client.query(
+          `update public.app_eval_recommendations set config_diff = '{"tampered":true}'::jsonb
+            where id = $1`,
+          [recommendationId],
+        ),
+      ).rejects.toThrow(/immutable/i);
+      await client.query(
+        `update public.app_eval_recommendations set status = 'approved', approved_at = now()
+          where id = $1`,
+        [recommendationId],
+      );
+    });
+
+    await asUser(accountB.userId, async () => {
+      const workspace = await client.query(
+        "select id from public.app_eval_workspaces where id = $1",
+        [workspaceId],
+      );
+      expect(workspace.rowCount).toBe(0);
+      const runs = await client.query(
+        "select id from public.app_eval_runs where workspace_id = $1",
+        [workspaceId],
+      );
+      expect(runs.rowCount).toBe(0);
+    });
+  });
+
+  it("keeps project models owner-only, versioned and experiment-bounded", async () => {
+    const modelId = randomUUID();
+    const scenarioId = randomUUID();
+    const otherScenarioId = randomUUID();
+    const experimentIds = [randomUUID(), randomUUID(), randomUUID(), randomUUID(), randomUUID()];
+    const digest = "a".repeat(64);
+    const emptyAnalysis = JSON.stringify({
+      version: 1,
+      kind: "api_change",
+      basis: "static_model",
+      affected: [],
+      measured_results: [],
+    });
+    const model = JSON.stringify({
+      version: 1,
+      basis: "static_source",
+      pages: [],
+      journeys: [],
+      services: [],
+      dependencies: [],
+      entities: [],
+      integrations: [],
+      environments: [],
+      constraints: [],
+      assumptions: [],
+      missing_information: [],
+    });
+
+    await asUser(accountA.userId, async () => {
+      await client.query(
+        `insert into public.app_project_models
+           (id, project_id, user_id, version, status, spec_version, app_version,
+            source_digest, source_revision, model)
+         values ($1, $2, $3, 1, 'current', 3, 4, $4,
+                 '{"spec_version":3,"app_version":4}'::jsonb, $5::jsonb)`,
+        [modelId, accountA.appProjectId, accountA.userId, digest, model],
+      );
+      await expect(
+        client.query(
+          `update public.app_project_models set model = '{"tampered":true}'::jsonb
+            where id = $1`,
+          [modelId],
+        ),
+      ).rejects.toThrow(/immutable/i);
+
+      for (const id of [scenarioId, otherScenarioId]) {
+        await client.query(
+          `insert into public.app_change_scenarios
+             (id, project_id, model_id, user_id, kind, question, target, analysis)
+           values ($1, $2, $3, $4, 'api_change',
+                   'What could an API response change affect?', '/api/projects', $5::jsonb)`,
+          [id, accountA.appProjectId, modelId, accountA.userId, emptyAnalysis],
+        );
+      }
+
+      const insertExperiment = (id: string, kind: string, target: string, scenario: string) =>
+        client.query(
+          `insert into public.app_change_experiments
+             (id, project_id, scenario_id, model_id, user_id, kind, target,
+              requested_requests, max_duration_ms, plan, task_title, task_description, scope_paths)
+           values ($1, $2, $3, $4, $5, $6, $7, 1, 15000, '{}'::jsonb,
+                   'Experiment task', 'Created from an approved experiment.', '[]'::jsonb)`,
+          [id, accountA.appProjectId, scenario, modelId, accountA.userId, kind, target],
+        );
+
+      await insertExperiment(experimentIds[0]!, "contract_check", "/api/projects", scenarioId);
+      await insertExperiment(experimentIds[1]!, "synthetic_requests", "/api/projects", scenarioId);
+      await insertExperiment(experimentIds[2]!, "resource_observation", "/api/projects", scenarioId);
+      await insertExperiment(experimentIds[3]!, "failure_injection", "/api/projects", scenarioId);
+      await expect(
+        insertExperiment(experimentIds[4]!, "contract_check", "/api/other", scenarioId),
+      ).rejects.toThrow(/experiment limit of 4/i);
+      await expect(
+        insertExperiment(randomUUID(), "contract_check", "https://example.test/api", otherScenarioId),
+      ).rejects.toThrow(/check constraint/i);
+
+      await expect(
+        client.query("select public.create_app_build_task_from_experiment($1)", [
+          experimentIds[0],
+        ]),
+      ).rejects.toThrow(/approval is required/i);
+
+      await client.query(
+        `update public.app_change_experiments
+            set status = 'approved', approved_at = now(), approved_by = $2
+          where id = $1`,
+        [experimentIds[0], accountA.userId],
+      );
+      const task = await client.query<{ task_id: string }>(
+        "select public.create_app_build_task_from_experiment($1) as task_id",
+        [experimentIds[0]],
+      );
+      expect(task.rows[0]?.task_id).toBeTruthy();
+      await expect(
+        client.query("select public.create_app_build_task_from_experiment($1)", [
+          experimentIds[0],
+        ]),
+      ).rejects.toThrow(/already created a project task/i);
+
+      const next = await client.query<{ version: number }>(
+        `select public.create_app_project_model_version(
+           $1, 3, 4, $2, '{}'::jsonb, $3::jsonb, '[]'::jsonb, '[]'::jsonb
+         ) as version`,
+        [accountA.appProjectId, "b".repeat(64), model],
+      );
+      expect(Number(next.rows[0]?.version)).toBe(2);
+      const versions = await client.query<{ version: number; status: string }>(
+        `select version, status from public.app_project_models
+          where project_id = $1 order by version`,
+        [accountA.appProjectId],
+      );
+      expect(versions.rows).toEqual([
+        { version: 1, status: "superseded" },
+        { version: 2, status: "current" },
+      ]);
+    });
+
+    await asUser(accountB.userId, async () => {
+      const models = await client.query("select id from public.app_project_models where id = $1", [
+        modelId,
+      ]);
+      const scenarios = await client.query(
+        "select id from public.app_change_scenarios where id = $1",
+        [scenarioId],
+      );
+      const experiments = await client.query(
+        "select id from public.app_change_experiments where project_id = $1",
+        [accountA.appProjectId],
+      );
+      expect(models.rowCount).toBe(0);
+      expect(scenarios.rowCount).toBe(0);
+      expect(experiments.rowCount).toBe(0);
+    });
+  });
+
+  it("does not expose a project-model changelog to non-owner or removed project members despite workspace fallback", async () => {
+    const projectId = randomUUID();
+    const workspaceId = randomUUID();
+    const versionOneId = randomUUID();
+    const versionTwoId = randomUUID();
+    const digestOne = "c".repeat(64);
+    const digestTwo = "d".repeat(64);
+    const modelSnapshot = (label: string) =>
+      JSON.stringify({
+        version: 1,
+        basis: "static_source",
+        pages: [
+          {
+            id: "page:/",
+            kind: "page",
+            label,
+            summary: "Changelog source page.",
+            evidence: [],
+            metadata: { path: "/" },
+          },
+        ],
+        journeys: [],
+        services: [],
+        dependencies: [],
+        entities: [],
+        integrations: [],
+        environments: [],
+        constraints: [],
+        assumptions: [],
+        missing_information: [],
+      });
+    const sourceRevision = (digest: string, version: number) =>
+      JSON.stringify({
+        spec_version: version,
+        app_version: version,
+        file_count: 0,
+        integration_count: 0,
+        deployment_count: 0,
+        source_digest: digest,
+        deployment_ids: [],
+        integration_ids: [],
+      });
+
+    await asUser(accountA.userId, async () => {
+      await client.query(
+        `insert into public.app_projects
+           (id, user_id, name, purpose, target_users, workflows, required_pages,
+            entities, auth_requirements, integrations, design_preferences,
+            definition_of_done)
+         values ($1, $2, 'Changelog isolation drill',
+                 'A drill app used to check changelog isolation.',
+                 'Two drill users', 'Review a changelog',
+                 '/ | Home | Read the changelog', 'page: title', 'none', '',
+                 'Plain and clear', 'The drill changelog is owner-only')`,
+        [projectId, accountA.userId],
+      );
+      await client.query(
+        `insert into public.app_project_models
+           (id, project_id, user_id, version, status, spec_version, app_version,
+            source_digest, source_revision, model)
+         values ($1, $2, $3, 1, 'superseded', 1, 1, $4, $5::jsonb, $6::jsonb)`,
+        [
+          versionOneId,
+          projectId,
+          accountA.userId,
+          digestOne,
+          sourceRevision(digestOne, 1),
+          modelSnapshot("Home"),
+        ],
+      );
+      await client.query(
+        `insert into public.app_project_models
+           (id, project_id, user_id, version, status, spec_version, app_version,
+            source_digest, source_revision, model)
+         values ($1, $2, $3, 2, 'current', 2, 2, $4, $5::jsonb, $6::jsonb)`,
+        [
+          versionTwoId,
+          projectId,
+          accountA.userId,
+          digestTwo,
+          sourceRevision(digestTwo, 2),
+          modelSnapshot("Start"),
+        ],
+      );
+
+      const own = await client.query<{ count: string }>(
+        `select count(*)::text as count
+           from public.app_project_models
+          where project_id = $1 and user_id = $2`,
+        [projectId, accountA.userId],
+      );
+      expect(Number(own.rows[0]?.count)).toBe(2);
+    });
+
+    await client.query(
+      `insert into public.workspaces (id, name, created_by)
+       values ($1, 'Changelog fallback drill', $2)`,
+      [workspaceId, accountA.userId],
+    );
+    await client.query(
+      `insert into public.workspace_members (workspace_id, user_id, role, status)
+       values ($1, $2, 'owner', 'active')`,
+      [workspaceId, accountA.userId],
+    );
+    await asUser(accountA.userId, async () => {
+      const linked = await client.query<{ r: { ok: boolean } }>(
+        "select public.link_app_workspace($1, $2) as r",
+        [projectId, workspaceId],
+      );
+      expect(linked.rows[0]?.r.ok).toBe(true);
+    });
+    await client.query(
+      `insert into public.workspace_members (workspace_id, user_id, role, status)
+       values ($1, $2, 'member', 'active')`,
+      [workspaceId, accountB.userId],
+    );
+
+    // B is an active member of the linked workspace, so workspace-role
+    // fallback alone would grant contributor access. The changelog workspace
+    // query is intentionally narrower and still requires the project owner.
+    const memberView = () =>
+      asUser(accountB.userId, async () => {
+        const role = await client.query<{ role: string | null }>(
+          "select public.app_project_role($1) as role",
+          [projectId],
+        );
+        const project = await client.query(
+          "select id from public.app_projects where id = $1 and user_id = $2",
+          [projectId, accountB.userId],
+        );
+        const models = await client.query(
+          "select id, model from public.app_project_models where project_id = $1 and user_id = $2",
+          [projectId, accountB.userId],
+        );
+        const byId = await client.query(
+          "select id from public.app_project_models where id in ($1, $2)",
+          [versionOneId, versionTwoId],
+        );
+        return { role: role.rows[0]?.role ?? null, project, models, byId };
+      });
+
+    const workspaceFallback = await memberView();
+    expect(workspaceFallback.role).toBe("contributor");
+    expect(workspaceFallback.project.rowCount).toBe(0);
+    expect(workspaceFallback.models.rowCount).toBe(0);
+    expect(workspaceFallback.byId.rowCount).toBe(0);
+    const activeWorkspace = await client.query<{ count: string }>(
+      `select count(*)::text as count
+         from public.workspace_members
+        where workspace_id = $1 and user_id = $2 and status = 'active'`,
+      [workspaceId, accountB.userId],
+    );
+    expect(Number(activeWorkspace.rows[0]?.count)).toBe(1);
+
+    await asUser(accountA.userId, async () => {
+      const added = await client.query<{ r: { ok: boolean } }>(
+        "select public.add_app_project_member($1, $2, 'contributor') as r",
+        [projectId, accountB.userId],
+      );
+      expect(added.rows[0]?.r.ok).toBe(true);
+    });
+
+    const contributor = await memberView();
+    expect(contributor.role).toBe("contributor");
+    expect(contributor.project.rowCount).toBe(0);
+    expect(contributor.models.rowCount).toBe(0);
+    expect(contributor.byId.rowCount).toBe(0);
+
+    await asUser(accountA.userId, async () => {
+      const promoted = await client.query<{ r: { ok: boolean } }>(
+        "select public.add_app_project_member($1, $2, 'maintainer') as r",
+        [projectId, accountB.userId],
+      );
+      expect(promoted.rows[0]?.r.ok).toBe(true);
+    });
+
+    const maintainer = await memberView();
+    expect(maintainer.role).toBe("maintainer");
+    expect(maintainer.project.rowCount).toBe(0);
+    expect(maintainer.models.rowCount).toBe(0);
+    expect(maintainer.byId.rowCount).toBe(0);
+
+    await asUser(accountA.userId, async () => {
+      const removed = await client.query<{ r: { ok: boolean } }>(
+        "select public.remove_app_project_member($1, $2) as r",
+        [projectId, accountB.userId],
+      );
+      expect(removed.rows[0]?.r.ok).toBe(true);
+    });
+
+    const removed = await memberView();
+    expect(removed.role).toBeNull();
+    expect(removed.project.rowCount).toBe(0);
+    expect(removed.models.rowCount).toBe(0);
+    expect(removed.byId.rowCount).toBe(0);
+    const workspaceAfterRemoval = await client.query<{ count: string }>(
+      `select count(*)::text as count
+         from public.workspace_members
+        where workspace_id = $1 and user_id = $2 and status = 'active'`,
+      [workspaceId, accountB.userId],
+    );
+    expect(Number(workspaceAfterRemoval.rows[0]?.count)).toBe(1);
+
+    const owner = await asUser(accountA.userId, async () => {
+      const project = await client.query<{ name: string }>(
+        "select name from public.app_projects where id = $1 and user_id = $2",
+        [projectId, accountA.userId],
+      );
+      const models = await client.query<{
+        version: number;
+        spec_version: number;
+        app_version: number;
+        source_digest: string;
+        created_at: string;
+        model: ProjectModel;
+      }>(
+        `select version, spec_version, app_version, source_digest,
+                created_at::text as created_at, model
+           from public.app_project_models
+          where project_id = $1 and user_id = $2
+          order by version`,
+        [projectId, accountA.userId],
+      );
+      return { project, models };
+    });
+
+    expect(owner.project.rowCount).toBe(1);
+    expect(owner.project.rows[0]?.name).toBe("Changelog isolation drill");
+    expect(owner.models.rows.map((row) => row.version)).toEqual([1, 2]);
+    const from = owner.models.rows[0];
+    const to = owner.models.rows[1];
+    if (!from || !to) throw new Error("owner model snapshots were not readable");
+    const markdown = formatProjectModelChangelog({
+      project_name: owner.project.rows[0]?.name ?? "Unknown project",
+      from: {
+        version: from.version,
+        spec_version: from.spec_version,
+        app_version: from.app_version,
+        source_digest: from.source_digest,
+        created_at: from.created_at,
+      },
+      to: {
+        version: to.version,
+        spec_version: to.spec_version,
+        app_version: to.app_version,
+        source_digest: to.source_digest,
+        created_at: to.created_at,
+      },
+      diff: diffProjectModels(from.model, to.model),
+    });
+    expect(markdown).toContain("# Project model changelog: Changelog isolation drill");
+    expect(markdown).toContain("### Changed: Start");
+
+    // Removing the workspace link must not take the changelog away from the
+    // project owner. Changelog access is owner-scoped, not workspace-scoped.
+    await asUser(accountA.userId, async () => {
+      const unlinked = await client.query<{ workspace_id: string | null }>(
+        `update public.app_projects
+            set workspace_id = null
+          where id = $1 and user_id = $2
+          returning workspace_id`,
+        [projectId, accountA.userId],
+      );
+      expect(unlinked.rowCount).toBe(1);
+      expect(unlinked.rows[0]?.workspace_id).toBeNull();
+    });
+
+    const storedLink = await client.query<{
+      workspace_id: string | null;
+      user_id: string;
+    }>("select workspace_id, user_id from public.app_projects where id = $1", [
+      projectId,
+    ]);
+    expect(storedLink.rows[0]?.workspace_id).toBeNull();
+    expect(storedLink.rows[0]?.user_id).toBe(accountA.userId);
+
+    const ownerAfterUnlink = await asUser(accountA.userId, async () => {
+      const role = await client.query<{ role: string | null }>(
+        "select public.app_project_role($1) as role",
+        [projectId],
+      );
+      const project = await client.query<{ name: string; workspace_id: string | null }>(
+        "select name, workspace_id from public.app_projects where id = $1 and user_id = $2",
+        [projectId, accountA.userId],
+      );
+      const models = await client.query<{
+        version: number;
+        spec_version: number;
+        app_version: number;
+        source_digest: string;
+        created_at: string;
+        model: ProjectModel;
+      }>(
+        `select version, spec_version, app_version, source_digest,
+                created_at::text as created_at, model
+           from public.app_project_models
+          where project_id = $1 and user_id = $2
+          order by version`,
+        [projectId, accountA.userId],
+      );
+      return { role: role.rows[0]?.role ?? null, project, models };
+    });
+
+    expect(ownerAfterUnlink.role).toBe("owner");
+    expect(ownerAfterUnlink.project.rowCount).toBe(1);
+    expect(ownerAfterUnlink.project.rows[0]?.name).toBe("Changelog isolation drill");
+    expect(ownerAfterUnlink.project.rows[0]?.workspace_id).toBeNull();
+    expect(ownerAfterUnlink.models.rows.map((row) => row.version)).toEqual([1, 2]);
+    const unlinkedFrom = ownerAfterUnlink.models.rows[0];
+    const unlinkedTo = ownerAfterUnlink.models.rows[1];
+    if (!unlinkedFrom || !unlinkedTo) {
+      throw new Error("owner model snapshots were not readable after unlinking");
+    }
+    const markdownAfterUnlink = formatProjectModelChangelog({
+      project_name: ownerAfterUnlink.project.rows[0]?.name ?? "Unknown project",
+      from: {
+        version: unlinkedFrom.version,
+        spec_version: unlinkedFrom.spec_version,
+        app_version: unlinkedFrom.app_version,
+        source_digest: unlinkedFrom.source_digest,
+        created_at: unlinkedFrom.created_at,
+      },
+      to: {
+        version: unlinkedTo.version,
+        spec_version: unlinkedTo.spec_version,
+        app_version: unlinkedTo.app_version,
+        source_digest: unlinkedTo.source_digest,
+        created_at: unlinkedTo.created_at,
+      },
+      diff: diffProjectModels(unlinkedFrom.model, unlinkedTo.model),
+    });
+    expect(markdownAfterUnlink).toContain(
+      "# Project model changelog: Changelog isolation drill",
+    );
+    expect(markdownAfterUnlink).toContain("### Changed: Start");
+    expect(markdownAfterUnlink).not.toContain("### Changed: Home");
+
+    // Keep this fixture from changing account-wide project and workspace
+    // counts that later restore assertions expect.
+    await client.query("delete from public.app_projects where id = $1", [projectId]);
+    await client.query("delete from public.workspaces where id = $1", [workspaceId]);
+  });
+
+  it("downloads the changelog and archive end to end and denies a non-member after the workspace link is removed", async () => {
+    const projectId = randomUUID();
+    const workspaceId = randomUUID();
+    const versionOneId = randomUUID();
+    const versionTwoId = randomUUID();
+    const digestOne = "e".repeat(64);
+    const digestTwo = "f".repeat(64);
+    const modelSnapshot = (label: string) =>
+      JSON.stringify({
+        version: 1,
+        basis: "static_source",
+        pages: [
+          {
+            id: "page:/",
+            kind: "page",
+            label,
+            summary: "End-to-end changelog source page.",
+            evidence: [],
+            metadata: { path: "/" },
+          },
+        ],
+        journeys: [],
+        services: [],
+        dependencies: [],
+        entities: [],
+        integrations: [],
+        environments: [],
+        constraints: [],
+        assumptions: [],
+        missing_information: [],
+      });
+    const sourceRevision = (digest: string, version: number) =>
+      JSON.stringify({
+        spec_version: version,
+        app_version: version,
+        file_count: 0,
+        integration_count: 0,
+        deployment_count: 0,
+        source_digest: digest,
+        deployment_ids: [],
+        integration_ids: [],
+      });
+
+    await asUser(accountA.userId, async () => {
+      await client.query(
+        `insert into public.app_projects
+           (id, user_id, name, purpose, target_users, workflows, required_pages,
+            entities, auth_requirements, integrations, design_preferences,
+            definition_of_done)
+         values ($1, $2, 'End-to-end changelog drill',
+                 'A drill app used to download a changelog.',
+                 'Two drill users', 'Download a changelog',
+                 '/ | Home | Read the changelog', 'page: title', 'none', '',
+                 'Plain and clear', 'The drill changelog is owner-only')`,
+        [projectId, accountA.userId],
+      );
+      await client.query(
+        `insert into public.app_project_models
+           (id, project_id, user_id, version, status, spec_version, app_version,
+            source_digest, source_revision, model)
+         values ($1, $2, $3, 1, 'superseded', 1, 1, $4, $5::jsonb, $6::jsonb)`,
+        [
+          versionOneId,
+          projectId,
+          accountA.userId,
+          digestOne,
+          sourceRevision(digestOne, 1),
+          modelSnapshot("Home"),
+        ],
+      );
+      await client.query(
+        `insert into public.app_project_models
+           (id, project_id, user_id, version, status, spec_version, app_version,
+            source_digest, source_revision, model)
+         values ($1, $2, $3, 2, 'current', 2, 2, $4, $5::jsonb, $6::jsonb)`,
+        [
+          versionTwoId,
+          projectId,
+          accountA.userId,
+          digestTwo,
+          sourceRevision(digestTwo, 2),
+          modelSnapshot("Start"),
+        ],
+      );
+      await client.query(
+        `insert into public.app_files (project_id, user_id, path, content)
+         values ($1, $2, 'app/page.tsx',
+                 'export default function Page() { return null; }')`,
+        [projectId, accountA.userId],
+      );
+    });
+
+    await client.query(
+      `insert into public.workspaces (id, name, created_by)
+       values ($1, 'End-to-end changelog drill', $2)`,
+      [workspaceId, accountA.userId],
+    );
+    await client.query(
+      `insert into public.workspace_members (workspace_id, user_id, role, status)
+       values ($1, $2, 'owner', 'active')`,
+      [workspaceId, accountA.userId],
+    );
+    await asUser(accountA.userId, async () => {
+      const linked = await client.query<{ r: { ok: boolean } }>(
+        "select public.link_app_workspace($1, $2) as r",
+        [projectId, workspaceId],
+      );
+      expect(linked.rows[0]?.r.ok).toBe(true);
+    });
+    await client.query(
+      `insert into public.workspace_members (workspace_id, user_id, role, status)
+       values ($1, $2, 'member', 'active')`,
+      [workspaceId, accountB.userId],
+    );
+
+    const download = (search: string) =>
+      downloadProjectModelChangelog(
+        new Request(`http://localhost/build/${projectId}/model/changelog${search}`),
+        { params: Promise.resolve({ projectId }) },
+      );
+
+    vi.mocked(getSession).mockResolvedValue(sessionFor(accountA.userId));
+    const linked = await asUser(accountA.userId, () => download("?from=1&to=2"));
+    expect(linked.status).toBe(200);
+    expect(linked.headers.get("Content-Type")).toBe("text/markdown; charset=utf-8");
+    expect(linked.headers.get("Content-Disposition")).toBe(
+      'attachment; filename="project-model-v1-to-v2.md"',
+    );
+    const linkedMarkdown = await linked.text();
+    expect(linkedMarkdown).toContain("# Project model changelog: End-to-end changelog drill");
+    expect(linkedMarkdown).toContain("### Changed: Start");
+
+    // B is an active member of the linked workspace, but the changelog read is
+    // owner-scoped, so the workspace link does not grant a download.
+    vi.mocked(getSession).mockResolvedValue(sessionFor(accountB.userId));
+    const memberWhileLinked = await asUser(accountB.userId, () => download("?from=1&to=2"));
+    expect(memberWhileLinked.status).toBe(404);
+    expect(await memberWhileLinked.text()).toBe("Not found");
+
+    await asUser(accountA.userId, async () => {
+      const unlinked = await client.query<{ workspace_id: string | null }>(
+        `update public.app_projects
+            set workspace_id = null
+          where id = $1 and user_id = $2
+          returning workspace_id`,
+        [projectId, accountA.userId],
+      );
+      expect(unlinked.rowCount).toBe(1);
+      expect(unlinked.rows[0]?.workspace_id).toBeNull();
+    });
+
+    vi.mocked(getSession).mockResolvedValue(sessionFor(accountA.userId));
+    const unlinked = await asUser(accountA.userId, () => download("?from=2&to=1"));
+    expect(unlinked.status).toBe(200);
+    expect(unlinked.headers.get("Content-Disposition")).toBe(
+      'attachment; filename="project-model-v1-to-v2.md"',
+    );
+    expect(unlinked.headers.get("Cache-Control")).toBe("private, no-store");
+    const unlinkedMarkdown = await unlinked.text();
+    expect(unlinkedMarkdown).toBe(linkedMarkdown);
+    expect(unlinkedMarkdown).toContain("# Project model changelog: End-to-end changelog drill");
+    expect(unlinkedMarkdown).toContain("### Changed: Start");
+
+    // The removed workspace link must not hand the changelog to its members.
+    vi.mocked(getSession).mockResolvedValue(sessionFor(accountB.userId));
+    const memberAfterUnlink = await asUser(accountB.userId, () => download("?from=1&to=2"));
+    expect(memberAfterUnlink.status).toBe(404);
+
+    // B is still an active workspace member without any project membership,
+    // and the archive route is denied after the link is removed as well.
+    const archiveAfterUnlink = await asUser(accountB.userId, () =>
+      downloadProjectArchive(
+        new Request(`http://localhost/build/${projectId}/download`),
+        { params: Promise.resolve({ projectId }) },
+      ),
+    );
+    expect(archiveAfterUnlink.status).toBe(404);
+    const archiveAfterUnlinkBody = await archiveAfterUnlink.text();
+    expect(archiveAfterUnlinkBody).toBe("Not found");
+    expect(archiveAfterUnlinkBody).not.toContain("End-to-end changelog drill");
+    expect(archiveAfterUnlinkBody).not.toContain(BUILD_ROLE_LABELS.owner);
+    expect(archiveAfterUnlinkBody).not.toContain("\"owner\"");
+
+    const roleAfterUnlink = await asUser(accountB.userId, () =>
+      client.query<{ role: string | null }>(
+        "select public.app_project_role($1) as role",
+        [projectId],
+      ),
+    );
+    expect(roleAfterUnlink.rows[0]?.role ?? null).toBeNull();
+    const workspaceMembershipAfterUnlink = await client.query<{ count: string }>(
+      `select count(*)::text as count
+         from public.workspace_members
+        where workspace_id = $1 and user_id = $2 and status = 'active'`,
+      [workspaceId, accountB.userId],
+    );
+    expect(Number(workspaceMembershipAfterUnlink.rows[0]?.count)).toBe(1);
+    const projectMembershipAfterUnlink = await client.query<{ count: string }>(
+      `select count(*)::text as count
+         from public.app_project_members
+        where project_id = $1 and user_id = $2`,
+      [projectId, accountB.userId],
+    );
+    expect(Number(projectMembershipAfterUnlink.rows[0]?.count)).toBe(0);
+
+    // The same archive request succeeds for the owner after the unlink, so the
+    // member's 404 is a denial rather than a broken route.
+    vi.mocked(getSession).mockResolvedValue(sessionFor(accountA.userId));
+    const ownerArchiveAfterUnlink = await asUser(accountA.userId, () =>
+      downloadProjectArchive(
+        new Request(`http://localhost/build/${projectId}/download`),
+        { params: Promise.resolve({ projectId }) },
+      ),
+    );
+    expect(ownerArchiveAfterUnlink.status).toBe(200);
+    expect(ownerArchiveAfterUnlink.headers.get("Content-Type")).toBe("application/zip");
+    expect(ownerArchiveAfterUnlink.headers.get("Content-Disposition")).toBe(
+      'attachment; filename="end-to-end-changelog-drill.zip"',
+    );
+    expect(ownerArchiveAfterUnlink.headers.get("Cache-Control")).toBe(
+      "private, no-store",
+    );
+    const ownerArchiveEntries = readStoredZipEntries(
+      new Uint8Array(await ownerArchiveAfterUnlink.arrayBuffer()),
+    );
+    expect(Array.from(ownerArchiveEntries.keys())).toEqual(["app/page.tsx"]);
+    expect(ownerArchiveEntries.get("app/page.tsx")).toBe(
+      "export default function Page() { return null; }",
+    );
+
+    // Keep this fixture from changing account-wide project and workspace
+    // counts that later restore assertions expect.
+    await client.query("delete from public.app_projects where id = $1", [projectId]);
+    await client.query("delete from public.workspaces where id = $1", [workspaceId]);
+  });
+
+  it("denies a removed project member with an active workspace role at the changelog, archive and Build Room routes", async () => {
+    const projectId = randomUUID();
+    const workspaceId = randomUUID();
+    const digestOne = "3".repeat(64);
+    const digestTwo = "4".repeat(64);
+    const modelSnapshot = (label: string) =>
+      JSON.stringify({
+        version: 1,
+        basis: "static_source",
+        pages: [
+          {
+            id: "page:/",
+            kind: "page",
+            label,
+            summary: "Removed-member changelog source page.",
+            evidence: [],
+            metadata: { path: "/" },
+          },
+        ],
+        journeys: [],
+        services: [],
+        dependencies: [],
+        entities: [],
+        integrations: [],
+        environments: [],
+        constraints: [],
+        assumptions: [],
+        missing_information: [],
+      });
+    const sourceRevision = (digest: string, version: number) =>
+      JSON.stringify({
+        spec_version: version,
+        app_version: version,
+        file_count: 0,
+        integration_count: 0,
+        deployment_count: 0,
+        source_digest: digest,
+        deployment_ids: [],
+        integration_ids: [],
+      });
+
+    await asUser(accountA.userId, async () => {
+      await client.query(
+        `insert into public.app_projects
+           (id, user_id, name, purpose, target_users, workflows, required_pages,
+            entities, auth_requirements, integrations, design_preferences,
+            definition_of_done)
+         values ($1, $2, 'Removed member drill',
+                 'A drill app used to check removed-member changelog access.',
+                 'Two drill users', 'Download a changelog',
+                 '/ | Home | Read the changelog', 'page: title', 'none', '',
+                 'Plain and clear', 'The drill changelog is owner-only')`,
+        [projectId, accountA.userId],
+      );
+      for (const [digest, version, status, label] of [
+        [digestOne, 1, "superseded", "Home"],
+        [digestTwo, 2, "current", "Start"],
+      ] as const) {
+        await client.query(
+          `insert into public.app_project_models
+             (project_id, user_id, version, status, spec_version, app_version,
+              source_digest, source_revision, model)
+           values ($1, $2, $3, $4, $3, $3, $5, $6::jsonb, $7::jsonb)`,
+          [
+            projectId,
+            accountA.userId,
+            version,
+            status,
+            digest,
+            sourceRevision(digest, version),
+            modelSnapshot(label),
+          ],
+        );
+      }
+      await client.query(
+        `insert into public.app_files (project_id, user_id, path, content)
+         values ($1, $2, 'app/page.tsx',
+                 'export default function Page() { return null; }')`,
+        [projectId, accountA.userId],
+      );
+    });
+
+    await client.query(
+      `insert into public.workspaces (id, name, created_by)
+       values ($1, 'Removed member drill', $2)`,
+      [workspaceId, accountA.userId],
+    );
+    await client.query(
+      `insert into public.workspace_members (workspace_id, user_id, role, status)
+       values ($1, $2, 'owner', 'active')`,
+      [workspaceId, accountA.userId],
+    );
+    await client.query(
+      `insert into public.workspace_members (workspace_id, user_id, role, status)
+       values ($1, $2, 'member', 'active')`,
+      [workspaceId, accountB.userId],
+    );
+
+    // Linking the workspace makes B a project contributor through the
+    // workspace. Removing that project membership must win over the still
+    // active workspace role.
+    await asUser(accountA.userId, async () => {
+      const linked = await client.query<{ r: { ok: boolean } }>(
+        "select public.link_app_workspace($1, $2) as r",
+        [projectId, workspaceId],
+      );
+      expect(linked.rows[0]?.r.ok).toBe(true);
+      const removed = await client.query<{ r: { ok: boolean } }>(
+        "select public.remove_app_project_member($1, $2) as r",
+        [projectId, accountB.userId],
+      );
+      expect(removed.rows[0]?.r.ok).toBe(true);
+    });
+
+    const stillLinked = await client.query<{ workspace_id: string | null }>(
+      "select workspace_id from public.app_projects where id = $1",
+      [projectId],
+    );
+    expect(stillLinked.rows[0]?.workspace_id).toBe(workspaceId);
+    const activeWorkspace = await client.query<{ count: string }>(
+      `select count(*)::text as count
+         from public.workspace_members
+        where workspace_id = $1 and user_id = $2 and status = 'active'`,
+      [workspaceId, accountB.userId],
+    );
+    expect(Number(activeWorkspace.rows[0]?.count)).toBe(1);
+
+    const download = (search: string) =>
+      downloadProjectModelChangelog(
+        new Request(`http://localhost/build/${projectId}/model/changelog${search}`),
+        { params: Promise.resolve({ projectId }) },
+      );
+
+    vi.mocked(getSession).mockResolvedValue(sessionFor(accountB.userId));
+    const removedMember = await asUser(accountB.userId, async () => {
+      const role = await client.query<{ role: string | null }>(
+        "select public.app_project_role($1) as role",
+        [projectId],
+      );
+      const response = await download("?from=1&to=2");
+      return { role: role.rows[0]?.role ?? null, response };
+    });
+    expect(removedMember.role).toBeNull();
+    expect(removedMember.response.status).toBe(404);
+    expect(await removedMember.response.text()).toBe("Not found");
+
+    // The project archive route handler must answer with a generic 404 body:
+    // no project name, no role, and no hint that the project exists.
+    const removedArchive = await asUser(accountB.userId, () =>
+      downloadProjectArchive(
+        new Request(`http://localhost/build/${projectId}/download`),
+        { params: Promise.resolve({ projectId }) },
+      ),
+    );
+    expect(removedArchive.status).toBe(404);
+    const removedArchiveBody = await removedArchive.text();
+    expect(removedArchiveBody).toBe("Not found");
+    expect(removedArchiveBody).not.toContain("Removed member drill");
+    expect(removedArchiveBody).not.toContain(BUILD_ROLE_LABELS.owner);
+    expect(removedArchiveBody).not.toContain("\"owner\"");
+
+    // The Build Room route consults project roles through get_app_build_room,
+    // which must deny the removed membership even though the workspace role is
+    // still active and the workspace link is still in place.
+    vi.mocked(requireSession).mockResolvedValue(sessionFor(accountB.userId));
+    const denial = await asUser(accountB.userId, async () => {
+      // The role-consulting loader must swallow the denial rather than return
+      // project data or an error that describes the project.
+      const loader = await getBuildRoom(sessionFor(accountB.userId), projectId);
+      expect(loader).toBeNull();
+      return BuildRoomPage({ params: Promise.resolve({ projectId }) }).then(
+        () => null,
+        (error: unknown) => error as Error,
+      );
+    });
+    expect(denial).toBeInstanceOf(Error);
+    expect(denial?.message).toBe("NEXT_NOT_FOUND");
+    const denialText = JSON.stringify({
+      message: denial?.message,
+      stack: denial?.stack ?? "",
+    });
+    expect(denialText).not.toContain("Removed member drill");
+    expect(denialText).not.toContain(BUILD_ROLE_LABELS.owner);
+    expect(denialText).not.toContain("\"owner\"");
+
+    // The owner keeps both routes throughout, so the fixture is not simply
+    // broken for everyone.
+    vi.mocked(getSession).mockResolvedValue(sessionFor(accountA.userId));
+    const owner = await asUser(accountA.userId, () => download("?from=1&to=2"));
+    expect(owner.status).toBe(200);
+    expect(await owner.text()).toContain(
+      "# Project model changelog: Removed member drill",
+    );
+
+    // The same archive request reaches the handler for the owner and returns
+    // the real generated-file archive, which shows the 404 above is the denial
+    // rather than a broken route.
+    const ownerArchive = await asUser(accountA.userId, () =>
+      downloadProjectArchive(
+        new Request(`http://localhost/build/${projectId}/download`),
+        { params: Promise.resolve({ projectId }) },
+      ),
+    );
+    expect(ownerArchive.status).toBe(200);
+    expect(ownerArchive.headers.get("Content-Type")).toBe("application/zip");
+    expect(ownerArchive.headers.get("Content-Disposition")).toBe(
+      'attachment; filename="removed-member-drill.zip"',
+    );
+    expect(ownerArchive.headers.get("Cache-Control")).toBe("private, no-store");
+    const archiveBytes = new Uint8Array(await ownerArchive.arrayBuffer());
+    expect(archiveBytes.byteLength).toBeGreaterThan(0);
+    expect(Array.from(archiveBytes.slice(0, 2))).toEqual([0x50, 0x4b]);
+    const archiveEntries = readStoredZipEntries(archiveBytes);
+    expect(Array.from(archiveEntries.keys())).toEqual(["app/page.tsx"]);
+    expect(archiveEntries.get("app/page.tsx")).toBe(
+      "export default function Page() { return null; }",
+    );
+
+    // Removing the workspace link must not take the archive away from the
+    // owner; the download is owner-scoped, not workspace-scoped.
+    await asUser(accountA.userId, async () => {
+      const unlinked = await client.query<{ workspace_id: string | null }>(
+        `update public.app_projects
+            set workspace_id = null
+          where id = $1 and user_id = $2
+          returning workspace_id`,
+        [projectId, accountA.userId],
+      );
+      expect(unlinked.rowCount).toBe(1);
+      expect(unlinked.rows[0]?.workspace_id).toBeNull();
+    });
+
+    const ownerArchiveAfterUnlink = await asUser(accountA.userId, () =>
+      downloadProjectArchive(
+        new Request(`http://localhost/build/${projectId}/download`),
+        { params: Promise.resolve({ projectId }) },
+      ),
+    );
+    expect(ownerArchiveAfterUnlink.status).toBe(200);
+    expect(ownerArchiveAfterUnlink.headers.get("Content-Type")).toBe("application/zip");
+    expect(ownerArchiveAfterUnlink.headers.get("Content-Disposition")).toBe(
+      'attachment; filename="removed-member-drill.zip"',
+    );
+    expect(ownerArchiveAfterUnlink.headers.get("Cache-Control")).toBe(
+      "private, no-store",
+    );
+    const unlinkedArchiveEntries = readStoredZipEntries(
+      new Uint8Array(await ownerArchiveAfterUnlink.arrayBuffer()),
+    );
+    expect(Array.from(unlinkedArchiveEntries.keys())).toEqual(["app/page.tsx"]);
+    expect(unlinkedArchiveEntries.get("app/page.tsx")).toBe(
+      "export default function Page() { return null; }",
+    );
+
+    // The removed member stays denied once the link is gone as well, and the
+    // denial body still says nothing about the project.
+    vi.mocked(getSession).mockResolvedValue(sessionFor(accountB.userId));
+    const removedArchiveAfterUnlink = await asUser(accountB.userId, () =>
+      downloadProjectArchive(
+        new Request(`http://localhost/build/${projectId}/download`),
+        { params: Promise.resolve({ projectId }) },
+      ),
+    );
+    expect(removedArchiveAfterUnlink.status).toBe(404);
+    const removedArchiveAfterUnlinkBody = await removedArchiveAfterUnlink.text();
+    expect(removedArchiveAfterUnlinkBody).toBe("Not found");
+    expect(removedArchiveAfterUnlinkBody).not.toContain("Removed member drill");
+    expect(removedArchiveAfterUnlinkBody).not.toContain(BUILD_ROLE_LABELS.owner);
+    expect(removedArchiveAfterUnlinkBody).not.toContain("\"owner\"");
+
+    // The removed member's changelog is denied after the link is gone too.
+    const removedChangelogAfterUnlink = await asUser(accountB.userId, () =>
+      download("?from=1&to=2"),
+    );
+    expect(removedChangelogAfterUnlink.status).toBe(404);
+    expect(await removedChangelogAfterUnlink.text()).toBe("Not found");
+
+    // The Build Room page also stays denied after the link is removed.
+    vi.mocked(requireSession).mockResolvedValue(sessionFor(accountB.userId));
+    const roomDenialAfterUnlink = await asUser(accountB.userId, () =>
+      BuildRoomPage({ params: Promise.resolve({ projectId }) }).then(
+        () => null,
+        (error: unknown) => error as Error,
+      ),
+    );
+    expect(roomDenialAfterUnlink).toBeInstanceOf(Error);
+    expect(roomDenialAfterUnlink?.message).toBe("NEXT_NOT_FOUND");
+
+    // The owner's page still renders after the link is removed.
+    vi.mocked(requireSession).mockResolvedValue(sessionFor(accountA.userId));
+    const ownerRoom = await asUser(accountA.userId, () =>
+      BuildRoomPage({ params: Promise.resolve({ projectId }) }),
+    );
+    // Server-render the page element so the assertions see the markup the
+    // route actually produces, including text inside child components.
+    const ownerRoomHtml = renderToStaticMarkup(ownerRoom).replaceAll("<!-- -->", "");
+    expect(ownerRoomHtml).toContain("Removed member drill");
+    expect(ownerRoomHtml).toContain(`You are ${BUILD_ROLE_LABELS.owner}`);
+
+    // Keep this fixture from changing account-wide project and workspace
+    // counts that later restore assertions expect.
+    await client.query("delete from public.app_projects where id = $1", [projectId]);
+    await client.query("delete from public.workspaces where id = $1", [workspaceId]);
   });
 
   it("exports only the account's own rows with local references", async () => {
