@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { SubmitButton } from "@/components/submit-button";
 import { idleFormState } from "@/lib/action-state";
 import {
@@ -220,6 +220,60 @@ export function WorkspaceInviteForm({ workspaceId }: { workspaceId: string }) {
         </div>
       ) : null}
     </form>
+  );
+}
+
+export function InvitationLinkField({
+  invitationId,
+  link,
+}: {
+  invitationId: string;
+  link: string;
+}) {
+  const inputId = `invitation-link-${invitationId}`;
+  const [status, setStatus] = useState<"idle" | "copied" | "failed">("idle");
+
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(link);
+      setStatus("copied");
+    } catch {
+      const input = document.getElementById(inputId);
+      if (input instanceof HTMLInputElement) {
+        input.focus();
+        input.select();
+      }
+      setStatus("failed");
+    }
+  }
+
+  return (
+    <div className="mt-2">
+      <label className={labelClass} htmlFor={inputId}>
+        Invitation link
+      </label>
+      <div className="mt-1.5 flex flex-col gap-2 sm:flex-row">
+        <input
+          id={inputId}
+          readOnly
+          value={link}
+          onFocus={(event) => event.currentTarget.select()}
+          className={`${inputClass} font-mono text-xs`}
+        />
+        <button
+          type="button"
+          onClick={copyLink}
+          className={`${secondaryButton} whitespace-nowrap`}
+        >
+          {status === "copied" ? "Copied" : status === "failed" ? "Select the link" : "Copy link"}
+        </button>
+      </div>
+      {status === "failed" ? (
+        <p role="alert" className="mt-1 text-xs text-danger">
+          Copying was blocked. The link is selected so you can copy it manually.
+        </p>
+      ) : null}
+    </div>
   );
 }
 

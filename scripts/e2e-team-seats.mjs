@@ -314,6 +314,7 @@ async function main() {
 
   browser = await chromium.launch({ headless: true });
   const ownerContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  await ownerContext.grantPermissions(["clipboard-read", "clipboard-write"], { origin: BASE });
   const memberContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   ownerPage = await ownerContext.newPage();
   const memberPage = await memberContext.newPage();
@@ -367,6 +368,10 @@ async function main() {
     "pending invitation link stays copyable after the last seat fills",
     cancelledLink.includes("/workspace/join/"),
   );
+  await pendingInvitation.getByRole("button", { name: "Copy link" }).click();
+  await pendingInvitation.getByRole("button", { name: "Copied" }).waitFor({ timeout: 5_000 });
+  const copiedLink = await ownerPage.evaluate(() => navigator.clipboard.readText());
+  check("Copy link copies the pending invitation URL", copiedLink === cancelledLink);
   check("UI invitation consumes the freed seat before cancellation", true);
 
   await pendingInvitation.getByRole("button", { name: "Cancel" }).click();

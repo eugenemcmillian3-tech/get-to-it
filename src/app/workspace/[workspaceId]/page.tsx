@@ -7,6 +7,7 @@ import { SiteHeader } from "@/components/site-header";
 import {
   CopyPersonalGoalForm,
   DeleteWorkspaceForm,
+  InvitationLinkField,
   LeaveWorkspaceForm,
   MemberRoleForm,
   NotificationPrefsForm,
@@ -43,8 +44,6 @@ import {
   cardClass,
   chipClass,
   focusRing,
-  inputClass,
-  labelClass,
   quietButton,
   secondaryButton,
 } from "@/lib/styles";
@@ -318,17 +317,10 @@ export default async function WorkspacePage({
                           {ROLE_LABELS[invitation.role]} · expires{" "}
                           {formatWorkspaceTime(invitation.expires_at)}
                         </p>
-                        <div className="mt-2">
-                          <label className={labelClass} htmlFor={`invitation-link-${invitation.id}`}>
-                            Invitation link
-                          </label>
-                          <input
-                            id={`invitation-link-${invitation.id}`}
-                            readOnly
-                            value={`${origin}/workspace/join/${invitation.token}`}
-                            className={`mt-1.5 ${inputClass} font-mono text-xs`}
-                          />
-                        </div>
+                        <InvitationLinkField
+                          invitationId={invitation.id}
+                          link={`${origin}/workspace/join/${invitation.token}`}
+                        />
                         <div className="mt-2 flex flex-wrap items-center gap-3">
                           <Link
                             href={`/workspace/join/${invitation.token}`}
