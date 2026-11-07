@@ -129,6 +129,15 @@ A passing health check means the process is alive and the database answers. It d
 not prove the migration level, a correct deployment, an email provider, a Stripe
 webhook or that any feature works.
 
+### Production monitor
+
+The **Production monitor** workflow runs every five minutes and checks the
+production home and sign-in pages, `/api/health`, the public developer API and
+the unauthenticated boundaries of the projects, MCP, reminders and Stripe
+webhook routes. It opens or updates one GitHub issue on failure and closes it
+after recovery. It is synthetic HTTP and health monitoring, not exception-level
+application tracing; scheduled GitHub Actions can be delayed.
+
 ## Logs
 
 `src/lib/log.ts` writes one JSON line per event: timestamp, event name, outcome,
@@ -190,9 +199,12 @@ What is not in a database backup: host configuration, DNS, Stripe dashboard
 settings, the Ollama account and any secret value. A restore is incomplete without
 those.
 
-Recommended cadence: daily automated backups if the plan provides them, plus a
-manual export before any migration. A person's own data can be exported from
-`/data` at any time; that is not a substitute for a database backup.
+Recommended cadence: daily automated backups, plus a manual export before any
+migration. The **Production backup and restore test** workflow dumps the
+database, restores it into a disposable Postgres, encrypts it and uploads it to
+R2; verify the latest run and retention before relying on it. A person's own data
+can be exported from `/data` at any time; that is not a substitute for a
+database backup.
 
 ## Restore
 
