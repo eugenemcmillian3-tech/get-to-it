@@ -248,7 +248,7 @@ export async function publishResendAlert(
 
   if (Number(existing.total_count ?? 0) > 0) return "existing";
 
-  await github(config, "/issues", {
+  await github(config, `/repos/${config.repo}/issues`, {
     method: "POST",
     body: JSON.stringify({ title, body: resendAlertBody(alert) }),
   });
