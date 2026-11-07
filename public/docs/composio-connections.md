@@ -7,18 +7,69 @@ owner for those exact arguments.
 
 ## What is supported
 
-| Integration | Toolkit slug | Connection | Operations |
-| --- | --- | --- | --- |
-| GitHub | `github` | Composio-managed OAuth | Tools discovered from the connected account; grants are capped at five per connection |
-| Notion | `notion` | Composio-managed OAuth | Tools discovered from the connected account; grants are capped at five per connection |
+The build exposes a curated catalogue of **45 managed-auth toolkits**. This is
+deliberately not the full Composio catalogue: many of the other 1,600+ toolkits
+are API-key-only, enterprise-only or need a custom OAuth app, and showing a
+connection button for them without testing that flow would be misleading.
 
-Tool names and input schemas are **not hard-coded**. After an account is
-connected, "Discover tools" calls Composio and stores the returned catalogue for
-that connection. Only those exact slugs can be granted. This avoids inventing
-tool names and automatically follows the toolkit version Composio serves.
+| Integration | Toolkit slug | Authorization |
+| --- | --- | --- |
+| GitHub | `github` | OAuth |
+| Notion | `notion` | OAuth or API key |
+| Slack | `slack` | OAuth |
+| Gmail | `gmail` | OAuth |
+| Google Calendar | `googlecalendar` | OAuth |
+| Google Drive | `googledrive` | OAuth |
+| Google Docs | `googledocs` | OAuth |
+| Google Sheets | `googlesheets` | OAuth |
+| Google Tasks | `googletasks` | OAuth |
+| Google Meet | `googlemeet` | OAuth |
+| Google Slides | `googleslides` | OAuth |
+| Linear | `linear` | OAuth or API key |
+| Jira | `jira` | OAuth or API key |
+| Asana | `asana` | OAuth |
+| Trello | `trello` | OAuth |
+| ClickUp | `clickup` | OAuth or API key |
+| Airtable | `airtable` | OAuth or API key |
+| HubSpot | `hubspot` | OAuth or API key |
+| Salesforce | `salesforce` | OAuth |
+| Zendesk | `zendesk` | OAuth |
+| Intercom | `intercom` | OAuth |
+| Gorgias | `gorgias` | OAuth or API key |
+| Discord | `discord` | OAuth |
+| Microsoft Teams | `microsoft_teams` | OAuth |
+| Dropbox | `dropbox` | OAuth |
+| Box | `box` | OAuth |
+| Todoist | `todoist` | OAuth |
+| Microsoft OneNote | `onenote` | OAuth |
+| Stripe | `stripe` | OAuth or API key |
+| Mailchimp | `mailchimp` | OAuth |
+| Calendly | `calendly` | OAuth |
+| Figma | `figma` | OAuth or API key |
+| GitLab | `gitlab` | OAuth or API key |
+| Confluence | `confluence` | OAuth or API key |
+| QuickBooks | `quickbooks` | OAuth |
+| LinkedIn | `linkedin` | OAuth |
+| YouTube | `youtube` | OAuth |
+| Google Analytics | `google_analytics` | OAuth |
+| Google Search Console | `google_search_console` | OAuth |
+| Google Ads | `googleads` | OAuth |
+| Google BigQuery | `googlebigquery` | OAuth |
+| Zoho Invoice | `zoho_invoice` | OAuth |
+| YNAB | `ynab` | OAuth |
+| Shippo | `shippo` | OAuth or API key |
+| Dub | `dub` | OAuth or API key |
+
+The connection flow is the same for every entry. The exact tools are **not
+hard-coded**. After an account is connected, "Discover tools" calls Composio and
+stores the returned catalogue for that connection. Only those exact slugs can be
+granted. This avoids inventing tool names and automatically follows the toolkit
+version Composio serves.
 
 A toolkit is shown as available only because its connection flow, discovery and
 approval path are implemented. There is no unrestricted "run any tool" action.
+Availability and scopes still depend on the Composio project, the provider's
+app approval, and the account's own permissions.
 
 ## SDK and runtime
 
@@ -43,15 +94,18 @@ approval path are implemented. There is no unrestricted "run any tool" action.
    `APP_ORIGIN` must be the exact public origin users open. The callback URL is
    `{APP_ORIGIN}/api/composio/callback`. Localhost over HTTP is accepted only for
    `localhost` and `127.0.0.1`.
-3. In the Composio project, allow the callback URL above for the GitHub and
-   Notion toolkits (managed OAuth is the default).
-4. Apply the migration:
+3. In the Composio project, enable the toolkits you want and allow the callback
+   URL above. Managed OAuth is the default. For an API-key toolkit, complete the
+   provider connection through Composio's hosted connect flow; the app never
+   asks for or stores the provider key.
+4. Apply the migrations, including:
 
    ```sh
    supabase/migrations/0033_composio_connections.sql
+   supabase/migrations/0037_composio_toolkit_catalog.sql
    ```
 
-5. Open a project → **Connections** → **Connect GitHub** or **Connect Notion**.
+5. Open a project → **Connections** → choose an integration and connect it.
 6. After the callback, click **Discover tools**, then grant one or more tools to
    an agent role.
 7. Create or open an agent-team task for that role, then prepare a tool action
@@ -129,6 +183,8 @@ The current build does not generate or embed the owner's Composio key.
 - Owner-only RLS on all seven tables; table writes are revoked and happen only
   through `security definer` functions that re-check `auth.uid()` and project
   ownership.
+- The toolkit catalogue is server-owned and is not readable by anon or
+  authenticated clients. Stored toolkit values are protected by foreign keys.
 - No provider token, API key or session MCP URL is stored in these tables.
 - Provider results and error text are redacted and size-bounded.
 - External content returned by a tool is untrusted. It cannot approve another
@@ -136,6 +192,15 @@ The current build does not generate or embed the owner's Composio key.
 - Every execution has a durable record: user/project, connection, tool, role,
   task, argument hash, approval, status, provider result reference, error
   category and timestamps.
+
+## Adding another integration
+
+Add the toolkit to `COMPOSIO_TOOLKITS` in `src/lib/composio/contracts.ts`, add
+its slug and metadata to `public.composio_toolkit_catalog`, and verify the
+provider's tool slugs use the same `TOOLKIT_` prefix. The adapter intentionally
+rejects tools that do not match the connected toolkit's prefix. Keep the
+database list and the TypeScript list in sync; the UI and adapter use the
+TypeScript list, while the database protects direct RPC calls.
 
 ## Testing
 
@@ -165,6 +230,9 @@ test suite.
 - Tool input schemas are not rendered as a generated form; the owner supplies the
   JSON object. The discovered tool description is shown, and changes require a
   new proposal.
+- The catalogue stops at managed-auth providers. Xero, Pipedrive, Shopify and
+  other custom-OAuth or API-key-only providers are intentionally not exposed
+  until their connection flow is tested with the project's own credentials.
 - Composio's live catalogue, connection status and execution were not exercised
   against a real API key in this workspace. Tests use stubs and the database
   drill. Run one connection against a Composio development project before

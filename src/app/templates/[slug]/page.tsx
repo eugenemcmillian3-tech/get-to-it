@@ -5,6 +5,7 @@ import { SetupNotice } from "@/components/setup-notice";
 import { SiteHeader } from "@/components/site-header";
 import { TemplateUseForm } from "@/components/template-use-form";
 import { requireSession } from "@/lib/auth";
+import { hasBillingGrant } from "@/lib/billing/entitlements";
 import { getIdentity } from "@/lib/identity";
 import { formatMinutes } from "@/lib/format";
 import { getSupabaseSettings } from "@/lib/supabase/config";
@@ -38,6 +39,8 @@ export default async function TemplatePage({
   const session = await requireSession();
   const identity = await getIdentity(session);
   const totalMinutes = templateTotalMinutes(template.steps);
+  const premiumAllowed =
+    !template.premium || (await hasBillingGrant(session, "premium_templates"));
 
   return (
     <div className="min-h-dvh">
@@ -68,6 +71,7 @@ export default async function TemplatePage({
               About {formatMinutes(totalMinutes)} in total
             </span>
             <span className={chipClass}>No AI request used</span>
+            {template.premium ? <span className={chipClass}>Premium</span> : null}
           </div>
         </header>
 
@@ -86,6 +90,7 @@ export default async function TemplatePage({
             Suggested steps
           </h2>
 
+          {premiumAllowed ? (
           <ol className="mt-3 space-y-3">
             {template.steps.map((step, index) => (
               <li key={step.title} className={cardClass}>
@@ -108,18 +113,32 @@ export default async function TemplatePage({
               </li>
             ))}
           </ol>
+          ) : (
+            <div className="mt-3 rounded-2xl border border-dashed border-line p-5">
+              <p className="font-semibold">This is a premium template.</p>
+              <p className="mt-1 text-sm leading-relaxed text-muted">
+                Unlock premium templates under Plans. The preview is hidden until
+                then; the steps are not sent to the browser.
+              </p>
+              <Link href="/billing" className={`mt-3 inline-block text-sm font-semibold underline ${focusRing}`}>
+                Open Plans
+              </Link>
+            </div>
+          )}
 
           <p className="mt-3 text-xs leading-relaxed text-muted">{EXAMPLE_NOTE}</p>
         </section>
 
-        <TemplateUseForm
-          kind="static"
-          templateKey={template.slug}
-          templateName={template.name}
-          desiredOutcome={template.desired_outcome}
-          category={template.category}
-          steps={template.steps}
-        />
+        {premiumAllowed ? (
+          <TemplateUseForm
+            kind="static"
+            templateKey={template.slug}
+            templateName={template.name}
+            desiredOutcome={template.desired_outcome}
+            category={template.category}
+            steps={template.steps}
+          />
+        ) : null}
       </main>
     </div>
   );

@@ -466,6 +466,80 @@ export const TEMPLATE_LIBRARY: GoalTemplate[] = [
       ),
     ],
   },
+  {
+    slug: "premium-release-readiness",
+    premium: true,
+    category: "launch",
+    name: "Release readiness review",
+    description:
+      "A disciplined pass over the release that catches the expensive mistakes before other people do.",
+    desired_outcome:
+      "A release candidate with named checks, a rollback route, and one person who owns the decision.",
+    steps: [
+      step(
+        "Freeze the exact release candidate",
+        25,
+        "A version, commit or snapshot reference plus the date it was frozen.",
+      ),
+      step(
+        "Write the five checks that would block release",
+        30,
+        "Five specific pass/fail checks, not general hopes.",
+      ),
+      step(
+        "Run every check and keep the evidence",
+        75,
+        "A result for each check, with a link or log attached.",
+      ),
+      step(
+        "Name the rollback route and the decision owner",
+        25,
+        "One named person, one rollback step, and the signal that triggers it.",
+      ),
+      step(
+        "Do a short post-release watch",
+        30,
+        "A 24-hour check of the one metric that would show harm.",
+      ),
+    ],
+  },
+  {
+    slug: "premium-offer-teardown",
+    premium: true,
+    category: "business",
+    name: "Offer teardown sprint",
+    description:
+      "Take one existing offer apart and rebuild only the part that is actually costing you yeses.",
+    desired_outcome:
+      "A clearer offer, a tested message, and a record of what changed and why.",
+    steps: [
+      step(
+        "Write the offer exactly as a buyer hears it",
+        20,
+        "The promise, price, time to result and what is excluded, in plain words.",
+      ),
+      step(
+        "Collect three real objections",
+        35,
+        "Three quotes or paraphrases from people who did not buy.",
+      ),
+      step(
+        "Find the single weakest promise",
+        30,
+        "One sentence naming the gap between the promise and the proof.",
+      ),
+      step(
+        "Rewrite only that part of the offer",
+        45,
+        "A before-and-after version with one stronger proof point.",
+      ),
+      step(
+        "Test the new version with five people",
+        45,
+        "Five reactions and a decision to keep, change or discard the rewrite.",
+      ),
+    ],
+  },
 ];
 
 /** Look up a static template by its address-safe slug. */

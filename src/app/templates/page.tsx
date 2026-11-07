@@ -83,6 +83,9 @@ export default async function TemplatesPage() {
                       <span className={chipClass}>
                         About {formatMinutes(templateTotalMinutes(template.steps))}
                       </span>
+                      {template.premium ? (
+                        <span className={chipClass}>Premium</span>
+                      ) : null}
                       <Link
                         href={`/templates/${template.slug}`}
                         className={`rounded text-sm font-semibold text-ink underline decoration-line underline-offset-4 hover:decoration-ink ${focusRing}`}

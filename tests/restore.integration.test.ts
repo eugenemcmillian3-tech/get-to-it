@@ -110,6 +110,9 @@ describeRestore("isolated restore and authorization drill", () => {
         if not exists (select 1 from pg_roles where rolname = 'authenticated') then
           create role authenticated nologin;
         end if;
+        if not exists (select 1 from pg_roles where rolname = 'service_role') then
+          create role service_role nologin;
+        end if;
       end $$;
     `);
     // Supabase grants the API roles default privileges on new objects in
@@ -2395,6 +2398,198 @@ describeRestore("isolated restore and authorization drill", () => {
         client.query("select public.get_app_build_room($1)", [accountA.appProjectId]),
       ).rejects.toThrow(/project access denied/);
     });
+  });
+
+  it("fulfils paid offers without granting AI credits and enforces every paid boundary", async () => {
+    const token = "billing-drill-webhook-token-2026-11-07";
+    await client.query(
+      `insert into public.app_secrets (name, value) values ('credit_webhook', $1)
+       on conflict (name) do update set value = excluded.value, updated_at = now()`,
+      [token],
+    );
+
+    const ledgerBefore = await client.query<{ count: string; total: string }>(
+      `select count(*)::text as count, coalesce(sum(delta), 0)::text as total
+         from public.credit_ledger where user_id = $1`,
+      [accountA.userId],
+    );
+
+    const buy = async (slug: string, quantity: number, workspaceId: string | null) =>
+      asUser(accountA.userId, async () => {
+        const result = await client.query<{
+          r: { ok: boolean; code?: string; purchase_id?: string; amount_cents?: number };
+        }>(
+          "select public.create_billing_purchase($1,$2,$3,null) as r",
+          [slug, quantity, workspaceId],
+        );
+        return result.rows[0].r;
+      });
+
+    const attach = async (purchaseId: string, sessionId: string) =>
+      asUser(accountA.userId, async () => {
+        const result = await client.query<{ r: { ok: boolean } }>(
+          "select public.attach_billing_session($1,$2) as r",
+          [purchaseId, sessionId],
+        );
+        return result.rows[0].r;
+      });
+
+    const webhook = async (eventId: string, type: string, sessionId: string, paymentId: string) => {
+      const result = await client.query<{ r: { ok: boolean; granted?: string; refunded?: boolean } }>(
+        "select public.billing_handle_event($1,$2,$3,$4,$5,null) as r",
+        [token, eventId, type, sessionId, paymentId],
+      );
+      return result.rows[0].r;
+    };
+
+    // The Build Room drill left two active members: the owner and account B.
+    // Three seats therefore allow exactly one more person or pending invite.
+    const seats = await buy("team_seats", 3, accountA.workspaceId);
+    expect(seats.ok, JSON.stringify(seats)).toBe(true);
+    expect(seats.amount_cents).toBe(5700);
+    const seatsSession = `cs_drill_${randomUUID()}`;
+    expect((await attach(seats.purchase_id ?? "", seatsSession)).ok).toBe(true);
+    expect(
+      (await webhook(`evt_seats_${randomUUID()}`, "checkout.session.completed", seatsSession, `pi_seats_${randomUUID()}`)).granted,
+    ).toBe("team_seats");
+
+    const seatEntitlement = await client.query<{ status: string; quantity: number; grants: string[] }>(
+      "select status, quantity, grants from public.billing_entitlements where purchase_id = $1",
+      [seats.purchase_id],
+    );
+    expect(seatEntitlement.rows[0]).toMatchObject({ status: "active", quantity: 3 });
+    expect(seatEntitlement.rows[0].grants).toContain("team_seats");
+    const seatLimit = await asUser(accountA.userId, async () => {
+      const result = await client.query<{ n: number }>(
+        "select public.billing_workspace_seat_limit($1) as n",
+        [accountA.workspaceId],
+      );
+      return Number(result.rows[0].n);
+    });
+    expect(seatLimit).toBe(3);
+
+    const foreignSeats = await asUser(accountB.userId, async () => {
+      const result = await client.query<{ r: { ok: boolean; code?: string } }>(
+        "select public.create_billing_purchase('team_seats',2,$1,null) as r",
+        [accountA.workspaceId],
+      );
+      return result.rows[0].r;
+    });
+    expect(foreignSeats.ok).toBe(false);
+    expect(foreignSeats.code).toBe("not-workspace-owner");
+
+    await asUser(accountA.userId, async () => {
+      const firstInvite = await client.query<{ r: { ok: boolean } }>(
+        "select public.create_workspace_invitation($1,$2,'member') as r",
+        [accountA.workspaceId, `seat-one-${randomUUID()}@example.test`],
+      );
+      expect(firstInvite.rows[0].r.ok).toBe(true);
+      await expect(
+        client.query("select public.create_workspace_invitation($1,$2,'member')", [
+          accountA.workspaceId,
+          `seat-two-${randomUUID()}@example.test`,
+        ]),
+      ).rejects.toThrow(/workspace-seat-limit/);
+    });
+
+    const automation = await buy("automation_plus", 1, null);
+    expect(automation.ok).toBe(true);
+    const automationSession = `cs_drill_${randomUUID()}`;
+    await attach(automation.purchase_id ?? "", automationSession);
+    await webhook(`evt_auto_${randomUUID()}`, "checkout.session.completed", automationSession, `pi_auto_${randomUUID()}`);
+
+    const limits = await asUser(accountA.userId, async () => {
+      const result = await client.query<{ n: string }>(
+        "select public.billing_automation_limits($1)::text as n",
+        [accountA.userId],
+      );
+      return JSON.parse(result.rows[0].n) as { calls_limit: number; writes_limit: number };
+    });
+    expect(limits).toMatchObject({ calls_limit: 500, writes_limit: 100 });
+    const usage = await asUser(accountA.userId, async () => {
+      const result = await client.query<{ n: string }>(
+        "select public.composio_usage($1)::text as n",
+        [accountA.appProjectId],
+      );
+      return JSON.parse(result.rows[0].n) as { calls_limit: number; writes_limit: number };
+    });
+    expect(usage).toMatchObject({ calls_limit: 500, writes_limit: 100 });
+
+    const supportBefore = await asUser(accountA.userId, async () => {
+      const result = await client.query<{ r: { ok: boolean; code?: string } }>(
+        "select public.create_support_request('Drill support','A support request from the billing drill.') as r",
+      );
+      return result.rows[0].r;
+    });
+    expect(supportBefore.ok).toBe(false);
+    expect(supportBefore.code).toBe("priority-required");
+
+    const priority = await buy("priority_support", 1, null);
+    expect(priority.ok).toBe(true);
+    const prioritySession = `cs_drill_${randomUUID()}`;
+    await attach(priority.purchase_id ?? "", prioritySession);
+    await webhook(`evt_priority_${randomUUID()}`, "checkout.session.completed", prioritySession, `pi_priority_${randomUUID()}`);
+    const supportAfter = await asUser(accountA.userId, async () => {
+      const result = await client.query<{ r: { ok: boolean; request_id?: string } }>(
+        "select public.create_support_request('Drill support','A support request from the billing drill.') as r",
+      );
+      return result.rows[0].r;
+    });
+    expect(supportAfter.ok).toBe(true);
+    expect(supportAfter.request_id).toMatch(/^[0-9a-f-]{36}$/);
+
+    const productionBlocked = await asUser(accountA.userId, async () => {
+      const result = await client.query(
+        `insert into public.app_deployments
+           (project_id, user_id, target, snapshot_version, snapshot_digest, snapshot, plan, plan_hash)
+         values ($1,$2,'production',1,$3,'[{"path":"app/page.tsx","content":"export default function Page(){return null}"}]'::jsonb,'{}'::jsonb,$3)`,
+        [accountA.appProjectId, accountA.userId, "b".repeat(64)],
+      );
+      return result.rowCount;
+    }).catch((error: Error) => error.message);
+    expect(productionBlocked).toMatch(/build-release-required/);
+
+    const release = await buy("build_release", 1, null);
+    expect(release.ok).toBe(true);
+    const releaseSession = `cs_drill_${randomUUID()}`;
+    await attach(release.purchase_id ?? "", releaseSession);
+    const releasePayment = `pi_release_${randomUUID()}`;
+    await webhook(`evt_release_${randomUUID()}`, "checkout.session.completed", releaseSession, releasePayment);
+    await asUser(accountA.userId, async () => {
+      const inserted = await client.query(
+        `insert into public.app_deployments
+           (project_id, user_id, target, snapshot_version, snapshot_digest, snapshot, plan, plan_hash)
+         values ($1,$2,'production',1,$3,'[{"path":"app/page.tsx","content":"export default function Page(){return null}"}]'::jsonb,'{}'::jsonb,$3)`,
+        [accountA.appProjectId, accountA.userId, "c".repeat(64)],
+      );
+      expect(inserted.rowCount).toBe(1);
+    });
+
+    const refund = await webhook(`evt_refund_${randomUUID()}`, "charge.refunded", "", releasePayment);
+    expect(refund.ok).toBe(true);
+    expect(refund.refunded).toBe(true);
+    const releaseEntitlement = await client.query<{ status: string }>(
+      "select status from public.billing_entitlements where purchase_id = $1",
+      [release.purchase_id],
+    );
+    expect(releaseEntitlement.rows[0].status).toBe("revoked");
+    const productionAfterRefund = await asUser(accountA.userId, async () => {
+      const result = await client.query(
+        `insert into public.app_deployments
+           (project_id, user_id, target, snapshot_version, snapshot_digest, snapshot, plan, plan_hash)
+         values ($1,$2,'production',1,$3,'[{"path":"app/page.tsx","content":"export default function Page(){return null}"}]'::jsonb,'{}'::jsonb,$3)`,
+        [accountA.appProjectId, accountA.userId, "d".repeat(64)],
+      );
+      return result.rowCount;
+    }).catch((error: Error) => error.message);
+    expect(productionAfterRefund).toMatch(/build-release-required/);
+
+    const ledgerAfter = await client.query<{ count: string; total: string }>(
+      `select count(*)::text as count, coalesce(sum(delta), 0)::text as total
+         from public.credit_ledger where user_id = $1`,
+      [accountA.userId],
+    );
+    expect(ledgerAfter.rows[0]).toEqual(ledgerBefore.rows[0]);
   });
 
   it("answers the health probe without exposing data", async () => {

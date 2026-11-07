@@ -82,6 +82,8 @@ export type WorkspaceOverview = {
   unread: WorkspaceNotification[];
   prefs: WorkspaceNotificationPrefs | null;
   copyCandidates: { id: string; title: string; desired_outcome: string }[];
+  /** Purchased team seats, including the owner; 1 when no pass is active. */
+  seatLimit: number;
 };
 
 export async function getWorkspaceOverview(
@@ -126,7 +128,7 @@ export async function getWorkspaceOverview(
   };
   const members = directoryPayload.members ?? [];
 
-  const [goalsResult, tasksResult, eventsResult, prefsResult, unreadResult] =
+  const [goalsResult, tasksResult, eventsResult, prefsResult, unreadResult, seatResult] =
     await Promise.all([
       session.supabase
         .from("workspace_goals")
@@ -158,9 +160,12 @@ export async function getWorkspaceOverview(
         .is("read_at", null)
         .order("created_at", { ascending: false })
         .limit(10),
+      session.supabase.rpc("billing_workspace_seat_limit", {
+        p_workspace_id: workspaceId,
+      }),
     ]);
 
-  for (const result of [goalsResult, tasksResult, eventsResult, prefsResult, unreadResult]) {
+  for (const result of [goalsResult, tasksResult, eventsResult, prefsResult, unreadResult, seatResult]) {
     if (result.error) {
       console.error("getWorkspaceOverview failed:", result.error.message);
       throw new DataError(LOAD_ERROR);
@@ -174,6 +179,7 @@ export async function getWorkspaceOverview(
           .select("id, invitee_email, role, token, status, created_at, expires_at")
           .eq("workspace_id", workspaceId)
           .eq("status", "pending")
+          .gt("expires_at", new Date().toISOString())
           .order("created_at", { ascending: false })
       : { data: [] as WorkspaceInvitation[], error: null };
 
@@ -215,6 +221,7 @@ export async function getWorkspaceOverview(
     prefs: (prefsResult.data as WorkspaceNotificationPrefs | null) ?? null,
     copyCandidates:
       (copyResult.data as { id: string; title: string; desired_outcome: string }[]) ?? [],
+    seatLimit: Math.max(1, Number(seatResult.data ?? 1)),
   };
 }
 
