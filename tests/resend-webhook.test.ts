@@ -1,6 +1,7 @@
 import { createHmac } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  GithubAlertError,
   alertForResendEvent,
   parseResendEvent,
   publishResendAlert,
@@ -218,6 +219,29 @@ describe("Resend GitHub alert publishing", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(posted.value?.title).toBe("Resend delivery alert: email_123");
     expect(String(posted.value?.body)).not.toContain("private@example.test");
+  });
+
+  it("reports an upstream GitHub failure with only its status", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ message: "Forbidden" }), { status: 403 })),
+    );
+
+    const failure = await publishResendAlert(
+      {
+        id: "email_123",
+        event: "email.bounced",
+        label: "bounced",
+        createdAt: "2026-11-07T00:00:00.000Z",
+      },
+      CONFIG,
+    ).then(
+      () => null,
+      (error: unknown) => error,
+    );
+
+    expect(failure).toBeInstanceOf(GithubAlertError);
+    expect((failure as GithubAlertError).status).toBe(403);
   });
 
   it("reuses an existing issue instead of opening another", async () => {
