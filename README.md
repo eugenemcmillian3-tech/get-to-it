@@ -32,7 +32,7 @@ it the panel explains the missing key instead of inventing an answer.
 1. Create a Supabase project (or use an existing one).
 2. In the Supabase SQL editor, run every file in `supabase/migrations/` in
    filename order, from `0001_phase1_init.sql` through
-   `0035_operation_budgets.sql`. Do not stop at an earlier phase: a missing
+   `0036_error_events.sql`. Do not stop at an earlier phase: a missing
    later migration leaves Build Room, Design, Releases, Integration Studio, the
    developer API and Connections returning a server error at request time.
    Together they
@@ -55,8 +55,10 @@ it the panel explains the missing key instead of inventing an answer.
    NEXT_PUBLIC_SUPABASE_ANON_KEY=...
    ```
 
-   The anon key is browser-safe; access is enforced by RLS. Never add a
-   `service_role` key here — this app does not use one.
+   The anon key is browser-safe; access is enforced by RLS. The server-only
+   `SUPABASE_SERVICE_ROLE_KEY` is used only to write sanitized unhandled server
+   exceptions; never expose it to the browser or put it in a `NEXT_PUBLIC_*`
+   variable.
 
 4. Install and run:
 
@@ -82,7 +84,7 @@ rate-limited and is not a production delivery service. Set the project's
 as working. The production project uses Resend through the verified
 `mail.network-x-ai.win` subdomain; signup, confirmation, and sign-in were
 verified end to end on 2026-11-06. The app does not send confirmation mail itself
-and needs no `service_role` key.
+and does not use the service-role key for email.
 
 The weekly **Email delivery smoke** workflow runs `npm run test:email` against
 the production project. It needs the repository secrets
@@ -810,8 +812,9 @@ applied or retried.
 variable): a `sk_test_...` key as `STRIPE_SECRET_KEY`, the endpoint's signing
 secret as `STRIPE_WEBHOOK_SECRET`, and any long random value as
 `CREDIT_RPC_TOKEN`. Store that same token in `public.app_secrets` under the name
-`credit_webhook`, because the webhook has no signed-in user and this app holds no
-`service_role` key. Point a Stripe test-mode webhook at `/api/stripe/webhook`
+`credit_webhook`, because the webhook has no signed-in user and the app does not
+use the service-role key for billing. Point a Stripe test-mode webhook at
+`/api/stripe/webhook`
 for `checkout.session.completed`, `checkout.session.expired` and
 `charge.refunded`, and add your user id to `public.app_owners` to open `/owner`.
 A `sk_live_...` key is ignored unless `STRIPE_ALLOW_LIVE=true` is also set:
@@ -1167,6 +1170,7 @@ anyone:
 | --- | --- | --- |
 | `NEXT_PUBLIC_SUPABASE_URL` | public | Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | public | Anonymous key; access is enforced by Row Level Security |
+| `SUPABASE_SERVICE_ROLE_KEY` | **server only** | Writes sanitized unhandled server exceptions to `public.error_events`; never expose to the browser |
 | `OLLAMA_API_KEY` | **server only** | Ollama cloud API key for the AI features |
 | `STRIPE_SECRET_KEY` | **server only** | Stripe secret key; a `sk_test_...` key until you deliberately go live |
 | `STRIPE_WEBHOOK_SECRET` | **server only** | Verifies `POST /api/stripe/webhook` |
@@ -1177,8 +1181,10 @@ anyone:
 
 Rules this codebase follows:
 
-- **No `service_role` key anywhere.** The app never needs one, and the AI
-  request limits depend on the browser not having privileged database access.
+- **No `service_role` key in client code or generated projects.** The Next.js
+  server uses one only for the sanitized exception sink in
+  `src/lib/observability/report-exception.ts`; the AI request limits still depend
+  on the browser not having privileged database access.
 - The Ollama key is read at call time inside `src/lib/ai/ollama.ts` and used in
   server actions only, so it is never bundled into client JavaScript and a build
   works without it.
@@ -1553,11 +1559,11 @@ executor; the approval and action records are designed to be reused for it.
   live regions exist; there has been no formal WCAG audit.
 - **Real-browser checks are outstanding.** They are listed as an owner checklist
   in the release note rather than marked as passed.
-- **No analytics or billing.** A scheduled GitHub Actions monitor checks the
-  production health endpoint, critical API boundaries and backup freshness and
-  opens an issue on failure. Unhandled server, edge and browser errors are sent
-  to Sentry when `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN` is configured; without a
-  DSN this is a no-op. Server logs are whatever the host collects.
+- **No analytics and no paid billing.** A scheduled GitHub Actions monitor
+  checks health, API boundaries and backup freshness. Unhandled server request
+  errors are written to a sanitized Supabase `error_events` table, and a scheduled
+  workflow opens a GitHub issue while they occur; browser errors are not
+  collected. Server logs are whatever the host collects.
 - **Feedback is stored, not emailed.** Read it in the `feedback` table.
 
 ## Deployment

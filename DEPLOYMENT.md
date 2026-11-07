@@ -8,22 +8,23 @@ GET TO IT deploys from the `main` branch of `eugenemcmillian3-tech/get-to-it` to
 - Vercel project ID: `prj_7ZFE4kOPQgsrubitOv1cDcIMPCOx`
 - Vercel production branch: `main`
 - Supabase project: `qhlzjhdcnlokbsdsrqqy` (created through the Vercel Supabase integration)
-- Supabase migration history: reconciled on 2026-11-07. The original 13 rows ended at version `20261104051652` (recorded name `0033_composio_connections_part2`); the two missing rows are now recorded as `0034_credit_pricing` (`20261107000000`) and `0035_operation_budgets` (`20261107000001`) after schema verification, without re-running either migration. Production has five active packs, `per_user_daily = 0`, and the four-argument `reserve_ai_request`.
-- Pending production migrations: none identified beyond the history gap above. See [Pricing rollout](#pricing-rollout-0034-and-0035) below.
+- Supabase migration history: reconciled on 2026-11-07. The original 13 rows ended at version `20261104051652` (recorded name `0033_composio_connections_part2`); the missing rows are recorded as `0034_credit_pricing` (`20261107000000`), `0035_operation_budgets` (`20261107000001`) and `0036_error_events` (`20261107035600`). The first two were added after schema verification without re-running the migrations; `0036` was applied directly. Production has 125 public tables, five active packs, `per_user_daily = 0`, and the four-argument `reserve_ai_request`.
+- Pending production migrations: none identified. The 0034/0035 rollout record is retained below as history.
 - Auth callback: `https://get-to-it-wvpy.vercel.app/auth/callback`
-- Vercel environment names: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `DEPLOYMENT_VAULT_KEY`, `CRON_SECRET`, `CREDIT_RPC_TOKEN`, `SUPABASE_OAUTH_REDIRECT_URI`
+- Vercel environment names: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `DEPLOYMENT_VAULT_KEY`, `CRON_SECRET`, `CREDIT_RPC_TOKEN`, `SUPABASE_OAUTH_REDIRECT_URI`
 
 Optional credentials configured in production as of 2026-11-04: `SUPABASE_OAUTH_CLIENT_ID`, `SUPABASE_OAUTH_CLIENT_SECRET` and `COMPOSIO_API_KEY`.
 
-Optional credentials not configured in production: `OLLAMA_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_DSN`, `PREVIEW_RUNNER_URL`, `PREVIEW_RUNNER_TOKEN` and `PREVIEW_SIGNING_SECRET`. The app stays in setup mode for those features rather than pretending they work; Sentry is a no-op until both Sentry DSNs are set. The Vercel Supabase integration also supplies server-only `POSTGRES_*` connection values and `SUPABASE_SERVICE_ROLE_KEY`; none of those are browser-exposed.
+Optional credentials not configured in production: `OLLAMA_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `PREVIEW_RUNNER_URL`, `PREVIEW_RUNNER_TOKEN` and `PREVIEW_SIGNING_SECRET`. The app stays in setup mode for those features rather than pretending they work. The Vercel Supabase integration also supplies server-only `POSTGRES_*` connection values and `SUPABASE_SERVICE_ROLE_KEY`; the service-role key is used only for the sanitized `error_events` sink and is never browser-exposed.
 
 The previous Vercel and Supabase projects are no longer the deployment target. Never put a Supabase service-role key in the browser or repository. Keep commits authored with the GitHub account's noreply address so Vercel's Git-author check accepts them.
 
 ## Pricing rollout (0034 and 0035)
 
-**Status:** approved for implementation, not authorized to execute. Nothing in this
-section applies a migration, enables live billing or deploys. Every step below
-needs a separate owner decision, and production must have a current backup first.
+**Status (2026-11-07):** `0034` and `0035` are applied to production and the
+schema effects below were verified. Live billing remains off. This section is the
+historical rollout and rollback record; it does not authorize live billing, a new
+migration or a deploy.
 
 The two migrations are order-dependent:
 
@@ -53,7 +54,7 @@ existing signature. The new function has defaults for the budget arguments.
 ### Staging rehearsal
 
 Use a disposable Supabase project, never the production project. Apply every
-migration from `0001` through `0035` in filename order, then configure the staging
+migration from `0001` through `0036` in filename order, then configure the staging
 URL and anon key.
 
 ```bash

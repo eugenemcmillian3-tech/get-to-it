@@ -1,18 +1,16 @@
-import * as Sentry from "@sentry/nextjs";
+import type { Instrumentation } from "next";
+
+import { reportRequestException } from "@/lib/observability/report-exception";
 
 /**
- * Next.js loads this file once per server runtime. The Sentry configs are
- * intentionally no-ops until the deployment has a DSN.
+ * Next.js calls this for unhandled errors in server components, route
+ * handlers, server actions and middleware. The reporter stores a sanitized
+ * record so the scheduled GitHub issue monitor can alert on it.
  */
-export async function register() {
-  if (process.env.NEXT_RUNTIME === "nodejs") {
-    await import("./sentry.server.config");
-  }
-
-  if (process.env.NEXT_RUNTIME === "edge") {
-    await import("./sentry.edge.config");
-  }
-}
-
-/** Capture unhandled Server Component, route-handler and middleware errors. */
-export const onRequestError = Sentry.captureRequestError;
+export const onRequestError: Instrumentation.onRequestError = async (
+  error,
+  request,
+  context,
+) => {
+  await reportRequestException(error, request, context);
+};
