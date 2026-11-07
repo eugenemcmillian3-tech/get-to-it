@@ -6,7 +6,8 @@
  * polls it until it succeeds, fails, or the timeout expires. A failed or
  * missing run exits non-zero, so a release cannot be recorded until the merged
  * revision is green. If the commit is not available locally, fetch `origin/main`
- * once and retry before failing.
+ * once and retry before failing. On success, print a copyable release-record
+ * block with the merge revision and run URL already filled in.
  *
  * Usage:
  *   npm run check:e2e:post-merge
@@ -40,7 +41,7 @@ Options:
   -h, --help               Show this help.
 
 Exit status:
-  0  the run completed successfully
+  0  the run completed successfully and printed the release-record block
   1  the run failed, was cancelled, was missing, or timed out
 `);
 }
@@ -258,6 +259,30 @@ function noRunMessage(repo, commit) {
   return `No push-triggered Authenticated E2E run found for ${commit.slice(0, 12)} on ${BRANCH}. Check ${ACTIONS_URL}/${repo}/actions/workflows/${WORKFLOW}.`;
 }
 
+function releaseRecordBlock(commit, run) {
+  const fields = [
+    ["Release date (UTC)", `\`${new Date().toISOString()}\``],
+    ["Pre-merge source revision (`npm run release:check`)", "`________`"],
+    ["PR", "`________`"],
+    ["Merge revision on `main`", `\`${commit}\``],
+    ["Post-merge E2E run URL", run.url || "`________`"],
+    ["Post-merge E2E result", "`success`"],
+    ["Production deployment ID", "`________`"],
+    ["Production `/api/health` revision", "`________`"],
+    ["Manual smoke checks", "`________`"],
+    ["Rollback / backup reference (if applicable)", "`________`"],
+    ["Approved by / UTC", "`________`"],
+  ];
+
+  return [
+    "Release record (copy into the release issue or operations log):",
+    "",
+    "| Field | Value |",
+    "| --- | --- |",
+    ...fields.map(([field, value]) => `| ${field} | ${value} |`),
+  ].join("\n");
+}
+
 async function main() {
   const options = parseOptions(process.argv.slice(2));
   if (options.help) {
@@ -313,6 +338,8 @@ async function main() {
           if (run.url) {
             console.log(`Run: ${run.url}`);
           }
+          console.log("");
+          console.log(releaseRecordBlock(commit, run));
           return;
         }
 
