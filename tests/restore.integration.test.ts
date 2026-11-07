@@ -2592,6 +2592,294 @@ describeRestore("isolated restore and authorization drill", () => {
     expect(ledgerAfter.rows[0]).toEqual(ledgerBefore.rows[0]);
   });
 
+  it("enforces team-seat limits for pending invitations, cancellation, active members, and direct inserts", async () => {
+    const webhookToken = "seat-boundary-drill-webhook-token-2026-11-07";
+    await client.query(
+      `insert into public.app_secrets (name, value) values ('credit_webhook', $1)
+       on conflict (name) do update set value = excluded.value, updated_at = now()`,
+      [webhookToken],
+    );
+
+    const created = await asUser(accountA.userId, async () => {
+      const result = await client.query<{ r: { ok: boolean; workspace_id?: string } }>(
+        "select public.create_workspace('Seat boundary drill', 'Seat limit regression.') as r",
+      );
+      return result.rows[0].r;
+    });
+    expect(created.ok, JSON.stringify(created)).toBe(true);
+    const workspaceId = created.workspace_id;
+    if (!workspaceId) throw new Error("workspace was not created");
+
+    const seats = await asUser(accountA.userId, async () => {
+      const result = await client.query<{
+        r: { ok: boolean; code?: string; purchase_id?: string; amount_cents?: number };
+      }>(
+        "select public.create_billing_purchase('team_seats',2,$1,null) as r",
+        [workspaceId],
+      );
+      return result.rows[0].r;
+    });
+    expect(seats.ok, JSON.stringify(seats)).toBe(true);
+    expect(seats.amount_cents).toBe(3800);
+    const purchaseId = seats.purchase_id;
+    if (!purchaseId) throw new Error("seat purchase was not created");
+
+    const sessionId = `cs_seat_boundary_${randomUUID()}`;
+    await asUser(accountA.userId, async () => {
+      const result = await client.query<{ r: { ok: boolean } }>(
+        "select public.attach_billing_session($1,$2) as r",
+        [purchaseId, sessionId],
+      );
+      expect(result.rows[0].r.ok).toBe(true);
+    });
+    const paid = await client.query<{ r: { granted?: string } }>(
+      "select public.billing_handle_event($1,$2,$3,$4,$5,null) as r",
+      [
+        webhookToken,
+        `evt_seat_boundary_${randomUUID()}`,
+        "checkout.session.completed",
+        sessionId,
+        `pi_seat_boundary_${randomUUID()}`,
+      ],
+    );
+    expect(paid.rows[0].r.granted).toBe("team_seats");
+
+    const usage = async () => {
+      const result = await client.query<{
+        active_members: string;
+        pending_invites: string;
+        seat_limit: number;
+      }>(
+        `select
+           (select count(*)::text
+              from public.workspace_members
+             where workspace_id = $1 and status = 'active') as active_members,
+           (select count(*)::text
+              from public.workspace_invitations
+             where workspace_id = $1 and status = 'pending' and expires_at > now()) as pending_invites,
+           public.billing_workspace_seat_limit($1) as seat_limit`,
+        [workspaceId],
+      );
+      return {
+        activeMembers: Number(result.rows[0].active_members),
+        pendingInvites: Number(result.rows[0].pending_invites),
+        seatLimit: Number(result.rows[0].seat_limit),
+      };
+    };
+
+    expect(await usage()).toEqual({ activeMembers: 1, pendingInvites: 0, seatLimit: 2 });
+
+    const pending = await asUser(accountA.userId, async () => {
+      const result = await client.query<{ r: { ok: boolean; token?: string } }>(
+        "select public.create_workspace_invitation($1,$2,'member') as r",
+        [workspaceId, accountB.email],
+      );
+      return result.rows[0].r;
+    });
+    expect(pending.ok, JSON.stringify(pending)).toBe(true);
+    const pendingToken = pending.token;
+    if (!pendingToken) throw new Error("pending invitation was not created");
+    expect(await usage()).toEqual({ activeMembers: 1, pendingInvites: 1, seatLimit: 2 });
+
+    // The invitation function refuses a second pending invite once the seat is used.
+    await asUser(accountA.userId, async () => {
+      await expect(
+        client.query("select public.create_workspace_invitation($1,$2,'member')", [
+          workspaceId,
+          `seat-overflow-${randomUUID()}@example.test`,
+        ]),
+      ).rejects.toThrow(/workspace-seat-limit/);
+    });
+
+    const rawInvite = (email: string) =>
+      client.query<{ token: string }>(
+        `insert into public.workspace_invitations (workspace_id, inviter_id, invitee_email, role)
+         values ($1,$2,$3,'member')
+         returning token`,
+        [workspaceId, accountA.userId, email],
+      );
+
+    // The trigger must reject a direct insert even while the last seat is only pending.
+    await expect(rawInvite(`raw-pending-${randomUUID()}@example.test`)).rejects.toThrow(
+      /workspace-seat-limit/,
+    );
+
+    // Cancelling the pending invitation frees that seat for an immediate replacement.
+    const pendingId = await client.query<{ id: string }>(
+      "select id from public.workspace_invitations where token = $1",
+      [pendingToken],
+    );
+    const cancelled = await asUser(accountA.userId, async () => {
+      const result = await client.query<{ r: { ok: boolean } }>(
+        "select public.cancel_workspace_invitation($1) as r",
+        [pendingId.rows[0]?.id ?? ""],
+      );
+      return result.rows[0].r;
+    });
+    expect(cancelled.ok).toBe(true);
+    expect(await usage()).toEqual({ activeMembers: 1, pendingInvites: 0, seatLimit: 2 });
+
+    // A different address can claim the freed seat immediately.
+    const replacementEmail = `seat-replacement-${randomUUID()}@example.test`;
+    const differentInvitee = await asUser(accountA.userId, async () => {
+      const result = await client.query<{ r: { ok: boolean; token?: string } }>(
+        "select public.create_workspace_invitation($1,$2,'member') as r",
+        [workspaceId, replacementEmail],
+      );
+      return result.rows[0].r;
+    });
+    expect(differentInvitee.ok, JSON.stringify(differentInvitee)).toBe(true);
+    const differentToken = differentInvitee.token;
+    if (!differentToken) throw new Error("the different invitee was not invited");
+    expect(await usage()).toEqual({ activeMembers: 1, pendingInvites: 1, seatLimit: 2 });
+
+    const differentId = await client.query<{ id: string }>(
+      "select id from public.workspace_invitations where token = $1",
+      [differentToken],
+    );
+    const cancelledDifferent = await asUser(accountA.userId, async () => {
+      const result = await client.query<{ r: { ok: boolean } }>(
+        "select public.cancel_workspace_invitation($1) as r",
+        [differentId.rows[0]?.id ?? ""],
+      );
+      return result.rows[0].r;
+    });
+    expect(cancelledDifferent.ok).toBe(true);
+    expect(await usage()).toEqual({ activeMembers: 1, pendingInvites: 0, seatLimit: 2 });
+
+    const reinvited = await asUser(accountA.userId, async () => {
+      const result = await client.query<{ r: { ok: boolean; token?: string } }>(
+        "select public.create_workspace_invitation($1,$2,'member') as r",
+        [workspaceId, accountB.email],
+      );
+      return result.rows[0].r;
+    });
+    expect(reinvited.ok, JSON.stringify(reinvited)).toBe(true);
+    const reinvitedToken = reinvited.token;
+    if (!reinvitedToken) throw new Error("replacement invitation was not created");
+    expect(await usage()).toEqual({ activeMembers: 1, pendingInvites: 1, seatLimit: 2 });
+
+    // The cancelled link is dead; only the replacement can be accepted.
+    await asUser(accountB.userId, async () => {
+      const result = await client.query<{ r: { ok: boolean; code?: string } }>(
+        "select public.accept_workspace_invitation($1) as r",
+        [pendingToken],
+      );
+      expect(result.rows[0].r.ok).toBe(false);
+      expect(result.rows[0].r.code).toBe("invalid-invitation");
+    });
+
+    await asUser(accountB.userId, async () => {
+      const result = await client.query<{ r: { ok: boolean } }>(
+        "select public.accept_workspace_invitation($1) as r",
+        [reinvitedToken],
+      );
+      expect(result.rows[0].r.ok).toBe(true);
+    });
+    expect(await usage()).toEqual({ activeMembers: 2, pendingInvites: 0, seatLimit: 2 });
+
+    // An accepted active member also counts, so a direct insert still fails.
+    await expect(rawInvite(`raw-active-${randomUUID()}@example.test`)).rejects.toThrow(
+      /workspace-seat-limit/,
+    );
+
+    await asUser(accountA.userId, async () => {
+      const result = await client.query<{ r: { ok: boolean } }>(
+        "select public.remove_workspace_member($1,$2) as r",
+        [workspaceId, accountB.userId],
+      );
+      expect(result.rows[0].r.ok).toBe(true);
+    });
+    expect(await usage()).toEqual({ activeMembers: 1, pendingInvites: 0, seatLimit: 2 });
+
+    // Removing the member frees the seat; a direct insert is now allowed.
+    const directInvite = await rawInvite(accountB.email);
+    const directToken = directInvite.rows[0]?.token;
+    if (!directToken) throw new Error("direct invitation was not created");
+
+    await asUser(accountB.userId, async () => {
+      const result = await client.query<{ r: { ok: boolean } }>(
+        "select public.accept_workspace_invitation($1) as r",
+        [directToken],
+      );
+      expect(result.rows[0].r.ok).toBe(true);
+    });
+    expect(await usage()).toEqual({ activeMembers: 2, pendingInvites: 0, seatLimit: 2 });
+
+    await expect(rawInvite(`raw-final-${randomUUID()}@example.test`)).rejects.toThrow(
+      /workspace-seat-limit/,
+    );
+  });
+
+  it("resets the seat limit to one when team seats expire", async () => {
+    const created = await asUser(accountA.userId, async () => {
+      const result = await client.query<{ r: { ok: boolean; workspace_id?: string } }>(
+        "select public.create_workspace('Expired seat drill', 'Expiry boundary regression.') as r",
+      );
+      return result.rows[0].r;
+    });
+    expect(created.ok, JSON.stringify(created)).toBe(true);
+    const workspaceId = created.workspace_id;
+    if (!workspaceId) throw new Error("workspace was not created");
+
+    const purchaseId = randomUUID();
+    const entitlementId = randomUUID();
+    await client.query(
+      `insert into public.billing_purchases
+         (id, user_id, offer_slug, quantity, amount_cents, status, workspace_id, paid_at)
+       values ($1,$2,'team_seats',2,3800,'paid',$3,now())`,
+      [purchaseId, accountA.userId, workspaceId],
+    );
+    await client.query(
+      `insert into public.billing_entitlements
+         (id, purchase_id, user_id, offer_slug, grants, quantity, workspace_id,
+          status, starts_at, expires_at)
+       values ($1,$2,$3,'team_seats',array['team_seats']::text[],2,$4,
+               'active', now() - interval '1 hour', now() + interval '1 hour')`,
+      [entitlementId, purchaseId, accountA.userId, workspaceId],
+    );
+
+    const activeLimit = await asUser(accountA.userId, async () => {
+      const result = await client.query<{ n: number }>(
+        "select public.billing_workspace_seat_limit($1) as n",
+        [workspaceId],
+      );
+      return Number(result.rows[0].n);
+    });
+    expect(activeLimit).toBe(2);
+
+    await client.query(
+      "update public.billing_entitlements set expires_at = now() - interval '1 second' where id = $1",
+      [entitlementId],
+    );
+
+    const expiredLimit = await asUser(accountA.userId, async () => {
+      const result = await client.query<{ n: number }>(
+        "select public.billing_workspace_seat_limit($1) as n",
+        [workspaceId],
+      );
+      return Number(result.rows[0].n);
+    });
+    expect(expiredLimit).toBe(1);
+
+    // The owner already fills the only remaining seat, through either insert path.
+    await asUser(accountA.userId, async () => {
+      await expect(
+        client.query("select public.create_workspace_invitation($1,$2,'member')", [
+          workspaceId,
+          accountB.email,
+        ]),
+      ).rejects.toThrow(/workspace-seat-limit/);
+    });
+    await expect(
+      client.query(
+        `insert into public.workspace_invitations (workspace_id, inviter_id, invitee_email, role)
+         values ($1,$2,$3,'member')`,
+        [workspaceId, accountA.userId, accountB.email],
+      ),
+    ).rejects.toThrow(/workspace-seat-limit/);
+  });
+
   it("answers the health probe without exposing data", async () => {
     const probe = await client.query<{ probe: { ok: boolean } }>(
       "select public.health_probe() as probe",

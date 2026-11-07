@@ -1,11 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { SetupNotice } from "@/components/setup-notice";
 import { SiteHeader } from "@/components/site-header";
 import {
   CopyPersonalGoalForm,
   DeleteWorkspaceForm,
+  InvitationLinkField,
   LeaveWorkspaceForm,
   MemberRoleForm,
   NotificationPrefsForm,
@@ -71,6 +73,10 @@ export default async function WorkspacePage({
 
   const { workspace, myRole, members, goals, tasks, events, invitations, unread, seatLimit } =
     overview;
+  const requestHeaders = await headers();
+  const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host");
+  const protocol = requestHeaders.get("x-forwarded-proto") ?? "http";
+  const origin = host ? `${protocol}://${host}` : "";
   const progress = workspaceProgress(goals, tasks, session.user.id);
   const memberById = new Map(members.map((member) => [member.user_id, member]));
   const activeMembers = sortMembers(members.filter((member) => member.status === "active"));
@@ -311,6 +317,10 @@ export default async function WorkspacePage({
                           {ROLE_LABELS[invitation.role]} · expires{" "}
                           {formatWorkspaceTime(invitation.expires_at)}
                         </p>
+                        <InvitationLinkField
+                          invitationId={invitation.id}
+                          link={`${origin}/workspace/join/${invitation.token}`}
+                        />
                         <div className="mt-2 flex flex-wrap items-center gap-3">
                           <Link
                             href={`/workspace/join/${invitation.token}`}
