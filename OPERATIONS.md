@@ -18,6 +18,7 @@ Two rules come before all of it:
 | --- | --- | --- | --- | --- |
 | `NEXT_PUBLIC_SUPABASE_URL` | yes | browser-safe | `src/lib/supabase/config.ts` | Every page shows the setup notice; nothing pretends to work |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | yes | browser-safe | same | Same |
+| `SUPABASE_SERVICE_ROLE_KEY` | for exception monitoring | **server only** | `src/lib/observability/report-exception.ts` | Unhandled server exceptions are not recorded; the app still works |
 | `OLLAMA_API_KEY` | no | **server only** | `src/lib/ai/ollama.ts` at call time | AI panels explain the missing key; templates, exports and imports still work |
 | `STRIPE_SECRET_KEY` | no | **server only** | `src/lib/credits/stripe.ts` | Checkout shows a setup message; nothing charges |
 | `STRIPE_WEBHOOK_SECRET` | no | **server only** | `src/app/api/stripe/webhook/route.ts` | The webhook returns 503 |
@@ -37,13 +38,15 @@ Database-side configuration:
 | --- | --- | --- |
 | AI allowances (`per_user_daily`, `global_daily`, `in_flight_seconds`) | `public.ai_limits`, one row | `per_user_daily = 0` means no free plan; change only with a pricing decision |
 | Credit pack prices | `public.credit_packs` | $0.10 per credit, five packs; the table constrains amount to credits × 10 cents |
-| Operation rate card | `RATE_CARD_DRAFT.md` + `0035_operation_budgets.sql` | Approved for implementation, not live. Fixed per-operation credits, build/workflow/swarm budgets. `ai_prices` remains empty; migration, live billing and deployment still need separate approval |
+| Operation rate card | `RATE_CARD_DRAFT.md` + `0035_operation_budgets.sql` | Applied to production; live billing remains off. Fixed per-operation credits, build/workflow/swarm budgets. `ai_prices` remains empty |
 | `credit_webhook` secret | `public.app_secrets` | Must equal `CREDIT_RPC_TOKEN`; the webhook has no signed-in user |
 | Owners | `public.app_owners` | Only these accounts may open `/owner` |
 
 Never put a `service_role` key, a Stripe secret, an Ollama key, a GitHub,
 Vercel or Supabase credential, or a webhook token in `NEXT_PUBLIC_*`, client
-code, a repository file or chat. The app needs no `service_role` key at all.
+code, a repository file or chat. The server needs `SUPABASE_SERVICE_ROLE_KEY`
+only for the sanitized exception sink; all ordinary data access uses the anon key
+plus RLS.
 
 ### Deployment credentials
 
@@ -143,12 +146,21 @@ tracing; scheduled GitHub Actions can be delayed.
 
 ### Exception monitoring
 
-`src/instrumentation.ts` registers Sentry for the Node and edge runtimes;
-`src/instrumentation-client.ts` covers the browser. App Router error boundaries
-report render failures. Set `SENTRY_DSN` and `NEXT_PUBLIC_SENTRY_DSN` in the host
-secret store to enable capture; without a DSN, initialization is a no-op. Source
-map upload is not configured, so stack traces may be minified until Sentry org,
-project and auth-token settings are added.
+`src/instrumentation.ts` exports Next.js `onRequestError`. It writes a sanitized
+row to `public.error_events` through the server-only
+`SUPABASE_SERVICE_ROLE_KEY`: environment, release, runtime, route path, method,
+error class name, digest and stack frames. It never sends the error message,
+request body, headers, cookies, user id or email. If the key or Supabase URL is
+missing, reporting is a no-op and the original error still surfaces.
+
+The table enables RLS with no policies and has no grants for `anon` or
+`authenticated`; only `service_role` can write. The scheduled
+`.github/workflows/error-monitor.yml` job queries the table through
+`PRODUCTION_DATABASE_URL` every 15 minutes, opens `Production exceptions:
+unhandled server errors` when the last hour has any rows, updates it while they
+continue, and closes it after an hour with none. The issue contains only counts
+and timestamps. The same job deletes rows older than 30 days. This covers server
+request errors; browser render errors are not collected.
 
 ## Logs
 
@@ -162,17 +174,19 @@ Events currently logged: `health_check`, `export_json`, `export_csv`,
 `import_preview`, `import_commit`.
 
 Existing `console.error` calls keep the provider's short message and an error code;
-they never print a key or a row. Log retention is whatever the host provides; this
-project keeps no separate log store.
+they never print a key or a row. Log retention is whatever the host provides. The
+exception sink described above stores only sanitized class, path and stack-frame
+metadata; it is not a general log store.
 
 ## Migrations
 
 - Files live in `supabase/migrations/` and are applied in filename order, once each:
-  `0001` … `0035_operation_budgets.sql`.
+  `0001` … `0036_error_events.sql`.
 - Production migration history was reconciled on 2026-11-07: rows
   `0034_credit_pricing` (`20261107000000`) and `0035_operation_budgets`
   (`20261107000001`) were added after schema verification, without re-running
-  either migration.
+  either migration. `0036_error_events` (`20261107035600`) was recorded after the
+  table was applied; RLS is enabled and only `service_role` has access.
 - They are forward-only. There are no down migrations, and no rollback has been
   tested. Treat every migration as one-way.
 - Migrations are written to be re-runnable where possible (`create table if not
@@ -463,6 +477,9 @@ advisory flow in `SECURITY.md`, never a public issue.
 - The Resend webhook handles delivery failures in real time; the hourly monitor
   remains a reconciliation fallback. Neither measures inbox placement or sender
   reputation.
+- Exception monitoring covers unhandled server request errors only. Browser
+  render errors, handled errors and provider-side failures are not collected;
+  the GitHub issue monitor polls every 15 minutes and is not real-time.
 - Restore drills run on the same schema but not the same data volume as production.
 - Agent-team execution is request-scoped fixture work, not a background worker. A
   click advances at most the configured number of tasks; pausing stops future

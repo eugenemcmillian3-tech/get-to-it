@@ -1,8 +1,6 @@
 "use client";
 
-import * as Sentry from "@sentry/nextjs";
 import Link from "next/link";
-import { useEffect } from "react";
 import { focusRing, primaryButton, secondaryButton } from "@/lib/styles";
 
 export default function AppError({
@@ -12,10 +10,6 @@ export default function AppError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
-  useEffect(() => {
-    Sentry.captureException(error);
-  }, [error]);
-
   return (
     <main className="mx-auto w-full max-w-md px-5 py-16 text-center">
       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand-strong">

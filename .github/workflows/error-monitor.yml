@@ -1,0 +1,100 @@
+name: Production exception monitor
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: production-exception-monitor
+  cancel-in-progress: false
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Require production database secret
+        env:
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          test -n "$PRODUCTION_DATABASE_URL" || { echo "::error::PRODUCTION_DATABASE_URL is missing"; exit 1; }
+
+      - name: Count unhandled server exceptions in the last hour
+        id: errors
+        env:
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          PGURL="$(node -e '
+            const u = new URL(process.env.PRODUCTION_DATABASE_URL);
+            u.hostname = "aws-0-us-east-1.pooler.supabase.com";
+            u.port = "5432";
+            u.username = "postgres.qhlzjhdcnlokbsdsrqqy";
+            u.searchParams.set("sslmode", "require");
+            process.stdout.write(u.toString());
+          ')"
+          result="$(docker run --rm -e PGURL postgres:17 \
+            psql "$PGURL" -At -F '|' -v ON_ERROR_STOP=1 -c "
+              with pruned as (
+                delete from public.error_events
+                 where occurred_at < now() - interval '30 days'
+                 returning 1
+              )
+              select count(*)::int,
+                     coalesce(min(occurred_at)::text, ''),
+                     coalesce(max(occurred_at)::text, '')
+                from public.error_events
+               where occurred_at > now() - interval '1 hour';
+            ")"
+          IFS='|' read -r count first_seen last_seen <<< "$result"
+          test -n "$count"
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          echo "first_seen=$first_seen" >> "$GITHUB_OUTPUT"
+          echo "last_seen=$last_seen" >> "$GITHUB_OUTPUT"
+          echo "Unhandled server exceptions in the last hour: $count"
+
+      - name: Open or update the alert issue
+        if: steps.errors.outputs.count != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COUNT: ${{ steps.errors.outputs.count }}
+          FIRST_SEEN: ${{ steps.errors.outputs.first_seen }}
+          LAST_SEEN: ${{ steps.errors.outputs.last_seen }}
+        run: |
+          set -euo pipefail
+          title="Production exceptions: unhandled server errors"
+          body="$(printf '%s\n' \
+            "The scheduled exception monitor found **${COUNT}** unhandled server exception(s) in the last hour." \
+            "" \
+            "| Field | Value |" \
+            "| --- | --- |" \
+            "| Count | ${COUNT} |" \
+            "| First seen (UTC) | \`${FIRST_SEEN}\` |" \
+            "| Last seen (UTC) | \`${LAST_SEEN}\` |" \
+            "" \
+            "This issue contains no error messages, request bodies, headers, user ids or emails. Inspect the sanitized rows in \`public.error_events\` and the host logs. The monitor closes this issue automatically after an hour with no new exceptions.")"
+          number="$(gh issue list --state open --search "\"${title}\" in:title" --json number,title --jq ".[] | select(.title == \"${title}\") | .number" | head -n 1)"
+          if [ -n "$number" ]; then
+            gh issue edit "$number" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+
+      - name: Close the alert issue after recovery
+        if: steps.errors.outputs.count == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          title="Production exceptions: unhandled server errors"
+          gh issue list --state open --search "\"${title}\" in:title" --json number,title --jq ".[] | select(.title == \"${title}\") | .number" |
+            while read -r number; do
+              [ -z "$number" ] || gh issue close "$number" --comment "No unhandled server exceptions were recorded in the last hour. Closing automatically."
+            done
