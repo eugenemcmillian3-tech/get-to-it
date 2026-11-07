@@ -315,10 +315,11 @@ Pass the merged commit explicitly if `HEAD` is not the merge commit:
 npm run check:e2e:post-merge -- --commit <merge-sha>
 ```
 
-The check waits for the push-triggered **Authenticated E2E** run for that commit,
-exits non-zero on failure or timeout, and prints the run URL. It uses the GitHub
-CLI, so authenticate with `gh auth login` (or provide `GH_TOKEN`) first. Record
-the run URL with the release record.
+The check fetches `origin/main` if the merge commit is missing locally, then waits
+for the push-triggered **Authenticated E2E** run for that commit, exits non-zero
+on failure or timeout, and prints the run URL. It uses the GitHub CLI, so
+authenticate with `gh auth login` (or provide `GH_TOKEN`) first. Record the run
+URL in the release record below.
 
 The CI quality gate runs `npm audit --audit-level=high` over both development and
 production dependencies. `release:check` keeps its production-only audit because
@@ -366,7 +367,7 @@ delete these `resend-…` labels while their alerts are active.
 Then check by hand, and record the result rather than assuming it:
 
 - [ ] **Post-merge E2E:** `npm run check:e2e:post-merge` passes for the merged
-      commit; record the merge revision and run URL: `________`.
+      commit; record the merge revision and run URL in the release record below.
 - [ ] Sign in, create a goal, a task and saved work; complete and reopen the task.
 - [ ] Run a workflow through input, draft, review, approval and checkpoint.
 - [ ] Export JSON from `/data`, then preview and import it into a second account.
@@ -383,6 +384,29 @@ browser end-to-end suite, no load test and no penetration test. Email delivery
 has a scheduled smoke test; it is not a full deliverability or reputation audit.
 The secret scan is a pattern check on tracked files; it is not a security audit,
 and passing it does not mean the deployment is secure.
+
+### Release record
+
+Copy this table into the release PR or operations log at execution time. Leave it
+unfilled until then; a blank required field means **NO-GO**.
+
+| Field | Value |
+| --- | --- |
+| Release date (UTC) | `________` |
+| Pre-merge source revision (`npm run release:check`) | `________` |
+| PR | `________` |
+| Merge revision on `main` | `________` |
+| Post-merge E2E run URL | `________` |
+| Post-merge E2E result | `________` |
+| Production deployment ID | `________` |
+| Production `/api/health` revision | `________` |
+| Manual smoke checks | `________` |
+| Rollback / backup reference (if applicable) | `________` |
+| Approved by / UTC | `________` |
+
+The post-merge E2E row must reference the push run on `main` for the merge
+revision, not the advisory pull-request run. `npm run check:e2e:post-merge` prints
+that URL.
 
 ## Repository security
 
