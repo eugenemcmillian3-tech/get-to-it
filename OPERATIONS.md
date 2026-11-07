@@ -303,16 +303,22 @@ It exits non-zero if any step fails. `test:restore` is separate because it needs
 database.
 
 The `authenticated-e2e` check is advisory on pull requests, so a green PR is not
-enough for release. After merging, confirm the **Authenticated E2E** run for the
-merged `main` commit:
+enough for release. After merging, check out or pull `main` and run:
 
 ```bash
-gh run list --repo eugenemcmillian3-tech/get-to-it --workflow e2e.yml --branch main \
-  --limit 5 --json databaseId,headSha,status,conclusion,url
+npm run check:e2e:post-merge
 ```
 
-Match `headSha` to the merge commit, wait for `status: completed`, and require
-`conclusion: success`. Record the run URL with the release record.
+Pass the merged commit explicitly if `HEAD` is not the merge commit:
+
+```bash
+npm run check:e2e:post-merge -- --commit <merge-sha>
+```
+
+The check waits for the push-triggered **Authenticated E2E** run for that commit,
+exits non-zero on failure or timeout, and prints the run URL. It uses the GitHub
+CLI, so authenticate with `gh auth login` (or provide `GH_TOKEN`) first. Record
+the run URL with the release record.
 
 The CI quality gate runs `npm audit --audit-level=high` over both development and
 production dependencies. `release:check` keeps its production-only audit because
@@ -359,9 +365,8 @@ delete these `resend-…` labels while their alerts are active.
 
 Then check by hand, and record the result rather than assuming it:
 
-- [ ] **Post-merge E2E:** the `Authenticated E2E` run on `main` for the merged
-      commit is `completed` / `success`; record the merge revision and run URL:
-      `________`.
+- [ ] **Post-merge E2E:** `npm run check:e2e:post-merge` passes for the merged
+      commit; record the merge revision and run URL: `________`.
 - [ ] Sign in, create a goal, a task and saved work; complete and reopen the task.
 - [ ] Run a workflow through input, draft, review, approval and checkpoint.
 - [ ] Export JSON from `/data`, then preview and import it into a second account.
