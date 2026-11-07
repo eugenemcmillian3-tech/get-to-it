@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { BuildState } from "@/lib/action-state";
 import { getSession } from "@/lib/auth";
+import { hasBillingGrant } from "@/lib/billing/entitlements";
 import {
   DeploymentError,
   buildDeploymentPlan,
@@ -500,6 +501,9 @@ export async function createDeploymentPlanAction(
   if (!project) return fail(NOT_AVAILABLE);
   const target = targetFrom(readText(formData, "target"));
   if (!target) return fail("Choose preview or production.");
+  if (target === "production" && !(await hasBillingGrant(session, "build_release"))) {
+    return fail("Production deployment is part of the Build & release pack. Buy it under Plans; preview deployment stays available.");
+  }
 
   const files = await projectFiles(session, projectId);
   if (files.length === 0) return fail("Generate project files before planning a deployment.");
@@ -863,6 +867,9 @@ export async function approveDeploymentAction(
   if (!row) return fail("Unknown deployment.");
   const deployment = row as AppDeployment & { snapshot: DeploymentFile[] };
   if (deployment.status !== "checks_ready") return fail("Run successful pre-deploy checks before approving.");
+  if (deployment.target === "production" && !(await hasBillingGrant(session, "build_release"))) {
+    return fail("Production deployment is part of the Build & release pack. Buy it under Plans; preview deployment stays available.");
+  }
   if (!planHashInput || planHashInput !== deployment.plan_hash || planHash(deployment.plan) !== deployment.plan_hash) {
     return fail("The plan changed or its fingerprint does not match. Nothing external was changed.");
   }
@@ -1054,6 +1061,9 @@ export async function redeploySnapshotAction(
   const project = await ownerProject(session, projectId);
   if (!project) return fail(NOT_AVAILABLE);
   if (!target) return fail("Choose preview or production.");
+  if (target === "production" && !(await hasBillingGrant(session, "build_release"))) {
+    return fail("Production deployment is part of the Build & release pack. Buy it under Plans; preview deployment stays available.");
+  }
   if (!isUuid(deploymentId)) return fail("Unknown deployment.");
 
   const { data: previous } = await session.supabase

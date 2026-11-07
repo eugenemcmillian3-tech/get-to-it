@@ -3,7 +3,7 @@
 ## Decision
 
 - **Retail value:** one credit costs **$0.10 USD**.
-- **Model:** prepaid credits only. No free plan, no trial, no promotional credits and no mandatory subscription.
+- **Model:** prepaid AI credits plus optional paid product offers. No free plan, no trial, no promotional credits and no mandatory subscription or auto-renewal.
 - **New accounts:** zero credits. Nothing is granted at signup.
 - **Credit packs:** one-time purchases only.
 
@@ -18,6 +18,27 @@
 The $0.10 decision supersedes the earlier $0.01-per-credit proposal. It is a
 retail-price increase for the same work allowance, not just a wallet
 denomination change.
+
+## Paid product offers — separate from AI credits
+
+Seven optional offers are implemented in `0038_billing_offers.sql`. They are
+paid product entitlements and **never add AI credits or an AI allowance**:
+
+| Offer | Default price | Access |
+| --- | ---: | --- |
+| Team seats | $19 per seat / 30 days | Raises the workspace seat limit. The owner is seat one. |
+| Pro bundle | $49 / 30 days | Premium templates, priority support, white-label and onboarding. |
+| Automation add-on | $19 / 30 days | 500 calls and 100 writes per project per day instead of 100 and 25. |
+| Build & release pack | $79 / 90 days | Production deployment. Checks and explicit approval still apply. |
+| Premium templates | $29 | The two premium static templates. |
+| White-label & custom domain | $99 | Attaches a Vercel domain; the customer still owns DNS. |
+| Priority support & onboarding | $99 / 30 days | Priority request queue and self-serve onboarding checklist. |
+
+Prices are defaults in the database and can be changed without a code deploy.
+Checkout is one-time in test mode; nothing renews. A verified webhook creates
+one entitlement row, and every gate checks the database and expiry. Refunds
+revoke the entitlement without deleting existing work. DNS and human support
+response time remain explicit external limits, not promises.
 
 ## Reference workload — not a universal allowance
 

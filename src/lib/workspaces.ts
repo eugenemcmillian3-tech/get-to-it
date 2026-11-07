@@ -501,6 +501,8 @@ export function workspaceErrorMessage(code: string | undefined): string {
       return "They're already a member of this workspace.";
     case "already-invited":
       return "There's already a pending invitation for that address.";
+    case "seat-limit":
+      return "This workspace has no free seats. Buy team seats under Plans, or cancel a pending invitation.";
     case "no-invitation":
       return "That invitation is no longer pending.";
     case "assignee-not-member":

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { FormState } from "@/lib/action-state";
 import { getSession } from "@/lib/auth";
+import { hasBillingGrant } from "@/lib/billing/entitlements";
 import { getPersonalTemplate } from "@/lib/data/templates";
 import { stepsFromTasks } from "@/lib/templates/helpers";
 import { getStaticTemplate } from "@/lib/templates/library";
@@ -82,6 +83,12 @@ export async function createGoalFromTemplateAction(
   } else if (kind === "static") {
     const template = getStaticTemplate(key);
     if (!template) return { status: "error", message: NOT_AVAILABLE };
+    if (template.premium && !(await hasBillingGrant(session, "premium_templates"))) {
+      return {
+        status: "error",
+        message: "That is a premium template. Unlock it under Plans first.",
+      };
+    }
   } else {
     return { status: "error", message: NOT_AVAILABLE };
   }

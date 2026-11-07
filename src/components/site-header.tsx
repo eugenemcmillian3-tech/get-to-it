@@ -20,6 +20,12 @@ export function SiteHeader({
         </Link>
         <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
           <Link
+            href="/billing"
+            className={`rounded text-sm font-medium text-muted underline decoration-line underline-offset-4 hover:text-ink ${focusRing}`}
+          >
+            Plans
+          </Link>
+          <Link
             href="/credits"
             className={`rounded text-sm font-medium text-muted underline decoration-line underline-offset-4 hover:text-ink ${focusRing}`}
           >

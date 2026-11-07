@@ -46,6 +46,8 @@ export type GoalTemplate = {
   description: string;
   desired_outcome: string;
   steps: TemplateStep[];
+  /** Premium templates need a premium_templates entitlement. */
+  premium?: boolean;
 };
 
 /** A private, reusable template saved from one of this person's own plans. */
@@ -269,6 +271,68 @@ export type AiUsageRow = {
 
 /** Aggregate counters only: no private task content is ever selected. */
 export type OwnerMetrics = Record<string, number | boolean | Record<string, number>>;
+
+/** Phase 31: paid product offers. These are not AI credits. */
+export type BillingOffer = {
+  slug: string;
+  label: string;
+  description: string;
+  price_cents: number;
+  currency: string;
+  quantity_label: string;
+  min_quantity: number;
+  max_quantity: number;
+  seat_based: boolean;
+  grants: string[];
+  duration_days: number | null;
+  sort_order: number;
+};
+
+export type BillingPurchase = {
+  id: string;
+  offer_slug: string;
+  quantity: number;
+  amount_cents: number;
+  currency: string;
+  status: "pending" | "paid" | "refunded" | "failed" | "canceled" | "expired";
+  workspace_id: string | null;
+  project_id: string | null;
+  receipt_url: string | null;
+  paid_at: string | null;
+  refunded_at: string | null;
+  created_at: string;
+};
+
+export type BillingEntitlement = {
+  id: string;
+  offer_slug: string;
+  grants: string[];
+  quantity: number;
+  workspace_id: string | null;
+  project_id: string | null;
+  status: "active" | "revoked" | "expired";
+  starts_at: string;
+  expires_at: string | null;
+  created_at: string;
+};
+
+export type SupportRequest = {
+  id: string;
+  subject: string;
+  body: string;
+  status: "open" | "closed";
+  priority: "standard" | "priority";
+  created_at: string;
+};
+
+export type AppCustomDomain = {
+  id: string;
+  project_id: string;
+  domain: string;
+  status: "pending" | "active" | "error";
+  detail: Record<string, unknown>;
+  created_at: string;
+};
 
 /** Phase 11: work habits a person typed in themselves. Every field is optional. */
 export type TaskSize = "small" | "medium" | "large";

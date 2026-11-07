@@ -76,6 +76,47 @@ export async function POST(request: Request) {
     );
   }
 
+  // Paid offers are fulfilled by the same verified event. The offer's
+  // metadata is how a billing checkout is told apart from a credit purchase.
+  // Refunds are sent too, because a billing purchase has to be revoked; the
+  // billing function ignores unknown providers and payments.
+  const object = event.data.object;
+  const metadata = (object.metadata ?? {}) as Record<string, unknown>;
+  const purchaseId = typeof metadata.purchase_id === "string" ? metadata.purchase_id : null;
+  const isBillingEvent = Boolean(purchaseId) || event.type === "charge.refunded";
+
+  if (isBillingEvent) {
+    const { data: billingData, error: billingError } = await supabase.rpc(
+      "billing_handle_event",
+      {
+        p_token: rpcToken,
+        p_event_id: event.id,
+        p_type: event.type,
+        p_session_id: facts.sessionId,
+        p_provider_payment_id: facts.providerPaymentId,
+        p_receipt_url: facts.receiptUrl,
+      },
+    );
+
+    if (billingError) {
+      console.error("billing_handle_event failed:", billingError.message);
+      return NextResponse.json(
+        { ok: false, error: "The offer event could not be recorded yet." },
+        { status: 500 },
+      );
+    }
+
+    const billingResult = (billingData ?? {}) as { ok?: boolean; code?: string };
+    if (billingResult.ok === false && billingResult.code === "unauthorized") {
+      return NextResponse.json(
+        { ok: false, error: "That webhook token is not accepted." },
+        { status: 401 },
+      );
+    }
+
+    return NextResponse.json({ ok: true, result: data, offer: billingData });
+  }
+
   const result = (data ?? {}) as { ok?: boolean; code?: string };
 
   if (result.ok === false && result.code === "unauthorized") {

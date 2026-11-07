@@ -72,6 +72,9 @@ function failureMessage(message: string | undefined): string {
   if (text.includes("assignee")) {
     return workspaceErrorMessage("assignee-not-member");
   }
+  if (text.includes("workspace-seat-limit") || text.includes("seat limit")) {
+    return workspaceErrorMessage("seat-limit");
+  }
   return "That didn't work. Nothing was changed — try again.";
 }
 

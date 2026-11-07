@@ -15,7 +15,6 @@ import { SiteHeader } from "@/components/site-header";
 import { TEAM_ROLE_LABELS, type TeamRole } from "@/lib/agent-team";
 import { requireSession } from "@/lib/auth";
 import {
-  COMPOSIO_LIMITS,
   COMPOSIO_SECURITY_NOTE,
   COMPOSIO_SETUP_MESSAGE,
   COMPOSIO_SDK_PACKAGE,
@@ -147,10 +146,11 @@ export default async function ConnectionsPage({
             Supported integrations
           </h2>
           <p className="mt-1 text-sm text-muted">
-            Both use Composio-managed OAuth. Only these toolkits are exposed by this build; a toolkit is
-            available only because its connection flow and tool discovery are implemented.
+            These use Composio-managed authorization (OAuth, or an API key for providers that require
+            one). Only these toolkits are exposed by this build; a toolkit is available only because its
+            connection flow and tool discovery are implemented. Your Composio project must also allow it.
           </p>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {COMPOSIO_TOOLKITS.map((toolkit) => {
               const connected = activeConnections.filter(
                 (connection) => connection.toolkit === toolkit.slug,
@@ -161,6 +161,7 @@ export default async function ConnectionsPage({
                     <div>
                       <h3 className="text-base font-bold">{toolkit.label}</h3>
                       <p className="text-xs uppercase tracking-wide text-muted">{toolkit.category}</p>
+                      <p className="mt-1 text-xs text-muted">Authorization: {toolkit.auth}</p>
                     </div>
                     <span className={chipClass}>{connected.length > 0 ? `${connected.length} connected` : "Not connected"}</span>
                   </div>
@@ -394,7 +395,7 @@ export default async function ConnectionsPage({
           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted">
             <li>Composio access is server-only; the API key never reaches the browser or generated projects.</li>
             <li>Sessions are references stored per project and toolkit. Session MCP URLs are never shown or logged.</li>
-            <li>One in-flight call per user; {COMPOSIO_LIMITS.maxCallsPerDay} calls and {COMPOSIO_LIMITS.maxWritesPerDay} writes per project per day.</li>
+            <li>One in-flight call per user; {data.usage.calls_limit} calls and {data.usage.writes_limit} writes per project per day. The automation add-on raises these limits; every action still needs approval.</li>
             <li>Timeouts and network failures are recorded as uncertain, never retried automatically.</li>
             <li>Tool usage is counted separately from AI request credits.</li>
           </ul>

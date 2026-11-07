@@ -274,6 +274,33 @@ export async function validateVercel(input: {
   };
 }
 
+export type VercelDomainResult = {
+  verified: boolean;
+  detail: Record<string, unknown>;
+};
+
+/** Attach a customer domain to the connected Vercel project. DNS is separate. */
+export async function addVercelDomain(input: {
+  token: string;
+  projectId: string;
+  teamId: string | null;
+  domain: string;
+  fetchImpl?: FetchLike;
+}): Promise<VercelDomainResult> {
+  const fetchImpl = input.fetchImpl ?? fetch;
+  const payload = await requestJson(
+    fetchImpl,
+    `https://api.vercel.com/v10/projects/${encoded(input.projectId)}/domains${teamQuery(input.teamId)}`,
+    { method: "POST", body: JSON.stringify({ name: input.domain }) },
+    input.token,
+  );
+
+  return {
+    verified: payload.verified === true,
+    detail: payload as Record<string, unknown>,
+  };
+}
+
 export type VercelEnvInput = {
   name: string;
   value: string;

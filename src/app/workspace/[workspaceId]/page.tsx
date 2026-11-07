@@ -69,10 +69,13 @@ export default async function WorkspacePage({
   ]);
   if (!overview) notFound();
 
-  const { workspace, myRole, members, goals, tasks, events, invitations, unread } = overview;
+  const { workspace, myRole, members, goals, tasks, events, invitations, unread, seatLimit } =
+    overview;
   const progress = workspaceProgress(goals, tasks, session.user.id);
   const memberById = new Map(members.map((member) => [member.user_id, member]));
   const activeMembers = sortMembers(members.filter((member) => member.status === "active"));
+  const seatsUsed = activeMembers.length + invitations.length;
+  const hasFreeSeat = seatsUsed < seatLimit;
   const formerMembers = sortMembers(members.filter((member) => member.status !== "active"));
   const canManageGoals = myRole === "owner" || myRole === "admin";
 
@@ -103,7 +106,8 @@ export default async function WorkspacePage({
           <div className="mt-3 flex flex-wrap gap-2">
             <span className={chipClass}>{ROLE_LABELS[myRole]}</span>
             <span className={chipClass}>
-              {activeMembers.length} {activeMembers.length === 1 ? "member" : "members"}
+              {activeMembers.length} {activeMembers.length === 1 ? "member" : "members"} ·{" "}
+              {seatsUsed} of {seatLimit} seats used
             </span>
             <span className={chipClass}>
               {progress.tasksDone} of {progress.tasksTotal} tasks done
@@ -278,7 +282,18 @@ export default async function WorkspacePage({
           {myRole === "owner" ? (
             <div className="mt-5">
               <h3 className="text-sm font-bold">Invite someone</h3>
-              <WorkspaceInviteForm workspaceId={workspace.id} />
+              {hasFreeSeat ? (
+                <WorkspaceInviteForm workspaceId={workspace.id} />
+              ) : (
+                <p className="mt-2 rounded-xl border border-line bg-card p-3 text-sm leading-relaxed">
+                  No free seats. This workspace has {seatLimit} paid seat
+                  {seatLimit === 1 ? "" : "s"}.{" "}
+                  <Link href="/billing" className={`font-semibold underline ${focusRing}`}>
+                    Buy team seats under Plans
+                  </Link>{" "}
+                  or cancel a pending invitation.
+                </p>
+              )}
 
               {invitations.length > 0 ? (
                 <div className="mt-4">

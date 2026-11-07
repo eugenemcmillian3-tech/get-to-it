@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   COMPOSIO_LIMITS,
+  COMPOSIO_TOOLKIT_SLUGS,
   actionArgumentsHash,
   approvalCoversAction,
   canCancelAction,
@@ -22,17 +23,27 @@ import {
 const HASH = "a".repeat(64);
 
 describe("Composio contracts", () => {
-  it("exposes only GitHub and Notion", () => {
+  it("exposes the managed-auth toolkit catalog", () => {
+    expect(COMPOSIO_TOOLKIT_SLUGS).toHaveLength(45);
     expect(isComposioToolkit("github")).toBe(true);
     expect(isComposioToolkit("notion")).toBe(true);
-    expect(isComposioToolkit("slack")).toBe(false);
+    expect(isComposioToolkit("slack")).toBe(true);
+    expect(isComposioToolkit("googlecalendar")).toBe(true);
+    expect(isComposioToolkit("microsoft_teams")).toBe(true);
+    expect(isComposioToolkit("google_search_console")).toBe(true);
+    expect(isComposioToolkit("xero")).toBe(false);
     expect(isComposioToolkit("GITHUB")).toBe(false);
   });
 
   it("accepts only well-formed tool slugs for the right toolkit", () => {
     expect(isValidToolSlug("github", "GITHUB_CREATE_AN_ISSUE")).toBe(true);
     expect(isValidToolSlug("notion", "NOTION_CREATE_NOTION_PAGE")).toBe(true);
+    expect(isValidToolSlug("slack", "SLACK_SEND_MESSAGE")).toBe(true);
+    expect(isValidToolSlug("googlecalendar", "GOOGLECALENDAR_CREATE_EVENT")).toBe(true);
+    expect(isValidToolSlug("microsoft_teams", "MICROSOFT_TEAMS_GET_MY_PROFILE")).toBe(true);
+    expect(isValidToolSlug("google_search_console", "GOOGLE_SEARCH_CONSOLE_LIST_SITES")).toBe(true);
     expect(isValidToolSlug("github", "NOTION_CREATE_NOTION_PAGE")).toBe(false);
+    expect(isValidToolSlug("googlecalendar", "GMAIL_SEND_EMAIL")).toBe(false);
     expect(isValidToolSlug("github", "github_create_issue")).toBe(false);
     expect(isValidToolSlug("github", "GITHUB_")).toBe(false);
     expect(isValidToolSlug("github", "GITHUB_X; DROP TABLE")).toBe(false);
