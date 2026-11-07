@@ -8,14 +8,14 @@ GET TO IT deploys from the `main` branch of `eugenemcmillian3-tech/get-to-it` to
 - Vercel project ID: `prj_7ZFE4kOPQgsrubitOv1cDcIMPCOx`
 - Vercel production branch: `main`
 - Supabase project: `qhlzjhdcnlokbsdsrqqy` (created through the Vercel Supabase integration)
-- Supabase migration history: 13 recorded rows end at version `20261104051652` (recorded name `0033_composio_connections_part2`); the repository's `0033_composio_connections.sql` does not match that recorded name. The 0034/0035 schema effects are present in production (five active packs, `per_user_daily = 0`, four-argument `reserve_ai_request`), but those migrations are **not recorded**. Reconcile the history before the next migration.
+- Supabase migration history: reconciled on 2026-11-07. The original 13 rows ended at version `20261104051652` (recorded name `0033_composio_connections_part2`); the two missing rows are now recorded as `0034_credit_pricing` (`20261107000000`) and `0035_operation_budgets` (`20261107000001`) after schema verification, without re-running either migration. Production has five active packs, `per_user_daily = 0`, and the four-argument `reserve_ai_request`.
 - Pending production migrations: none identified beyond the history gap above. See [Pricing rollout](#pricing-rollout-0034-and-0035) below.
 - Auth callback: `https://get-to-it-wvpy.vercel.app/auth/callback`
 - Vercel environment names: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `DEPLOYMENT_VAULT_KEY`, `CRON_SECRET`, `CREDIT_RPC_TOKEN`, `SUPABASE_OAUTH_REDIRECT_URI`
 
 Optional credentials configured in production as of 2026-11-04: `SUPABASE_OAUTH_CLIENT_ID`, `SUPABASE_OAUTH_CLIENT_SECRET` and `COMPOSIO_API_KEY`.
 
-Optional credentials not configured in production: `OLLAMA_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `PREVIEW_RUNNER_URL`, `PREVIEW_RUNNER_TOKEN` and `PREVIEW_SIGNING_SECRET`. The app stays in setup mode for those features rather than pretending they work. The Vercel Supabase integration also supplies server-only `POSTGRES_*` connection values and `SUPABASE_SERVICE_ROLE_KEY`; none of those are browser-exposed.
+Optional credentials not configured in production: `OLLAMA_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_DSN`, `PREVIEW_RUNNER_URL`, `PREVIEW_RUNNER_TOKEN` and `PREVIEW_SIGNING_SECRET`. The app stays in setup mode for those features rather than pretending they work; Sentry is a no-op until both Sentry DSNs are set. The Vercel Supabase integration also supplies server-only `POSTGRES_*` connection values and `SUPABASE_SERVICE_ROLE_KEY`; none of those are browser-exposed.
 
 The previous Vercel and Supabase projects are no longer the deployment target. Never put a Supabase service-role key in the browser or repository. Keep commits authored with the GitHub account's noreply address so Vercel's Git-author check accepts them.
 

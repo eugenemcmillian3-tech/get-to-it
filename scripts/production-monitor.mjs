@@ -20,6 +20,8 @@ const DEFAULT_BASE_URL = "https://get-to-it-wvpy.vercel.app";
 const ALERT_TITLE = "Production monitor: failing";
 const REQUEST_TIMEOUT_MS = 15_000;
 const USER_AGENT = "get-to-it-production-monitor/1.0";
+const BACKUP_WORKFLOW = "production-backup.yml";
+const MAX_BACKUP_AGE_MS = 36 * 60 * 60 * 1000;
 
 const baseUrl = (process.env.MONITOR_BASE_URL?.trim() || DEFAULT_BASE_URL).replace(/\/+$/, "");
 const githubToken = process.env.GITHUB_TOKEN?.trim() ?? "";
@@ -249,9 +251,54 @@ async function closeRecovered() {
   }
 }
 
+async function checkBackupFreshness() {
+  if (!githubToken || !githubRepository) {
+    return {
+      name: "backup freshness",
+      path: `GitHub Actions ${BACKUP_WORKFLOW}`,
+      ok: true,
+      detail: "skipped (no GitHub credentials in this local run)",
+    };
+  }
+
+  const data = await github(
+    `/repos/${githubRepository}/actions/workflows/${BACKUP_WORKFLOW}/runs?per_page=20`,
+  );
+  const runs = Array.isArray(data?.workflow_runs) ? data.workflow_runs : [];
+  const latestSuccess = runs.find(
+    (run) => run.conclusion === "success" && typeof run.created_at === "string",
+  );
+
+  if (!latestSuccess) throw new Error("no successful production backup run found");
+
+  const ageMs = Date.now() - Date.parse(latestSuccess.created_at);
+  if (!Number.isFinite(ageMs) || ageMs > MAX_BACKUP_AGE_MS) {
+    const hours = Number.isFinite(ageMs) ? (ageMs / 3_600_000).toFixed(1) : "unknown";
+    throw new Error(`latest successful backup is ${hours} hours old; expected <= 36`);
+  }
+
+  const newerFailure = runs.find(
+    (run) =>
+      run.conclusion === "failure" &&
+      run.status === "completed" &&
+      typeof run.created_at === "string" &&
+      Date.parse(run.created_at) > Date.parse(latestSuccess.created_at),
+  );
+  if (newerFailure) {
+    throw new Error(`latest completed backup run ${newerFailure.id} failed`);
+  }
+
+  return {
+    name: "backup freshness",
+    path: `GitHub Actions ${BACKUP_WORKFLOW}`,
+    ok: true,
+    detail: `latest success ${latestSuccess.id} (${(ageMs / 3_600_000).toFixed(1)}h old)`,
+  };
+}
+
 async function main() {
   console.log(`Checking ${baseUrl} at ${new Date().toISOString()}...`);
-  const results = await Promise.all(
+  const httpResults = await Promise.all(
     checks.map(async (check) => {
       try {
         return { ...(await checkOne(check)), ok: true };
@@ -266,10 +313,24 @@ async function main() {
     }),
   );
 
+  let backupResult;
+  try {
+    backupResult = await checkBackupFreshness();
+  } catch (error) {
+    backupResult = {
+      name: "backup freshness",
+      path: `GitHub Actions ${BACKUP_WORKFLOW}`,
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  const results = [...httpResults, backupResult];
+
   for (const result of results) {
     console.log(
       result.ok
-        ? `ok   ${result.name}: HTTP ${result.status}`
+        ? `ok   ${result.name}: ${result.detail ?? `HTTP ${result.status}`}`
         : `FAIL ${result.name}: ${result.error}`,
     );
   }
