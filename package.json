@@ -15,6 +15,7 @@
     "test:functional": "node scripts/e2e-functional.mjs",
     "test:email": "node scripts/email-signup-smoke.mjs",
     "test:preview": "PREVIEW_RUNNER_TEST=1 vitest run tests/preview-runner.integration.test.ts",
+    "check:e2e:post-merge": "node scripts/post-merge-e2e-check.mjs",
     "check:secrets": "node scripts/secrets-check.mjs",
     "release:check": "node scripts/release-check.mjs"
   },
