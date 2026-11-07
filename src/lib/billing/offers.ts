@@ -145,5 +145,19 @@ export function offerDurationLabel(durationDays: number | null): string {
   return `${durationDays}-day pass, no auto-renew`;
 }
 
+export const BILLING_GRANT_LABELS: Record<BillingGrant, string> = {
+  team_seats: "Team seats",
+  premium_templates: "Premium templates",
+  priority_support: "Priority support",
+  white_label: "White-label & custom domain",
+  onboarding: "Onboarding checklist",
+  automation_plus: "Automation add-on",
+  build_release: "Build & release pack",
+};
+
+export function billingGrantLabel(grant: string): string {
+  return BILLING_GRANT_LABELS[grant as BillingGrant] ?? grant;
+}
+
 export const BILLING_NOT_CREDITS =
   "These offers do not add AI credits or an AI allowance. AI work is still paid for separately from your credit balance.";
