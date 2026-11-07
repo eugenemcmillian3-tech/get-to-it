@@ -217,6 +217,9 @@ describe("Resend GitHub alert publishing", () => {
 
     expect(result).toBe("created");
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe(
+      "https://github.test/repos/owner/repo/issues",
+    );
     expect(posted.value?.title).toBe("Resend delivery alert: email_123");
     expect(String(posted.value?.body)).not.toContain("private@example.test");
   });
