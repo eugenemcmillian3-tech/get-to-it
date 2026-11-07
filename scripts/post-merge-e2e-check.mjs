@@ -5,7 +5,8 @@
  * Finds the push-triggered `e2e.yml` run on `main` for the merged commit and
  * polls it until it succeeds, fails, or the timeout expires. A failed or
  * missing run exits non-zero, so a release cannot be recorded until the merged
- * revision is green.
+ * revision is green. If the commit is not available locally, fetch `origin/main`
+ * once and retry before failing.
  *
  * Usage:
  *   npm run check:e2e:post-merge
@@ -14,6 +15,9 @@
  *
  * The script uses the authenticated `gh` CLI. Set GH_TOKEN or GITHUB_TOKEN when
  * gh is not already signed in. It never prints environment values.
+ *
+ * If the requested commit is not available locally, the check fetches
+ * `origin/main` once before reporting that it cannot resolve the commit.
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
@@ -151,17 +155,48 @@ function repository() {
   return `${match[1]}/${match[2]}`;
 }
 
-function resolveCommit(input) {
-  const target = input || "HEAD";
+function revParse(target) {
   try {
     return execFileSync("git", ["rev-parse", "--verify", `${target}^{commit}`], {
       encoding: "utf8",
     }).trim();
   } catch {
+    return "";
+  }
+}
+
+function fetchOriginMain() {
+  const result = spawnSync("git", ["fetch", "--quiet", "origin", "main"], {
+    encoding: "utf8",
+    timeout: 30_000,
+    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+  });
+
+  if (result.error) {
+    throw new Error(`Cannot fetch origin/main: ${result.error.message}`);
+  }
+  if (result.status !== 0) {
+    const detail = (result.stderr || result.stdout || "").trim();
     throw new Error(
-      `Cannot resolve ${target}. Fetch the merged main commit first, or pass its full SHA with --commit.`,
+      `Cannot fetch origin/main${result.status ? ` (${result.status})` : ""}.${detail ? ` ${detail}` : ""}`,
     );
   }
+}
+
+function resolveCommit(input) {
+  const target = input || "HEAD";
+  const local = revParse(target);
+  if (local) return local;
+
+  console.log(`Commit ${target} is not available locally; fetching origin/main...`);
+  fetchOriginMain();
+
+  const fetched = revParse(target);
+  if (fetched) return fetched;
+
+  throw new Error(
+    `Cannot resolve ${target} after fetching origin/main. Fetch the branch containing it or pass its full SHA with --commit.`,
+  );
 }
 
 function ghJson(args) {
