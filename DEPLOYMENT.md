@@ -20,6 +20,46 @@ Optional credentials not configured in production: `OLLAMA_API_KEY`, `PREVIEW_RU
 
 The previous Vercel and Supabase projects are no longer the deployment target. Never put a Supabase service-role key in the browser or repository. Keep commits authored with the GitHub account's noreply address so Vercel's Git-author check accepts them.
 
+## Vercel project and alias inventory
+
+Last inventoried: 2026-11-08.
+
+- Active Vercel team: `get-to-it-0dbb92e3` (`team_Qjuoq6EGN5zLqTKr3TpGi8uU`).
+- Active project: `get-to-it-wvpy` (`prj_7ZFE4kOPQgsrubitOv1cDcIMPCOx`).
+- Stable production domain: `get-to-it-wvpy.vercel.app`.
+- Custom domains: none.
+- Other project domains or stable aliases: none.
+- Automatic preview aliases: generated per deployment and managed by Vercel's
+  deployment retention. They are not stable production hostnames; do not use
+  them in documentation, auth callbacks or environment values.
+- Older Hobby team `johms-projects-1b869330`
+  (`team_ezjDhEzSQL0lMa2XfF8xwZbc`): no projects, domains or aliases.
+- Personal Vercel scope: no projects or aliases.
+- Retired alias `get-to-it-five.vercel.app`: returns
+  `404 DEPLOYMENT_NOT_FOUND`; no matching project or alias record. It is already
+  detached.
+- `get-to-it.vercel.app`: returns `200`, but it is not managed by this Vercel
+  account and has no alias record here. Do not use it.
+
+Only `get-to-it-wvpy.vercel.app` is the production host. Re-run the project,
+project-domain and alias inventory in both teams before treating any other
+`get-to-it` hostname as owned or removable. An HTTP `200` alone does not prove
+ownership.
+
+Refresh the inventory with a dedicated Vercel token:
+
+```bash
+read -rsp 'Vercel token: ' VERCEL_TOKEN && export VERCEL_TOKEN
+npm run check:vercel-aliases
+npm run check:vercel-aliases -- --json
+unset VERCEL_TOKEN
+```
+
+The command performs `GET` requests only. It enumerates every accessible team
+and the personal scope, then lists each project's project domains and aliases.
+Set `VERCEL_TEAM_ID` only when the token cannot list teams. Keep the token out of
+shell history and source control.
+
 ## Pricing rollout (0034 and 0035)
 
 **Status (2026-11-07):** `0034` and `0035` are applied to production and the

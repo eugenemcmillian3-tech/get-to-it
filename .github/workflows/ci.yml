@@ -38,6 +38,31 @@ jobs:
       - name: Scan tracked files for secrets
         run: npm run check:secrets
 
+      - name: Reject retired deployment hostnames
+        run: |
+          # Match any get-to-it Vercel alias, then allow only current production.
+          # Bracketed dots keep these patterns from matching their own source lines.
+          current_host='get-to-it-wvpy[.]vercel[.]app'
+          vercel_host='get-to-it(-[a-z0-9-]+)?[.]vercel[.]app'
+          set +e
+          # DEPLOYMENT.md is the audit record and intentionally names retired hosts.
+          matches=$(git grep -n -I -i -E "$vercel_host" -- . ':!DEPLOYMENT.md')
+          status=$?
+          set -e
+          if [ "$status" -gt 1 ]; then
+            echo "::error::Could not scan tracked files for deployment hostnames."
+            exit "$status"
+          fi
+          if [ "$status" -eq 0 ]; then
+            stale=$(printf '%s\n' "$matches" | awk -v current="$current_host" -v candidate="$vercel_host" '{ lower = tolower($0); gsub(tolower(current), "", lower); if (lower ~ candidate) print $0 }')
+            if [ -n "$stale" ]; then
+              printf '%s\n' "$stale"
+              echo "::error::A retired get-to-it Vercel hostname is referenced. Use the current production URL from DEPLOYMENT.md."
+              exit 1
+            fi
+          fi
+          echo "No retired deployment hostnames found."
+
       - name: Typecheck
         run: npm run typecheck
 
