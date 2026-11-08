@@ -5,7 +5,7 @@
 GET TO IT helps you name what you've been putting off, turn it into a goal you can
 plan around, and keep the work you actually do.
 
-This repository contains **Phases 1 to 8 and 10 to 31**: accounts, goals, tasks,
+This repository contains **Phases 1 to 8 and 10 to 35**: accounts, goals, tasks,
 a saved-work workspace, AI-assisted planning with a reviewable preview,
 task-level AI help whose suggestions you accept, edit or reject, an optional
 server-side focus timer, a plain-figures progress view, private weekly
@@ -32,7 +32,7 @@ it the panel explains the missing key instead of inventing an answer.
 1. Create a Supabase project (or use an existing one).
 2. In the Supabase SQL editor, run every file in `supabase/migrations/` in
    filename order, from `0001_phase1_init.sql` through
-   `0041_phase33_project_model.sql`. Do not stop at an earlier phase: a missing
+   `0043_phase35_experiment_workspace.sql`. Do not stop at an earlier phase: a missing
    later migration leaves Project models, Evaluations, Build Room, Design,
    Releases, Integration Studio, the developer API and Connections returning a
    server error at request time.
@@ -1714,3 +1714,66 @@ the release checklist.
 See [`PILOT.md`](PILOT.md) for invitation text, the four questions worth asking,
 what to watch for, and the rule that no participant results are claimed before
 they exist.
+
+## Mission control (Phase 34)
+
+Mission control attaches to an existing workspace mission at
+`/workspace/{workspaceId}/missions/{missionId}/control`. It connects the
+mission's human-defined outcome to existing app projects, deliverables,
+dependencies, accountable people, review dates and bounded agent jobs. Projects
+must be linked explicitly; mission control never creates a project, task or job
+on its own.
+
+The page suggests a dependency-aware work order and parallel groups, and names
+missing owners, missing review dates, cycles and resource conflicts. It states
+its assumptions and says plainly that the order is not a guaranteed schedule.
+
+Execution reuses the existing project task/queue system and adds mission-level
+limits for parallel jobs, total jobs, agent calls and runtime. The smaller of the
+project and mission allowances always wins. A job waits for its job and milestone
+dependencies, duplicate dedupe keys are refused, a failed dependency pauses
+downstream work, cancellation propagates, recovery pauses stale running jobs,
+and completed artifacts are preserved. There is no autonomous background loop,
+external write or deployment.
+
+Scope changes, external writes, deployments and permission increases are
+escalated as separate approval records. A different owner or admin must decide;
+a requester cannot approve their own request, and an agent cannot approve its own
+permission increase. The dashboard reports progress by deliverable, blocked
+dependencies, pending decisions, disagreements, resource use, saved test evidence
+and upcoming reviews. It does not rank people or compute a surveillance-style
+productivity score.
+
+
+## Experiment workspace (Phase 35)
+
+The experiment workspace lives at `/workspace/{workspaceId}/experiments`. It
+turns a future-facing idea into one bounded question, an explicit hypothesis,
+target users, existing evidence, assumptions, a smallest prototype, success and
+failure criteria, time and resource limits, privacy and consent requirements,
+stop conditions, an AI disclosure and a review date. An experiment can link an
+existing mission, future path, radar signal, learning goal or outcome review;
+linking never creates another record or grants access to it.
+
+The planning assistant compares approaches, names missing evidence or decisions,
+proposes a smallest prototype, prepares interview questions and suggests a next
+step from the recorded review. It works from the saved fields and fixed rules,
+makes no model call and invents no participant, quote or result. The interface
+shows participants where AI assistance is involved.
+
+Participation is voluntary. Feedback cannot be stored without recorded consent,
+an identifiable quote also needs explicit permission to quote it, and
+publication needs a separate approval. Observations are append-only and labelled
+as measured, participant opinion, failure or still unknown; the summary never
+turns an opinion into a measurement. High-stakes human-subject research
+(medical, legal, financial, safety, crisis or work with minors) is refused by
+this generic workflow.
+
+An owner or admin can approve a prototype. That creates an ordinary app-builder
+project and specification, with no separate execution path; sandbox, test and
+deployment approvals are unchanged. Real outreach, publication, paid activity
+and deployment each require their own approval, a requester cannot approve their
+own request, and approval never performs the external action. The outcome review
+keeps the original hypothesis and records what was built, observed, failed and
+remains unknown before a person chooses continue, revise or stop. A deployed
+prototype is not treated as proof of social benefit.

@@ -952,6 +952,11 @@ export type Mission = {
   /** A named human member who owns decisions. Never an AI. */
   decision_owner_id: string | null;
   review_at: string | null;
+  /** Phase 34: mission limits apply in addition to each project's limits. */
+  max_parallel_jobs: number;
+  max_agent_jobs: number;
+  max_runtime_seconds: number;
+  max_agent_calls: number;
   /** Recorded approval only: nothing in this build publishes or sends. */
   share_scope: string | null;
   share_approved_by: string | null;
