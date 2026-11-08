@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AgentReplyError,
+  buildAgentMessages,
   parseAgentReply,
   retryInstruction,
   runModelAgentTask,
@@ -241,5 +242,22 @@ describe("retry instruction", () => {
     expect(result.branch_files).toEqual([]);
     const secondCall = chatMock.mock.calls[1][0] as { messages: { content: string }[] };
     expect(secondCall.messages.at(-1)?.content).toContain("empty array");
+  });
+});
+
+describe("system prompt", () => {
+  it("states the empty-files rule up front for a read-only role", () => {
+    const messages = buildAgentMessages(task("security"), context);
+    expect(messages[0].content).toContain('"files" must be an empty array []');
+    expect(messages[0].content).toContain("Security reviewer cannot write files");
+  });
+
+  it("applies the same rule to the coordinator without forbidding writes elsewhere", () => {
+    expect(buildAgentMessages(task("coordinator"), context)[0].content).toContain(
+      '"files" must be an empty array []',
+    );
+    const writing = buildAgentMessages(task("frontend", ["components/hero.tsx"]), context);
+    expect(writing[0].content).not.toContain("empty array");
+    expect(writing[0].content).toContain("components/hero.tsx");
   });
 });
