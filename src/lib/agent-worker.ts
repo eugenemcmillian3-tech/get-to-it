@@ -99,7 +99,14 @@ export function parseAgentReply(content: string): AgentReply {
 
   const result = agentReplySchema.safeParse(parsed);
   if (!result.success) {
-    throw new AgentReplyError("The model returned an unusable task result.");
+    // Naming the failing field is what makes a retry actionable. A generic
+    // message made every rejection look identical, so a reply that only
+    // overflowed one length limit was retried without any hint of why.
+    const issue = result.error.issues[0];
+    const field = issue && issue.path.length > 0 ? issue.path.join(".") : "the reply";
+    throw new AgentReplyError(
+      `The model returned an unusable task result (${field}: ${issue?.message ?? "invalid shape"}).`,
+    );
   }
   return result.data;
 }
@@ -234,6 +241,7 @@ export function buildAgentMessages(
         `Declared file claims: ${task.file_claims.join(", ") || "none"}.`,
         "Return only JSON with this shape:",
         '{"summary":"short result","findings":["..."],"evidence":["..."],"files":[{"path":"exact claimed path","content":"complete file"}]}',
+        'Limits: "summary" is one sentence of at most 200 characters. "findings" and "evidence" hold at most 12 items each, each at most 200 characters. Add no other keys.',
         "Use complete file contents, not patches. Return files only for declared claims.",
         "Never include a secret, token, key, password, deployment command or external action.",
         "Do not add scope, pages, entities, tests, configuration or dependencies.",
@@ -294,6 +302,7 @@ export function retryInstruction(task: TeamTaskRecord, rejection: string | null)
     ...(rejection ? [`Reason: ${cleanText(rejection, 200)}`] : []),
     "Return only one JSON object with exactly these keys: summary, findings, evidence, files.",
     "No prose, no extra keys, no markdown fence.",
+    'Keep "summary" to one sentence of at most 200 characters, and every findings and evidence item at most 200 characters with at most 12 items each.',
     definition.canWrite
       ? `Write only to your declared claims: ${task.file_claims.join(", ") || "none"}.`
       : `${definition.label} cannot write files, so "files" must be an empty array [].`,
