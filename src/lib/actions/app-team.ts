@@ -26,7 +26,7 @@ import {
 import { finishAiRequest, reserveAiRequest } from "@/lib/ai/limits";
 import { DEFAULT_AI_MODEL, isAiModel } from "@/lib/ai/models";
 import { hasOllamaKey, ollamaErrorMessage } from "@/lib/ai/ollama";
-import { runModelAgentTask } from "@/lib/agent-worker";
+import { AgentReplyError, runModelAgentTask } from "@/lib/agent-worker";
 import { getSession } from "@/lib/auth";
 import {
   createRunnerWorkspace,
@@ -41,7 +41,8 @@ import { isUuid, readText } from "@/lib/validation";
  *
  * The queue is durable in Supabase, but execution is deliberately
  * request-scoped: one click advances at most the configured number of fixture
- * workers. There is no background loop, recursive spawning or automatic retry.
+ * workers. There is no background loop or recursive spawning, and a malformed
+ * model reply is retried at most once before the task is marked failed.
  * A human can pause, reassign, reject, approve, resolve a claim conflict or
  * cancel. Only the explicit integration action writes project files.
  */
@@ -504,12 +505,16 @@ export async function advanceTeamAction(
         const modelResult = await runModelAgentTask(task, context, model);
         await finishAiRequest(session, reserved.reservation.id, "succeeded", undefined, modelResult.tokens);
         result = modelResult;
+        // A retried reply still spends the run's call budget, so the limit
+        // reflects provider calls rather than tasks.
+        callsUsed += modelResult.attempts;
       } catch (error) {
         await finishAiRequest(session, reserved.reservation.id, "failed", "agent-task-failed");
         const message =
           error instanceof Error && error.name === "AgentReplyError"
             ? error.message
             : ollamaErrorMessage(error);
+        callsUsed += error instanceof AgentReplyError ? error.attempts : 1;
         result = {
           status: "failed" as const,
           output: { summary: "The model-backed task failed." },
@@ -517,7 +522,6 @@ export async function advanceTeamAction(
           error: message,
         };
       }
-      callsUsed += 1;
     }
 
     await session.supabase

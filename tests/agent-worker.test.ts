@@ -1,11 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  AgentReplyError,
   parseAgentReply,
+  runModelAgentTask,
   validateAgentReply,
   type AgentWorkerContext,
 } from "@/lib/agent-worker";
 import { buildSpecDraft, type AppIntakeInput } from "@/lib/app-builder";
 import type { TeamTaskRecord } from "@/lib/agent-team";
+
+const { chatMock } = vi.hoisted(() => ({ chatMock: vi.fn() }));
+vi.mock("@/lib/ai/ollama", () => ({ chatWithOllama: chatMock }));
 
 const intake: AppIntakeInput = {
   name: "Repair log",
@@ -115,5 +120,74 @@ describe("agent worker reply gate", () => {
 
   it("rejects invalid JSON with a usable error", () => {
     expect(() => parseAgentReply("I changed the hero.")).toThrow("valid JSON");
+  });
+});
+
+describe("model reply retry", () => {
+  const claims = ["components/hero.tsx"];
+  const validReply = JSON.stringify({
+    summary: "Adds the hero",
+    findings: [],
+    evidence: ["read the spec"],
+    files: [
+      {
+        path: "components/hero.tsx",
+        content: "export function Hero() { return <h1>Repairs</h1>; }",
+      },
+    ],
+  });
+
+  beforeEach(() => {
+    chatMock.mockReset();
+  });
+
+  it("retries once when the first reply breaks the schema", async () => {
+    chatMock
+      .mockResolvedValueOnce({
+        content: '{"unexpected":"shape"}',
+        model: "glm-5.3-flash",
+        tokens: { input: 10, output: 5 },
+      })
+      .mockResolvedValueOnce({
+        content: validReply,
+        model: "glm-5.3-flash",
+        tokens: { input: 12, output: 9 },
+      });
+
+    const result = await runModelAgentTask(
+      task("frontend", claims),
+      context,
+      "glm-5.3-flash",
+    );
+
+    expect(chatMock).toHaveBeenCalledTimes(2);
+    expect(result.attempts).toBe(2);
+    expect(result.branch_files.map((file) => file.path)).toEqual(claims);
+    expect(result.tokens).toEqual({ input: 12, output: 9 });
+  });
+
+  it("gives up after two rejections and reports the attempts spent", async () => {
+    chatMock.mockResolvedValue({
+      content: '{"unexpected":"shape"}',
+      model: "glm-5.3-flash",
+      tokens: { input: 1, output: 1 },
+    });
+
+    const error = await runModelAgentTask(task("frontend", claims), context, "glm-5.3-flash").catch(
+      (reason: unknown) => reason,
+    );
+
+    expect(error).toBeInstanceOf(AgentReplyError);
+    expect((error as AgentReplyError).attempts).toBe(2);
+    expect(chatMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry a provider error", async () => {
+    chatMock.mockRejectedValue(new Error("Ollama returned 500"));
+
+    await expect(
+      runModelAgentTask(task("frontend", claims), context, "glm-5.3-flash"),
+    ).rejects.toThrow("Ollama returned 500");
+    expect(chatMock).toHaveBeenCalledTimes(1);
   });
 });
