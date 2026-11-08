@@ -28,6 +28,12 @@ DeepSeek's peak rate is used for every margin below. Off-peak is cheaper and is
 therefore not relied on. Cached input is also ignored: all envelopes assume
 uncached input, again the conservative case.
 
+**Change on 2026-11-08:** the security role moved from
+`nemotron-3-nano:30b-cloud` to `mimo-v2.6-flash`, because nemotron repeatedly
+returned files it cannot write. The nemotron rows below are kept as history; a
+`mimo-v2.6-flash` price row must be added from a verified source before any
+billing activation, and the envelopes above are unchanged until then.
+
 **Model-id caveat:** Ollama's API documentation says to use the base model name
 for API requests, not the `:cloud` suffix used by the app picker. The `:31b-cloud`
 and `:30b-cloud` tags also have no distinct price row, so the family rates above

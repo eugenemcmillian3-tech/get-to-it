@@ -68,7 +68,7 @@ export const TEAM_ROLE_MODELS: Record<TeamRole, string> = {
   backend: "minimax-m3.1-flash",
   data: "gpt-oss:120b-cloud",
   qa: "gemma4:31b-cloud",
-  security: "nemotron-3-nano:30b-cloud",
+  security: "mimo-v2.6-flash",
 };
 
 export const TEAM_MODEL_CREDITS = TEAM_TASK_CREDITS;
