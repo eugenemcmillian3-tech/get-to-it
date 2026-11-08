@@ -5,7 +5,7 @@
 GET TO IT helps you name what you've been putting off, turn it into a goal you can
 plan around, and keep the work you actually do.
 
-This repository contains **Phases 1 to 8 and 10 to 30**: accounts, goals, tasks,
+This repository contains **Phases 1 to 8 and 10 to 31**: accounts, goals, tasks,
 a saved-work workspace, AI-assisted planning with a reviewable preview,
 task-level AI help whose suggestions you accept, edit or reject, an optional
 server-side focus timer, a plain-figures progress view, private weekly
@@ -32,9 +32,10 @@ it the panel explains the missing key instead of inventing an answer.
 1. Create a Supabase project (or use an existing one).
 2. In the Supabase SQL editor, run every file in `supabase/migrations/` in
    filename order, from `0001_phase1_init.sql` through
-   `0036_error_events.sql`. Do not stop at an earlier phase: a missing
-   later migration leaves Build Room, Design, Releases, Integration Studio, the
-   developer API and Connections returning a server error at request time.
+   `0041_phase33_project_model.sql`. Do not stop at an earlier phase: a missing
+   later migration leaves Project models, Evaluations, Build Room, Design,
+   Releases, Integration Studio, the developer API and Connections returning a
+   server error at request time.
    Together they
    create `profiles`, `goals`, `tasks`, `task_results`, the plan and request-limit
    tables, focus sessions, reminders, private templates, partner sharing, the
@@ -45,7 +46,7 @@ it the panel explains the missing key instead of inventing an answer.
    perspectives, radar signals, missions, outcome reviews, app projects and
    versions, preview workspaces, agent-team queues, provider connections and
    deployment plans, improvement requests, project memory, reusable skills,
-   selected error records and change evaluations, the health probe, the
+   selected error records and change evaluations, imported-app maps, baseline evidence and modernization proposals, the health probe, the
    triggers that keep them tidy, and the row level security policies.
 3. Copy `.env.example` to `.env.local` and fill in your project values
    (Project Settings → API):
@@ -847,6 +848,123 @@ Manual adjustments require a note and land in the same ledger.
 **Deleting an account** removes the person from the ledger while keeping the
 rows as an accounting record; unused credits are not refunded automatically.
 No card details are stored anywhere in this app.
+
+## Import my app (Phase 31)
+
+An existing supported app can be imported from an authorized GitHub repository or a
+project ZIP. The importer reuses the existing app project storage, encrypted
+repository connections, preview sandbox and Phase 25 change-review workflow.
+
+- **Supported stack only.** Next.js App Router, TypeScript and Tailwind CSS at the
+  project root. Other frameworks and the pages router are refused with a reason;
+  nothing is approximated.
+- **Safe inspection.** Archives are bounded by compressed and expanded size,
+  entry count and stored-text limits. Path traversal, absolute paths and symbolic
+  links are rejected. Secret files are excluded from storage and future model
+  context, repository instruction files are excluded, and no install script or
+  project code runs during import.
+- **Editable map.** Framework and dependencies, routes and components, backend
+  operations, database and migrations, auth, integrations, environment-variable
+  names, commands and uncertainties are linked to real files. Every finding is
+  labelled `inspected` or `inferred`; the JSON map can be corrected without
+  touching source.
+- **Baseline first.** The existing sandbox records typecheck, lint, test and build
+  results before a proposal. Pre-existing failures stay attached to the baseline
+  and are never attributed to a later modification.
+- **One bounded modernization.** Choose one objective. The proposal names the
+  affected files, compatibility concerns, acceptance checks and reversal plan.
+  It is a deterministic review scaffold, not an app rewrite. Approval creates a
+  Phase 25 change request; the normal plan, patch, test, preview, diff review and
+  merge gates still apply. No push or deployment is performed.
+
+The importer never executes a repository's instructions or comments as platform
+permissions. The preview sandbox still uses its pinned dependency and command
+policy; an unsupported dependency or script is recorded as a blocked baseline
+instead of being installed.
+
+## Evaluation workspace (Phase 32)
+
+`/evaluations` compares agent configurations on the same bounded tasks and keeps
+the evidence needed to decide whether a routing or role change is justified.
+
+- **Bounded tasks.** Each task records one of the five initial categories (small
+  frontend change, backend validation change, bug repair, test generation and
+  existing-code explanation), an input snapshot, expected output, deterministic
+  acceptance checks, an allowed-tool list, runtime and request limits, and the
+  configuration under test. Development examples and held-out tasks are stored
+  separately, and the acceptance material is locked after the first run.
+- **Synthetic or permitted projects.** The default is a synthetic fixture with no
+  customer data or credentials. A generated project snapshot can be used only
+  after the owner confirms they are allowed to evaluate it. Phase 32 candidates
+  are deterministic fixture outputs, so no provider or model reads the snapshot.
+- **Preserved evidence.** Every run records the configured and returned model
+  identifiers, prompt version, roles and routing, tool calls, completion, test
+  results, runtime, reported token usage, known versus estimated cost, and human
+  review. Failed and errored runs stay. Review annotates evidence but cannot
+  rewrite it.
+- **Trials and separation.** Repeated trials expose variation and the trial count
+  is reported. Deterministic checks determine pass/fail; AI-judged opinions are
+  labelled separately and never counted. There is no universal intelligence
+  score.
+- **Capability registry.** Versioned profiles cite evidence run IDs and state
+  their limitations, and each profile is scoped to one configuration. The
+  registry starts with UI changes and bounded bug repair evidence, and says
+  plainly that database changes need human review with no evaluation evidence
+  yet.
+- **Budget and approval.** Runs require a human-approved trial budget; the whole
+  comparison is refused before writing if the budget is short. Phase 32 is
+  fixture-only, so known cost is zero and no paid provider call is made.
+  Recommendations preserve a rollback snapshot and never edit production
+  routing, roles or prompts automatically. Approval records a decision only.
+
+## Versioned project model and change scenarios (Phase 33)
+
+`/build/{projectId}/model` turns the approved specification, stored files,
+integration metadata and deployment records into a versioned project model. It
+does not call a model or fetch external data.
+
+- **Model contents.** Pages, declared user journeys, routes and services, static
+  import edges, data entities and fields, external integrations, preview and
+  production environment records, known project constraints, assumptions and
+  missing information. Code evidence includes the file path and line.
+- **Versioning and staleness.** Each model version stores the spec version,
+  project version and a digest of the source it read. A changed spec, file,
+  integration or deployment marks the current model stale and blocks new
+  scenarios until a fresh version is built. Old versions remain for inspection.
+- **Change scenarios.** API changes, new user roles, background jobs and database
+  fields are traced through static dependency edges. The output states affected
+  components, code/config evidence, assumptions, unknowns, proposed tests, a
+  reversible implementation order and reversible experiments. An absent target
+  produces an unknown, not an invented dependency.
+- **No false precision.** Scenarios are labelled as static narrative, not measured
+  results. There are no performance or cost forecasts, and dependency edges do
+  not prove runtime behavior.
+- **Bounded experiments.** Contract inspection, synthetic-request proposals,
+  source-size observation and static failure-path inspection are recorded with
+  request and duration limits. Synthetic requests are blocked unless an isolated
+  runner is configured; no external URL, production user data or external load
+  test is allowed. Static results never claim to be runtime measurements.
+- **Approval and task conversion.** An experiment can become a Build Room task
+  only after explicit approval. The database function checks ownership, approval,
+  duplicate conversion and valid project scope, and creates the task atomically.
+- **Version comparison.** Any two retained versions can be compared on the model
+  page. Pages, journeys, services and routes, dependencies, data entities,
+  integrations, deployment environments, constraints, assumptions and missing
+  information show added, removed or changed records with exact before/after
+  fields and source evidence. Comparison reads the stored snapshots only; it does
+  not re-read project files. A selected comparison can be downloaded as a
+  Markdown changelog.
+- **Access guarantees.** The `/build/{projectId}/model/changelog` and
+  `/build/{projectId}/download` routes are owner-scoped. In separate fixtures,
+  the drill verifies the owner's downloads while the workspace link exists and
+  after it is removed, parsing the unlinked ZIP to `app/page.tsx`. A member
+  whose project membership was removed is denied on both download routes while
+  the workspace link and their active workspace role remain, and both stay
+  denied for that member after the link is removed. Both refusals use a generic
+  `Not found` body naming no project or role. The `/build/{projectId}/room` page
+  checks the project role, so a removed member gets its not-found path while the
+  owner's page renders the project name and owner role. The isolated restore
+  drill asserts all of this against Postgres.
 
 ## Tests
 

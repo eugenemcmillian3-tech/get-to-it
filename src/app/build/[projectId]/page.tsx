@@ -19,6 +19,7 @@ import {
   isSafeProjectPath,
 } from "@/lib/app-builder";
 import { requireSession } from "@/lib/auth";
+import { isImportedProject } from "@/lib/data/app-import";
 import { getAppProjectDetail } from "@/lib/data/app-projects";
 import { getIdentity } from "@/lib/identity";
 import { cardClass, chipClass, focusRing, secondaryButton } from "@/lib/styles";
@@ -124,10 +125,11 @@ export default async function AppProjectPage({
   }
 
   const session = await requireSession();
-  const [identity, detail, query] = await Promise.all([
+  const [identity, detail, query, imported] = await Promise.all([
     getIdentity(session),
     getAppProjectDetail(session, projectId),
     searchParams,
+    isImportedProject(session, projectId),
   ]);
 
   if (!detail) notFound();
@@ -172,6 +174,7 @@ export default async function AppProjectPage({
                   ? "Generated"
                   : "Specification draft"}
             </span>
+            {imported ? <span className={chipClass}>Imported app</span> : null}
             <span className={chipClass}>
               {project.current_version > 0 ? `Version ${project.current_version}` : "No generated files"}
             </span>
@@ -182,6 +185,9 @@ export default async function AppProjectPage({
           <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted">{project.purpose}</p>
           <div className="mt-4 flex flex-wrap gap-2">
             <Link href={`/build/${project.id}/room`} className={secondaryButton}>Build Room</Link>
+            <Link href={`/build/${project.id}/model`} className={secondaryButton}>Project model</Link>
+            <Link href={`/evaluations?project=${project.id}`} className={secondaryButton}>Evaluations</Link>
+            {imported ? <Link href={`/build/${project.id}/import`} className={secondaryButton}>Import map</Link> : null}
             <Link href={`/build/${project.id}/design`} className={secondaryButton}>Design Workspace</Link>
             <Link href={`/build/${project.id}/integrations`} className={secondaryButton}>Integration Studio</Link>
             <Link href={`/build/${project.id}/connections`} className={secondaryButton}>Connections</Link>
