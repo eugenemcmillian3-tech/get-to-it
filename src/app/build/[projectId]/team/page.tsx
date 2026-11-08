@@ -265,10 +265,11 @@ export default async function AppTeamPage({ params }: { params: Promise<{ projec
             <section className={`${cardClass} mt-6`} aria-labelledby="model-health">
               <h2 id="model-health" className="text-lg font-bold">Model health</h2>
               <p className="mt-1 text-sm text-muted">
-                Retry and failure counts from the model calls this project actually ran. One row
+                Retry and failure counts from the model calls your account actually ran. One row
                 counts one finished task: a retry means the first reply broke the schema or the
                 role&apos;s permissions and the same model was asked once more, and a failure means
-                no usable reply arrived. A rate is not a verdict below {MODEL_HEALTH_MIN_TASKS} tasks.
+                no usable reply arrived. The six models are shared by every project, so this is
+                account history. A rate is not a verdict below {MODEL_HEALTH_MIN_TASKS} tasks.
               </p>
               {modelHealth.length === 0 ? (
                 <p className="mt-2 text-sm text-muted">
