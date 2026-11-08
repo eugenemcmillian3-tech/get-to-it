@@ -278,11 +278,23 @@ export type ModelTaskResult = {
  */
 export const MAX_REPLY_ATTEMPTS = 2;
 
-const RETRY_INSTRUCTION = [
-  "Your previous reply was rejected because it did not match the required JSON.",
-  "Return only one JSON object with exactly these keys: summary, findings, evidence, files.",
-  "No prose, no extra keys, no markdown fence. Respect every declared file claim.",
-].join(" ");
+/**
+ * Retry guidance is role-aware. A read-only role that proposed edits is told
+ * plainly that its file list must be empty; repeating "respect the claims"
+ * would leave a security or coordinator reply failing the same way twice.
+ */
+export function retryInstruction(task: TeamTaskRecord, rejection: string | null): string {
+  const definition = roleDefinition(task.role);
+  return [
+    "Your previous reply was rejected.",
+    ...(rejection ? [`Reason: ${cleanText(rejection, 200)}`] : []),
+    "Return only one JSON object with exactly these keys: summary, findings, evidence, files.",
+    "No prose, no extra keys, no markdown fence.",
+    definition.canWrite
+      ? `Write only to your declared claims: ${task.file_claims.join(", ") || "none"}.`
+      : `${definition.label} cannot write files, so "files" must be an empty array [].`,
+  ].join(" ");
+}
 
 /**
  * Runs one model-backed task. The caller must reserve credits first and close
@@ -297,6 +309,7 @@ export async function runModelAgentTask(
   timeoutMs = 90_000,
 ): Promise<ModelTaskResult> {
   const baseMessages = buildAgentMessages(task, context);
+  let rejection: string | null = null;
 
   for (let attempt = 1; attempt <= MAX_REPLY_ATTEMPTS; attempt += 1) {
     const reply = await chatWithOllama({
@@ -304,7 +317,7 @@ export async function runModelAgentTask(
       messages:
         attempt === 1
           ? baseMessages
-          : [...baseMessages, { role: "user" as const, content: RETRY_INSTRUCTION }],
+          : [...baseMessages, { role: "user" as const, content: retryInstruction(task, rejection) }],
       format: "json",
       temperature: 0.1,
       timeoutMs,
@@ -335,6 +348,7 @@ export async function runModelAgentTask(
     } catch (error) {
       if (!(error instanceof AgentReplyError)) throw error;
       if (attempt === MAX_REPLY_ATTEMPTS) throw new AgentReplyError(error.message, attempt);
+      rejection = error.message;
     }
   }
 
