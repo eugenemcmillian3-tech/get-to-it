@@ -24,10 +24,10 @@ export const AI_MODELS: AiModel[] = [
     blurb: "Fast inference with a long context window.",
   },
   {
-    id: "minimax-m3.1-flash",
-    label: "MiniMax M3.1 Flash",
-    vendor: "MiniMax",
-    blurb: "Speed-focused model built for agentic work.",
+    id: "mimo-v2.6-pro",
+    label: "MiMo v2.6 Pro",
+    vendor: "Xiaomi",
+    blurb: "Stronger MiMo variant for writing roles.",
   },
   {
     id: "gpt-oss:120b-cloud",
