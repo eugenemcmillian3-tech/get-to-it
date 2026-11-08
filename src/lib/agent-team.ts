@@ -786,6 +786,16 @@ export function limitReason(run: Pick<TeamRunRecord, "calls_used" | "max_calls" 
   return null;
 }
 
+/**
+ * How many model calls a task actually made. A task normally makes one; a
+ * schema-invalid reply is retried once, so two calls means it was retried.
+ */
+export function taskCallsLabel(callsUsed: number): string {
+  if (!Number.isFinite(callsUsed) || callsUsed <= 0) return "no model calls";
+  if (callsUsed === 1) return "1 model call";
+  return `${callsUsed} model calls, ${callsUsed - 1} retried`;
+}
+
 export function teamStatusLabel(status: TeamTaskStatus): string {
   return status === "awaiting_review" ? "Awaiting review" : status[0].toUpperCase() + status.slice(1);
 }

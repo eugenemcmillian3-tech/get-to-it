@@ -480,6 +480,7 @@ export async function advanceTeamAction(
       .eq("user_id", session.user.id);
 
     let result;
+    let callsThisTask = 0;
     if (run.mode === "fixture") {
       result = runFixtureTask(task, context);
     } else {
@@ -507,6 +508,7 @@ export async function advanceTeamAction(
         result = modelResult;
         // A retried reply still spends the run's call budget, so the limit
         // reflects provider calls rather than tasks.
+        callsThisTask = modelResult.attempts;
         callsUsed += modelResult.attempts;
       } catch (error) {
         await finishAiRequest(session, reserved.reservation.id, "failed", "agent-task-failed");
@@ -514,7 +516,8 @@ export async function advanceTeamAction(
           error instanceof Error && error.name === "AgentReplyError"
             ? error.message
             : ollamaErrorMessage(error);
-        callsUsed += error instanceof AgentReplyError ? error.attempts : 1;
+        callsThisTask = error instanceof AgentReplyError ? error.attempts : 1;
+        callsUsed += callsThisTask;
         result = {
           status: "failed" as const,
           output: { summary: "The model-backed task failed." },
@@ -531,6 +534,7 @@ export async function advanceTeamAction(
         branch_files: result.branch_files,
         changed_files: result.branch_files.map((file) => file.path),
         output: result.output,
+        calls_used: callsThisTask,
         blocker: "blocker" in result ? result.blocker ?? null : null,
         error: "error" in result ? result.error ?? null : null,
         finished_at: new Date().toISOString(),
