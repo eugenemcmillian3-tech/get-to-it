@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { cronRequestAuthorized } from "@/lib/cron-auth";
 import { getSupabaseSettings } from "@/lib/supabase/config";
 
 export const dynamic = "force-dynamic";
@@ -28,8 +29,7 @@ async function run(request: Request) {
     );
   }
 
-  const authorization = request.headers.get("authorization") ?? "";
-  if (authorization !== `Bearer ${secret}`) {
+  if (!cronRequestAuthorized(request, secret)) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
