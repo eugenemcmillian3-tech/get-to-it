@@ -11,6 +11,7 @@ import {
 } from "@/components/team-forms";
 import {
   MODEL_HEALTH_MIN_TASKS,
+  MODEL_HEALTH_WINDOW,
   TEAM_ROLES_SPEC,
   TEAM_ROLE_LABELS,
   TEAM_ROLE_MODELS,
@@ -269,7 +270,9 @@ export default async function AppTeamPage({ params }: { params: Promise<{ projec
                 counts one finished task: a retry means the first reply broke the schema or the
                 role&apos;s permissions and the same model was asked once more, and a failure means
                 no usable reply arrived. The six models are shared by every project, so this is
-                account history. A rate is not a verdict below {MODEL_HEALTH_MIN_TASKS} tasks.
+                account-wide. Only the newest {MODEL_HEALTH_WINDOW} tasks of each row are counted,
+                so a failure that has since been fixed stops counting once newer tasks push it out.
+                A rate is not a verdict below {MODEL_HEALTH_MIN_TASKS} tasks.
               </p>
               {modelHealth.length === 0 ? (
                 <p className="mt-2 text-sm text-muted">
