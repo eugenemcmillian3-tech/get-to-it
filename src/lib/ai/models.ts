@@ -42,10 +42,10 @@ export const AI_MODELS: AiModel[] = [
     blurb: "Frontier open model with a 256K context window.",
   },
   {
-    id: "nemotron-3-nano:30b-cloud",
-    label: "Nemotron 3 Nano 30B",
-    vendor: "NVIDIA",
-    blurb: "Efficient reasoning model with a 1M context window.",
+    id: "mimo-v2.6-flash",
+    label: "MiMo v2.6 Flash",
+    vendor: "Xiaomi",
+    blurb: "Fast, compact model for review and analysis work.",
   },
 ];
 
