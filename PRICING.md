@@ -68,6 +68,7 @@ Implemented in `0035_operation_budgets.sql` and the application:
 | One review perspective | 1 | $0.10 |
 | Mission assist | 1 | $0.10 |
 | Build repair attempt | 2 | $0.20 |
+| Agent team task (model-backed) | 2 | $0.20 |
 
 The database derives the charge from the operation kind, locks any budget row in
 the same transaction as the reservation, and releases both the credits and the
@@ -77,7 +78,7 @@ Budgets:
 
 - **Build:** three repair attempts, 2 credits each, 6 credits per workspace.
 - **Workflow:** user-selectable limit up to 10 credits per run.
-- **Swarm:** 0 credits today; fixture-only, with no paid AI path.
+- **Swarm:** fixture mode stays at 0 credits. Model-backed runs default to 18 credits, charge 2 per task and cap at 48 credits per run.
 
 The credits page and the AI controls show the estimate in credits and dollars.
 A zero balance blocks new paid work but leaves saved results, settings and billing

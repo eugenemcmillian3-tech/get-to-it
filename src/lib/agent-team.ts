@@ -1,4 +1,5 @@
 import { isSafeProjectPath, type AppSpec } from "@/lib/app-builder";
+import { SWARM_MAX_CREDITS, TEAM_TASK_CREDITS } from "@/lib/credits/pricing";
 
 /**
  * Phase 23 — optional agent-team mode.
@@ -56,6 +57,24 @@ export const TEAM_INTEGRATION_STATUSES = [
 ] as const;
 
 export type TeamIntegrationStatus = (typeof TEAM_INTEGRATION_STATUSES)[number];
+
+export const TEAM_RUN_MODES = ["fixture", "model"] as const;
+export type TeamRunMode = (typeof TEAM_RUN_MODES)[number];
+
+/** Every role has a distinct model from the six IDs configured in Ollama. */
+export const TEAM_ROLE_MODELS: Record<TeamRole, string> = {
+  coordinator: "glm-5.3-flash",
+  frontend: "deepseek-v4.1-flash",
+  backend: "minimax-m3.1-flash",
+  data: "gpt-oss:120b-cloud",
+  qa: "gemma4:31b-cloud",
+  security: "nemotron-3-nano:30b-cloud",
+};
+
+export const TEAM_MODEL_CREDITS = TEAM_TASK_CREDITS;
+export const TEAM_MAX_CREDITS = SWARM_MAX_CREDITS;
+export const TEAM_DEFAULT_MODEL_CREDITS = 18;
+export const TEAM_DEFAULT_MODEL_CALLS = 8;
 
 export const TEAM_LIMITS = {
   minAgents: 1,
@@ -180,6 +199,7 @@ export type TeamTaskRecord = TeamTaskDraft & {
   user_id: string;
   position: number;
   status: TeamTaskStatus;
+  model: string | null;
   calls_used: number;
   attempts: number;
   branch_files: TeamBranchFile[];
@@ -200,12 +220,13 @@ export type TeamRunRecord = {
   spec_version: number;
   spec: AppSpec;
   status: TeamRunStatus;
-  mode: "fixture";
+  mode: TeamRunMode;
+  model_by_role: Record<TeamRole, string>;
   max_agents: number;
   max_calls: number;
   max_runtime_seconds: number;
   calls_used: number;
-  /** Fixture-only runs have no paid path, so their AI credit budget is zero. */
+  /** Fixture runs are free; model runs reserve a bounded credit budget. */
   credit_budget: number;
   credits_spent: number;
   runtime_seconds: number;
@@ -742,12 +763,16 @@ export function mergeTeamBranches(
   };
 }
 
-export function attributionSummary(tasks: TeamTaskRecord[], contributors: Record<string, string[]>): string {
+export function attributionSummary(
+  tasks: TeamTaskRecord[],
+  contributors: Record<string, string[]>,
+  mode: TeamRunMode = "fixture",
+): string {
   const roles = [...new Set(tasks
     .filter((task) => task.status === "completed" && IMPLEMENTATION_ROLES.includes(task.role))
     .map((task) => task.role))];
   const files = Object.keys(contributors).length;
-  return `Agent team merge (fixture mode): ${roles.map((role) => TEAM_ROLE_LABELS[role]).join(", ") || "no code roles"}; ${files} file(s) attributed.`;
+  return `Agent team merge (${mode} mode): ${roles.map((role) => TEAM_ROLE_LABELS[role]).join(", ") || "no code roles"}; ${files} file(s) attributed.`;
 }
 
 export function limitReason(run: Pick<TeamRunRecord, "calls_used" | "max_calls" | "started_at" | "max_runtime_seconds">, now = Date.now()): string | null {

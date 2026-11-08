@@ -18,13 +18,14 @@ Two rules come before all of it:
 | --- | --- | --- | --- | --- |
 | `NEXT_PUBLIC_SUPABASE_URL` | yes | browser-safe | `src/lib/supabase/config.ts` | Every page shows the setup notice; nothing pretends to work |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | yes | browser-safe | same | Same |
-| `SUPABASE_SERVICE_ROLE_KEY` | for exception monitoring | **server only** | `src/lib/observability/report-exception.ts` | Unhandled server exceptions are not recorded; the app still works |
+| `SUPABASE_SERVICE_ROLE_KEY` | for platform recovery and exception monitoring | **server only** | `/api/platform/health/run`, `src/lib/observability/report-exception.ts` | Recovery stays disabled and unhandled server exceptions are not recorded; the app still works |
 | `OLLAMA_API_KEY` | no | **server only** | `src/lib/ai/ollama.ts` at call time | AI panels explain the missing key; templates, exports and imports still work |
 | `STRIPE_SECRET_KEY` | no | **server only** | `src/lib/credits/stripe.ts` | Checkout shows a setup message; nothing charges |
 | `STRIPE_WEBHOOK_SECRET` | no | **server only** | `src/app/api/stripe/webhook/route.ts` | The webhook returns 503 |
 | `CREDIT_RPC_TOKEN` | no | **server only** | webhook route | The webhook returns 503 |
 | `STRIPE_ALLOW_LIVE` | no | **server only** | `src/lib/credits/stripe.ts` | A `sk_live_` key is refused |
-| `CRON_SECRET` | no | **server only** | `/api/reminders/run` | The scheduler endpoint returns 503; in-app delivery still works |
+| `CRON_SECRET` | for scheduled recovery | **server only** | `/api/reminders/run`, `/api/platform/health/run` | Both scheduler endpoints return 503; in-app delivery still works |
+| `PLATFORM_SELF_HEALING` | no | **server only** | `src/lib/platform-health.ts` | Defaults to enabled; set to `false` to disable the recovery route |
 | `GIT_REVISION` | recommended | public through `/api/health` | `src/lib/revision.ts` | Health reports `revision: "unknown"` |
 | `GIT_DIRTY` | optional | public | `src/lib/revision.ts` | Dirty state is not reported |
 | `DEPLOYMENT_VAULT_KEY` | for Phase 24 | **server only** | `src/lib/deploy/vault.ts` | Provider connections and deployment plans cannot be saved; no fallback key is used |
@@ -117,7 +118,12 @@ install arbitrary tools, change provider connections or skip approvals.
 {
   "status": "ok",
   "revision": "ee4be62a1b2c",
-  "checks": { "database": "ok", "configuration": "configured" },
+  "checks": {
+    "database": "ok",
+    "configuration": "configured",
+    "model_provider": "configured",
+    "self_healing": "enabled"
+  },
   "checked_at": "2026-11-02T08:00:00.000Z"
 }
 ```
@@ -130,7 +136,28 @@ install arbitrary tools, change provider connections or skip approvals.
 
 A passing health check means the process is alive and the database answers. It does
 not prove the migration level, a correct deployment, an email provider, a Stripe
-webhook or that any feature works.
+webhook or that any feature works. `model_provider` and `self_healing` are
+reported for visibility; they do not change the overall `200`/`503` result.
+
+### Platform self-healing
+
+`GET` or `POST /api/platform/health/run` is the recovery pass. It requires
+`Authorization: Bearer $CRON_SECRET`, uses the server-only service-role key, and
+returns `no-store` JSON. The **Platform health recovery** GitHub Actions workflow
+calls it every five minutes as a fallback; a Vercel cron can call the same route.
+
+It repairs only known recoverable conditions:
+
+- in-flight AI reservations older than `ai_limits.in_flight_seconds` are marked
+  failed and their reserved credits and budget are released;
+- agent tasks left `running` past their task budget plus 60 seconds are re-queued
+  while `attempts < 3`, then marked failed at the retry limit.
+
+A missing database, missing service-role key or failed recovery RPC returns
+`503` with an escalation reason; it never reports a false success. The pass does
+not deploy, roll back a release, call a model or change task permissions. Set the
+GitHub repository variable `PLATFORM_HEALTH_URL` to the deployed origin and the
+repository secret `CRON_SECRET` to the same value as the host.
 
 ### Production monitor
 
@@ -170,8 +197,9 @@ values that are numbers, booleans or short `[a-zA-Z0-9_.:-]` strings. Free text 
 dropped, not truncated, so a goal title, saved work, reflection, email, prompt or
 token cannot reach host logs through this path.
 
-Events currently logged: `health_check`, `export_json`, `export_csv`,
-`import_preview`, `import_commit`.
+Events currently logged: `health_check`, `platform_recovery`,
+`platform_recovery_ai`, `platform_recovery_tasks`, `export_json`,
+`export_csv`, `import_preview`, `import_commit`.
 
 Existing `console.error` calls keep the provider's short message and an error code;
 they never print a key or a row. Log retention is whatever the host provides. The
@@ -181,7 +209,7 @@ metadata; it is not a general log store.
 ## Migrations
 
 - Files live in `supabase/migrations/` and are applied in filename order, once each:
-  `0001` … `0036_error_events.sql`.
+  `0001` … `0044_agent_models_and_platform_recovery.sql`.
 - Production migration history was reconciled on 2026-11-07: rows
   `0034_credit_pricing` (`20261107000000`) and `0035_operation_budgets`
   (`20261107000001`) were added after schema verification, without re-running

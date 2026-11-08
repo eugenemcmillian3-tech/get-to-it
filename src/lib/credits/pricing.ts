@@ -24,7 +24,8 @@ export type AiOperation =
   | "future_paths"
   | "review"
   | "mission_assist"
-  | "app_repair";
+  | "app_repair"
+  | "team_task";
 
 export type AiOperationPrice = {
   kind: AiOperation;
@@ -45,6 +46,7 @@ export const AI_OPERATION_PRICES: AiOperationPrice[] = [
   { kind: "review", label: "Review perspective", credits: 1, note: "One perspective in a multi-perspective review." },
   { kind: "mission_assist", label: "Mission assist", credits: 1, note: "One suggestion for a mission." },
   { kind: "app_repair", label: "Build repair attempt", credits: 2, note: "One AI repair proposal for a failing build." },
+  { kind: "team_task", label: "Agent team task", credits: 2, note: "One model-backed task in a bounded agent-team run." },
 ];
 
 /** Database-authoritative prices, mirrored here for estimates and tests. */
@@ -59,12 +61,15 @@ export const AI_OPERATION_CREDIT_COSTS: Record<AiOperation, number> = {
   review: 1,
   mission_assist: 1,
   app_repair: 2,
+  team_task: 2,
 };
 
 export const BUILD_REPAIR_CREDITS = AI_OPERATION_CREDIT_COSTS.app_repair;
 export const BUILD_MAX_CREDITS = 6;
 export const WORKFLOW_MAX_CREDITS = 10;
-export const SWARM_MAX_CREDITS = 0;
+/** Six tasks at two credits each is the default, with room for a re-run. */
+export const SWARM_MAX_CREDITS = 48;
+export const TEAM_TASK_CREDITS = AI_OPERATION_CREDIT_COSTS.team_task;
 
 export function operationCreditCost(kind: string): number {
   return AI_OPERATION_CREDIT_COSTS[kind as AiOperation] ?? 1;

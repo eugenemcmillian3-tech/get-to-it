@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   TEAM_LIMITS,
+  TEAM_MAX_CREDITS,
+  TEAM_MODEL_CREDITS,
   TEAM_ROLES_SPEC,
+  TEAM_ROLE_MODELS,
   attributionSummary,
   buildTeamPlan,
   canTaskRun,
@@ -19,6 +22,7 @@ import {
   type TeamTaskRecord,
 } from "@/lib/agent-team";
 import { buildSpecDraft, type AppIntakeInput } from "@/lib/app-builder";
+import { AI_MODELS } from "@/lib/ai/models";
 
 const INTAKE: AppIntakeInput = {
   name: "Repair log",
@@ -49,6 +53,7 @@ function task(
     user_id: "user-1",
     position,
     status,
+    model: null,
     calls_used: 0,
     attempts: 0,
     branch_files: [],
@@ -245,6 +250,15 @@ describe("agent-team fixtures", () => {
     expect(selection.runnable.map((item) => item.position)).toEqual([1, 2]);
     expect(selectRunnableTasks(tasks, 1, "pending").runnable).toHaveLength(1);
     expect(selectRunnableTasks(tasks, TEAM_LIMITS.maxAgents + 20, "pending").runnable.length).toBeLessThanOrEqual(3);
+  });
+
+  it("maps all six roles to the six configured Ollama models", () => {
+    const models = Object.values(TEAM_ROLE_MODELS);
+    expect(models).toHaveLength(6);
+    expect(new Set(models).size).toBe(6);
+    expect([...models].sort()).toEqual(AI_MODELS.map((model) => model.id).sort());
+    expect(TEAM_MODEL_CREDITS).toBe(2);
+    expect(TEAM_MAX_CREDITS).toBe(48);
   });
 
   it("enforces runtime and call limits without a self-retry loop", () => {

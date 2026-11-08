@@ -3,8 +3,13 @@
 import { revalidatePath } from "next/cache";
 import type { BuildState } from "@/lib/action-state";
 import {
+  TEAM_DEFAULT_MODEL_CALLS,
+  TEAM_DEFAULT_MODEL_CREDITS,
   TEAM_LIMITS,
+  TEAM_MAX_CREDITS,
+  TEAM_MODEL_CREDITS,
   TEAM_ROLES,
+  TEAM_ROLE_MODELS,
   attributionSummary,
   buildTeamPlan,
   limitReason,
@@ -18,6 +23,10 @@ import {
   type TeamRunRecord,
   type TeamTaskRecord,
 } from "@/lib/agent-team";
+import { finishAiRequest, reserveAiRequest } from "@/lib/ai/limits";
+import { DEFAULT_AI_MODEL, isAiModel } from "@/lib/ai/models";
+import { hasOllamaKey, ollamaErrorMessage } from "@/lib/ai/ollama";
+import { runModelAgentTask } from "@/lib/agent-worker";
 import { getSession } from "@/lib/auth";
 import {
   createRunnerWorkspace,
@@ -131,12 +140,17 @@ async function settleRun(
 ): Promise<void> {
   if (run.status === "paused" || run.status === "cancelled" || run.status === "failed") return;
 
+  const failed = tasks.some((task) => task.status === "failed");
   const allTerminal = tasks.every(
-    (task) => task.status === "completed" || task.status === "cancelled",
+    (task) =>
+      task.status === "completed" ||
+      task.status === "cancelled" ||
+      task.status === "failed",
   );
   const awaiting = tasks.some((task) => task.status === "awaiting_review");
-  const status =
-    allTerminal && run.integration_status === "merged"
+  const status = failed
+    ? "failed"
+    : allTerminal && run.integration_status === "merged"
       ? "completed"
       : awaiting
         ? "awaiting_review"
@@ -148,7 +162,10 @@ async function settleRun(
       status,
       active_count: 0,
       runtime_seconds: Math.max(0, Math.floor((Date.now() - Date.parse(run.started_at)) / 1000)),
-      finished_at: status === "completed" ? new Date().toISOString() : null,
+      finished_at: status === "completed" || status === "failed" ? new Date().toISOString() : null,
+      last_error: failed
+        ? "One or more agent tasks failed. Review the task error before starting another run."
+        : run.last_error,
     })
     .eq("id", run.id)
     .eq("user_id", session.user.id);
@@ -218,13 +235,27 @@ export async function startTeamAction(
   }
 
   const maxAgents = clamp(Number(readText(formData, "max_agents")), 1, TEAM_LIMITS.maxAgents);
-  const maxCalls = clamp(Number(readText(formData, "max_calls")), 0, TEAM_LIMITS.maxCalls);
   const maxRuntime = clamp(
     Number(readText(formData, "max_runtime_seconds")),
     TEAM_LIMITS.minRuntimeSeconds,
     TEAM_LIMITS.maxRuntimeSeconds,
   );
   const conflictFixture = readText(formData, "conflict_fixture") === "on";
+  const mode = readText(formData, "mode") === "model" ? "model" : "fixture";
+  if (mode === "model" && !hasOllamaKey()) {
+    return fail("OLLAMA_API_KEY is not configured, so model-backed agent teams are unavailable.");
+  }
+
+  const requestedCalls = Number(readText(formData, "max_calls"));
+  const maxCalls = mode === "model"
+    ? clamp(
+        Number.isFinite(requestedCalls) && requestedCalls > 0
+          ? requestedCalls
+          : TEAM_DEFAULT_MODEL_CALLS,
+        1,
+        TEAM_LIMITS.maxCalls,
+      )
+    : 0;
 
   let plan;
   try {
@@ -232,6 +263,26 @@ export async function startTeamAction(
   } catch (error) {
     return fail(error instanceof Error ? error.message : "The team plan could not be built.");
   }
+
+  const minimumCredits = plan.length * TEAM_MODEL_CREDITS;
+  if (minimumCredits > TEAM_MAX_CREDITS) {
+    return fail(`This queue needs ${minimumCredits} credits, above the ${TEAM_MAX_CREDITS}-credit cap.`);
+  }
+
+  const requestedBudget = Number(readText(formData, "credit_budget"));
+  const creditBudget = mode === "model"
+    ? clamp(
+        Number.isFinite(requestedBudget) && requestedBudget > 0
+          ? requestedBudget
+          : Math.max(TEAM_DEFAULT_MODEL_CREDITS, minimumCredits),
+        TEAM_MODEL_CREDITS,
+        TEAM_MAX_CREDITS,
+      )
+    : 0;
+  if (mode === "model" && creditBudget < minimumCredits) {
+    return fail(`The credit budget must cover at least ${minimumCredits} credits for this queue.`);
+  }
+  const modelByRole = mode === "model" ? TEAM_ROLE_MODELS : ({} as Record<TeamRole, string>);
 
   const { data: run, error } = await session.supabase
     .from("app_team_runs")
@@ -242,12 +293,13 @@ export async function startTeamAction(
         spec_version: approved.version,
         spec: approved.spec,
         status: "running",
-        mode: "fixture",
+        mode,
+        model_by_role: modelByRole,
         max_agents: maxAgents,
         max_calls: maxCalls,
         max_runtime_seconds: maxRuntime,
         calls_used: 0,
-        credit_budget: 0,
+        credit_budget: creditBudget,
         credits_spent: 0,
         runtime_seconds: 0,
         active_count: 0,
@@ -286,6 +338,7 @@ export async function startTeamAction(
       acceptance_checks: task.acceptance_checks,
       file_claims: task.file_claims,
       status: "queued",
+      model: mode === "model" ? modelByRole[task.role] : null,
       budget_seconds: task.budget_seconds,
       budget_calls: task.budget_calls,
       calls_used: 0,
@@ -305,10 +358,21 @@ export async function startTeamAction(
     return fail("The task queue couldn't be written. The run was stopped.");
   }
 
-  await event(session, run.id, "run.started", `Fixture team run started with ${plan.length} bounded tasks.`, null, "system");
+  await event(
+    session,
+    run.id,
+    "run.started",
+    mode === "model"
+      ? `Model-backed team run started with ${plan.length} bounded tasks and a ${creditBudget}-credit budget.`
+      : `Fixture team run started with ${plan.length} bounded tasks.`,
+    null,
+    "system",
+  );
   refresh(projectId);
   return done(
-    `Team run started: ${plan.length} tasks, at most ${maxAgents} at a time, ${maxRuntime}s and ${maxCalls} AI calls. No paid model calls are made in fixture mode.`,
+    mode === "model"
+      ? `Model-backed team run started: ${plan.length} tasks, ${maxCalls} AI calls, ${creditBudget} credits available for ${minimumCredits} required. Each task uses its role's model.`
+      : `Team run started: ${plan.length} tasks, at most ${maxAgents} at a time, ${maxRuntime}s. No paid model calls are made in fixture mode.`,
   );
 }
 
@@ -330,6 +394,10 @@ export async function advanceTeamAction(
         ? "This run is paused. Resume it before advancing."
         : "This run is no longer accepting work.",
     );
+  }
+
+  if (run.mode === "model" && !hasOllamaKey()) {
+    return fail("OLLAMA_API_KEY is not configured, so model-backed agent teams are unavailable.");
   }
 
   const reason = limitReason(run);
@@ -377,24 +445,80 @@ export async function advanceTeamAction(
     .eq("project_id", projectId)
     .eq("user_id", session.user.id);
 
+  const context = {
+    spec: run.spec,
+    projectName: project.name,
+    integrationStatus: run.integration_status,
+    integrationChecks: (integration?.checks ?? []) as TeamCheck[],
+    currentFiles: (currentFiles ?? []) as { path: string; content: string }[],
+  };
+
+  let callsUsed = run.calls_used;
   for (const task of selection.runnable) {
+    const model = task.model ?? run.model_by_role?.[task.role] ?? DEFAULT_AI_MODEL;
+    if (run.mode === "model" && !isAiModel(model)) {
+      const message = "This role does not have a valid Ollama model.";
+      await session.supabase
+        .from("app_team_tasks")
+        .update({ status: "failed", error: message, finished_at: new Date().toISOString() })
+        .eq("id", task.id)
+        .eq("user_id", session.user.id);
+      await event(session, run.id, "task.failed", `${task.role}: ${message}`, task.id, "system");
+      continue;
+    }
+
     await session.supabase
       .from("app_team_tasks")
       .update({
         status: "running",
+        model: run.mode === "model" ? model : null,
         attempts: task.attempts + 1,
         started_at: new Date().toISOString(),
       })
       .eq("id", task.id)
       .eq("user_id", session.user.id);
 
-    const result = runFixtureTask(task, {
-      spec: run.spec,
-      projectName: project.name,
-      integrationStatus: run.integration_status,
-      integrationChecks: (integration?.checks ?? []) as TeamCheck[],
-      currentFiles: (currentFiles ?? []) as { path: string; content: string }[],
-    });
+    let result;
+    if (run.mode === "fixture") {
+      result = runFixtureTask(task, context);
+    } else {
+      const reserved = await reserveAiRequest(session, "team_task", model, {
+        kind: "swarm",
+        id: run.id,
+      });
+      if (!reserved.ok) {
+        await session.supabase
+          .from("app_team_tasks")
+          .update({
+            status: "failed",
+            error: reserved.message,
+            finished_at: new Date().toISOString(),
+          })
+          .eq("id", task.id)
+          .eq("user_id", session.user.id);
+        await event(session, run.id, "task.failed", `${task.role}: ${reserved.message}`, task.id, "system");
+        continue;
+      }
+
+      try {
+        const modelResult = await runModelAgentTask(task, context, model);
+        await finishAiRequest(session, reserved.reservation.id, "succeeded", undefined, modelResult.tokens);
+        result = modelResult;
+      } catch (error) {
+        await finishAiRequest(session, reserved.reservation.id, "failed", "agent-task-failed");
+        const message =
+          error instanceof Error && error.name === "AgentReplyError"
+            ? error.message
+            : ollamaErrorMessage(error);
+        result = {
+          status: "failed" as const,
+          output: { summary: "The model-backed task failed." },
+          branch_files: [],
+          error: message,
+        };
+      }
+      callsUsed += 1;
+    }
 
     await session.supabase
       .from("app_team_tasks")
@@ -403,8 +527,8 @@ export async function advanceTeamAction(
         branch_files: result.branch_files,
         changed_files: result.branch_files.map((file) => file.path),
         output: result.output,
-        blocker: result.blocker ?? null,
-        error: result.error ?? null,
+        blocker: "blocker" in result ? result.blocker ?? null : null,
+        error: "error" in result ? result.error ?? null : null,
         finished_at: new Date().toISOString(),
       })
       .eq("id", task.id)
@@ -418,6 +542,14 @@ export async function advanceTeamAction(
       task.id,
       "system",
     );
+  }
+
+  if (callsUsed !== run.calls_used) {
+    await session.supabase
+      .from("app_team_runs")
+      .update({ calls_used: callsUsed })
+      .eq("id", run.id)
+      .eq("user_id", session.user.id);
   }
 
   tasks = await runTasks(session, run.id);
@@ -545,6 +677,7 @@ export async function reassignTeamTaskAction(
     .update({
       role,
       allowed_tools: definition.tools,
+      model: run.mode === "model" ? run.model_by_role?.[role] ?? DEFAULT_AI_MODEL : null,
       status: "queued",
       blocker: null,
       error: null,
@@ -744,12 +877,12 @@ export async function integrateTeamAction(
     );
   }
 
-  const summary = attributionSummary(tasks, result.contributors);
+  const summary = attributionSummary(tasks, result.contributors, run.mode);
   const { data: version, error } = await session.supabase.rpc("replace_app_files", {
     p_project_id: projectId,
     p_files: result.files,
     p_summary: summary,
-    p_note: "Controlled agent-team integration from fixture branches.",
+    p_note: `Controlled agent-team integration from ${run.mode}-mode branches.`,
   });
   if (error) {
     console.error("integrateTeamAction replace failed:", error.message);

@@ -1,0 +1,36 @@
+name: Platform health recovery
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-health-recovery
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Recover abandoned platform work
+        env:
+          PLATFORM_HEALTH_URL: ${{ vars.PLATFORM_HEALTH_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PLATFORM_HEALTH_URL:-}" ]; then
+            echo "::error::Set the repository variable PLATFORM_HEALTH_URL to the deployed origin."
+            exit 1
+          fi
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::Set the repository secret CRON_SECRET to the same value used by the app."
+            exit 1
+          fi
+          curl --fail-with-body --silent --show-error --max-time 30 \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${PLATFORM_HEALTH_URL%/}/api/platform/health/run"

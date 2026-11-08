@@ -202,18 +202,20 @@ describe("credit pricing", () => {
 
 describe("operation prices", () => {
   it("prices every approved operation in whole credits", () => {
-    expect(AI_OPERATION_PRICES).toHaveLength(10);
+    expect(AI_OPERATION_PRICES).toHaveLength(11);
     for (const operation of AI_OPERATION_PRICES) {
       expect(operation.credits).toBe(AI_OPERATION_CREDIT_COSTS[operation.kind]);
       expect(operation.credits).toBeGreaterThan(0);
     }
   });
 
-  it("charges two credits for a build repair and one for everything else", () => {
+  it("charges two credits for build repairs and agent tasks, one for single-call help", () => {
     expect(operationCreditCost("app_repair")).toBe(2);
+    expect(operationCreditCost("team_task")).toBe(2);
     expect(operationCreditCost("plan")).toBe(1);
     expect(operationCreditCost("workflow_draft")).toBe(1);
     expect(operationChargeLabel("app_repair")).toBe("2 credits ($0.20)");
+    expect(operationChargeLabel("team_task")).toBe("2 credits ($0.20)");
     expect(operationChargeLabel("plan")).toBe("1 credit ($0.10)");
   });
 
