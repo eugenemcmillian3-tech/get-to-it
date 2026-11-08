@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AgentReplyError,
   parseAgentReply,
+  retryInstruction,
   runModelAgentTask,
   validateAgentReply,
   type AgentWorkerContext,
@@ -189,5 +190,56 @@ describe("model reply retry", () => {
       runModelAgentTask(task("frontend", claims), context, "glm-5.3-flash"),
     ).rejects.toThrow("Ollama returned 500");
     expect(chatMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("retry instruction", () => {
+  it("tells a read-only role that files must be empty", () => {
+    const text = retryInstruction(task("security"), "Security reviewer cannot write files.");
+    expect(text).toContain('"files" must be an empty array []');
+    expect(text).toContain("Security reviewer cannot write files.");
+  });
+
+  it("reminds a writing role of its declared claims instead", () => {
+    const text = retryInstruction(task("frontend", ["components/hero.tsx"]), "bad shape");
+    expect(text).toContain("components/hero.tsx");
+    expect(text).not.toContain("empty array");
+  });
+
+  it("redacts a credential-looking rejection reason", () => {
+    const text = retryInstruction(task("security"), "sk-abcdefghijklmnopqrstuvwx");
+    expect(text).not.toContain("sk-abcdefghijklmnopqrstuvwx");
+    expect(text).toContain("[redacted");
+  });
+
+  it("retries a read-only role whose first reply proposed files", async () => {
+    chatMock
+      .mockResolvedValueOnce({
+        content: JSON.stringify({
+          summary: "Tightens the client",
+          findings: [],
+          evidence: [],
+          files: [{ path: "lib/db.ts", content: "export const x = 1;" }],
+        }),
+        model: "nemotron-3-nano:30b-cloud",
+        tokens: { input: 5, output: 5 },
+      })
+      .mockResolvedValueOnce({
+        content: JSON.stringify({
+          summary: "No secret values were reproduced",
+          findings: ["Pattern review only"],
+          evidence: [],
+          files: [],
+        }),
+        model: "nemotron-3-nano:30b-cloud",
+        tokens: { input: 6, output: 6 },
+      });
+
+    const result = await runModelAgentTask(task("security"), context, "nemotron-3-nano:30b-cloud");
+
+    expect(result.attempts).toBe(2);
+    expect(result.branch_files).toEqual([]);
+    const secondCall = chatMock.mock.calls[1][0] as { messages: { content: string }[] };
+    expect(secondCall.messages.at(-1)?.content).toContain("empty array");
   });
 });
