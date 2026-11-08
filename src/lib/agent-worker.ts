@@ -271,6 +271,8 @@ export type ModelTaskResult = {
   model: string;
   /** Model calls actually made: 1 normally, 2 after one rejected reply. */
   attempts: number;
+  /** The redacted rejection that forced the retry, or null when the first reply was accepted. */
+  retry_reason: string | null;
 };
 
 /**
@@ -346,6 +348,7 @@ export async function runModelAgentTask(
         tokens: reply.tokens,
         model: reply.model,
         attempts: attempt,
+        retry_reason: rejection ? cleanText(rejection, 200) : null,
       };
     } catch (error) {
       if (!(error instanceof AgentReplyError)) throw error;

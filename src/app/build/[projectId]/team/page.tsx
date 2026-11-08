@@ -10,11 +10,13 @@ import {
   TaskReviewForm,
 } from "@/components/team-forms";
 import {
+  MODEL_HEALTH_MIN_TASKS,
   TEAM_ROLES_SPEC,
   TEAM_ROLE_LABELS,
   TEAM_ROLE_MODELS,
   taskCallsLabel,
   teamStatusLabel,
+  type TeamModelHealthStatus,
   type TeamTaskRecord,
 } from "@/lib/agent-team";
 import { aiModelLabel } from "@/lib/ai/models";
@@ -26,6 +28,20 @@ import { getSupabaseSettings } from "@/lib/supabase/config";
 import { isUuid } from "@/lib/validation";
 
 export const metadata: Metadata = { title: "Agent team — GET TO IT" };
+
+const MODEL_HEALTH_LABELS: Record<TeamModelHealthStatus, string> = {
+  stable: "Stable",
+  watch: "Watch",
+  degraded: "Regression",
+  insufficient: "Too few tasks",
+};
+
+function modelHealthTone(status: TeamModelHealthStatus): string {
+  if (status === "degraded") return "text-danger";
+  if (status === "watch") return "text-amber-700";
+  if (status === "stable") return "text-mint";
+  return "text-muted";
+}
 
 function TaskCard({
   projectId,
@@ -77,6 +93,12 @@ function TaskCard({
         </p>
       ) : null}
       {task.error ? <p className="mt-2 text-sm text-danger">{task.error}</p> : null}
+      {task.retries > 0 ? (
+        <p className="mt-2 text-xs text-muted">
+          {task.retries === 1 ? "One reply was rejected and retried" : `${task.retries} replies were rejected`}
+          {task.retry_reason ? ` — ${task.retry_reason}` : ""}
+        </p>
+      ) : null}
       {output ? (
         <div className="mt-3 rounded-lg bg-paper p-3 text-sm">
           <p>{output.summary}</p>
@@ -119,7 +141,7 @@ export default async function AppTeamPage({ params }: { params: Promise<{ projec
   const [identity, detail] = await Promise.all([getIdentity(session), getAppTeam(session, projectId)]);
   if (!detail) notFound();
 
-  const { project, run, tasks, integration, events } = detail;
+  const { project, run, tasks, integration, events, modelHealth } = detail;
   const tasksByStatus = (status: string) => tasks.filter((task) => task.status === status).length;
   const codeTasks = tasks.filter((task) => ["frontend", "backend", "data"].includes(task.role));
   const codeReady = codeTasks.length > 0 && codeTasks.every((task) => task.status === "completed" || task.status === "cancelled");
@@ -238,6 +260,68 @@ export default async function AppTeamPage({ params }: { params: Promise<{ projec
                   A task is blocked. Open it below to reassign, reject, or resolve its file claim.
                 </p>
               ) : null}
+            </section>
+
+            <section className={`${cardClass} mt-6`} aria-labelledby="model-health">
+              <h2 id="model-health" className="text-lg font-bold">Model health</h2>
+              <p className="mt-1 text-sm text-muted">
+                Retry and failure counts from the model calls this project actually ran. One row
+                counts one finished task: a retry means the first reply broke the schema or the
+                role&apos;s permissions and the same model was asked once more, and a failure means
+                no usable reply arrived. A rate is not a verdict below {MODEL_HEALTH_MIN_TASKS} tasks.
+              </p>
+              {modelHealth.length === 0 ? (
+                <p className="mt-2 text-sm text-muted">
+                  No model-backed task has finished yet, so there is nothing to measure.
+                </p>
+              ) : (
+                <>
+                  <div className="mt-3 overflow-x-auto">
+                    <table className="w-full text-left text-sm">
+                      <thead>
+                        <tr className="border-b border-line">
+                          <th className="py-2 pr-3 font-semibold">Role</th>
+                          <th className="py-2 pr-3 font-semibold">Model</th>
+                          <th className="py-2 pr-3 font-semibold">Tasks</th>
+                          <th className="py-2 pr-3 font-semibold">Retries</th>
+                          <th className="py-2 pr-3 font-semibold">Failures</th>
+                          <th className="py-2 pr-3 font-semibold">Retry rate</th>
+                          <th className="py-2 font-semibold">Signal</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {modelHealth.map((row) => (
+                          <tr key={`${row.role}-${row.model}`} className="border-b border-line">
+                            <td className="py-2 pr-3 font-medium">{TEAM_ROLE_LABELS[row.role]}</td>
+                            <td className="py-2 pr-3 text-xs text-muted">{aiModelLabel(row.model)}</td>
+                            <td className="py-2 pr-3 font-mono text-xs">{row.tasks}</td>
+                            <td className="py-2 pr-3 font-mono text-xs">{row.retried}</td>
+                            <td className="py-2 pr-3 font-mono text-xs">{row.failed}</td>
+                            <td className="py-2 pr-3 font-mono text-xs">
+                              {Math.round(row.retryRate * 100)}%
+                            </td>
+                            <td className={`py-2 text-xs font-semibold ${modelHealthTone(row.status)}`}>
+                              {MODEL_HEALTH_LABELS[row.status]}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {modelHealth.some((row) => row.lastRetryReason) ? (
+                    <ul className="mt-3 space-y-1 text-xs text-muted">
+                      {modelHealth
+                        .filter((row) => row.lastRetryReason)
+                        .map((row) => (
+                          <li key={`${row.role}-${row.model}-reason`}>
+                            <span className="font-semibold">{TEAM_ROLE_LABELS[row.role]}</span> last
+                            retry: {row.lastRetryReason}
+                          </li>
+                        ))}
+                    </ul>
+                  ) : null}
+                </>
+              )}
             </section>
 
             <section className="mt-8" aria-labelledby="queue">
