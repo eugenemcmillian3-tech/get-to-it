@@ -21,6 +21,41 @@ import { proxy } from "@/proxy";
 
 const PROJECT_ID = "5423c8a0-a8ad-473c-a7bb-b4f71b2e38b1";
 
+/** Every signed-in-only area the proxy must cover. */
+const GATED_PREFIXES = [
+  "/billing",
+  "/build",
+  "/credits",
+  "/dashboard",
+  "/data",
+  "/evaluations",
+  "/futures",
+  "/goals",
+  "/outcomes",
+  "/owner",
+  "/partner",
+  "/plan",
+  "/radar",
+  "/reminders",
+  "/reviews",
+  "/settings",
+  "/templates",
+  "/workflows",
+  "/workspace",
+];
+
+/** Areas that must stay reachable without a session. */
+const PUBLIC_PATHS = [
+  "/",
+  "/sign-in",
+  "/sign-up",
+  "/share/abc123",
+  "/api/health",
+  "/auth/callback",
+  "/builder",
+  "/builds",
+];
+
 /** A URL view with accessors, so `redirectUrl.pathname = …` mutates the same URL. */
 function viewFor(url: URL) {
   return {
@@ -58,52 +93,54 @@ function nextTarget(location: string | undefined) {
   return new URL(location ?? "").searchParams.get("next");
 }
 
-describe("proxy build gate", () => {
+describe("proxy authentication gate", () => {
   beforeEach(() => {
     getUser.mockReset();
   });
 
-  it("redirects a signed-out visitor from every build path to sign-in with a return path", async () => {
+  it("redirects a signed-out visitor from every gated prefix, root and nested path", async () => {
     getUser.mockResolvedValue({ data: { user: null } });
 
-    for (const path of ["/build", `/build/${PROJECT_ID}`, `/build/${PROJECT_ID}/team`, `/build/${PROJECT_ID}/deploy`]) {
-      const result = await visit(path);
-      expect(result.kind, path).toBe("redirect");
-      expect(result.location, path).toContain("/sign-in");
-      expect(nextTarget(result.location), path).toBe(path);
+    for (const prefix of GATED_PREFIXES) {
+      for (const path of [prefix, `${prefix}/example`, `${prefix}/${PROJECT_ID}/team`]) {
+        const result = await visit(path);
+        expect(result.kind, path).toBe("redirect");
+        expect(result.location, path).toContain("/sign-in");
+        expect(nextTarget(result.location), path).toBe(path);
+      }
     }
   });
 
-  it("still redirects signed-out visitors from the previously protected prefixes", async () => {
+  it("leaves public pages, share links and API routes reachable", async () => {
     getUser.mockResolvedValue({ data: { user: null } });
 
-    for (const path of ["/dashboard", "/goals", "/goals/123"]) {
-      const result = await visit(path);
-      expect(result.kind, path).toBe("redirect");
-      expect(nextTarget(result.location), path).toBe(path);
+    for (const path of PUBLIC_PATHS) {
+      expect((await visit(path)).kind, path).toBe("next");
     }
   });
 
-  it("lets a signed-in visitor through the build gate", async () => {
+  it("lets a signed-in visitor through every gated prefix", async () => {
     getUser.mockResolvedValue({ data: { user: { id: "user-1" } } });
 
-    for (const path of ["/build", `/build/${PROJECT_ID}/team`]) {
-      expect((await visit(path)).kind, path).toBe("next");
+    for (const prefix of GATED_PREFIXES) {
+      expect((await visit(prefix)).kind, prefix).toBe("next");
     }
   });
 
-  it("does not gate sign-in for a signed-out visitor or the public home page", async () => {
-    getUser.mockResolvedValue({ data: { user: null } });
+  it("sends a signed-in visitor from the auth pages to the dashboard", async () => {
+    getUser.mockResolvedValue({ data: { user: { id: "user-1" } } });
 
-    for (const path of ["/sign-in", "/", "/sign-up"]) {
-      expect((await visit(path)).kind, path).toBe("next");
+    for (const path of ["/sign-in", "/sign-up"]) {
+      const result = await visit(path);
+      expect(result.kind, path).toBe("redirect");
+      expect(result.location, path).toContain("/dashboard");
     }
   });
 
-  it("does not treat a path that merely starts with the word build as protected", async () => {
+  it("does not gate a path that merely starts with a protected name", async () => {
     getUser.mockResolvedValue({ data: { user: null } });
 
-    for (const path of ["/builder", "/builds"]) {
+    for (const path of ["/builds", "/builder", "/workflows-archive", "/settings-old"]) {
       expect((await visit(path)).kind, path).toBe("next");
     }
   });

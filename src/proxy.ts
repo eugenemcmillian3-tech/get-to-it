@@ -2,10 +2,33 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { getSupabaseSettings } from "@/lib/supabase/config";
 
-// Every build page gates itself with requireSession too. This prefix is the
-// outer layer, so a page added under /build cannot serve content to a
-// signed-out visitor just because it forgot the check.
-const PROTECTED_PREFIXES = ["/dashboard", "/goals", "/build"];
+// Every prefix here is signed-in only, and every page under it also gates
+// itself with requireSession. This list is the outer layer, so a page added
+// under one of them cannot serve content to a signed-out visitor just because
+// it forgot the check. /api, /auth and /share are deliberately absent: their
+// route handlers authenticate themselves, and share links are public by
+// design. A new signed-in-only area belongs in this list.
+const PROTECTED_PREFIXES = [
+  "/billing",
+  "/build",
+  "/credits",
+  "/dashboard",
+  "/data",
+  "/evaluations",
+  "/futures",
+  "/goals",
+  "/outcomes",
+  "/owner",
+  "/partner",
+  "/plan",
+  "/radar",
+  "/reminders",
+  "/reviews",
+  "/settings",
+  "/templates",
+  "/workflows",
+  "/workspace",
+];
 const AUTH_PAGES = ["/sign-in", "/sign-up"];
 
 export async function proxy(request: NextRequest) {
