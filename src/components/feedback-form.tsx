@@ -22,14 +22,14 @@ const AREAS = [
 /**
  * Feedback form. Saves one row in `public.feedback`; nothing else changes.
  */
-export function FeedbackForm() {
+export function FeedbackForm({ className = "mt-10" }: { className?: string } = {}) {
   const [state, formAction] = useActionState(
     submitFeedbackAction,
     idleFormState,
   );
 
   return (
-    <section aria-labelledby="feedback-heading" className="mt-10">
+    <section aria-labelledby="feedback-heading" className={className}>
       <h2 id="feedback-heading" className="text-lg font-bold">
         Tell us how it went
       </h2>

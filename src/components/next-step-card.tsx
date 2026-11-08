@@ -12,13 +12,18 @@ import type { FocusSessionView } from "@/lib/types";
 export function NextStepCard({
   nextStep,
   activeSession,
+  className = "mt-6",
 }: {
   nextStep: NextStep | null;
   activeSession: { session: FocusSessionView; taskTitle: string } | null;
+  className?: string;
 }) {
   return (
-    <section aria-labelledby="continue-heading" className={`${cardClass} mt-6`}>
-      <h2 id="continue-heading" className="text-lg font-bold">
+    <section aria-labelledby="continue-heading" className={`${cardClass} ${className}`}>
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-brand-strong">
+        Today&apos;s next step
+      </p>
+      <h2 id="continue-heading" className="mt-1 text-lg font-bold">
         Continue where you left off
       </h2>
 

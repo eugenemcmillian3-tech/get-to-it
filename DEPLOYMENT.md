@@ -4,7 +4,7 @@ GET TO IT deploys from the `main` branch of `eugenemcmillian3-tech/get-to-it` to
 
 - Vercel Git auto-deploy is enabled for `main`; pushes to `main` deploy production automatically. Do not run manual production deploys.
 - Production URL: https://get-to-it-wvpy.vercel.app
-- Production revision: `/api/health` is the source of truth for the currently deployed revision; the latest verified release is recorded in the release issues.
+- Production revision: `d17d287` verified on 2026-11-08; `/api/health` remains the source of truth for the currently deployed revision.
 - Vercel project ID: `prj_7ZFE4kOPQgsrubitOv1cDcIMPCOx`
 - Vercel production branch: `main`
 - Supabase project: `qhlzjhdcnlokbsdsrqqy` (created through the Vercel Supabase integration)
@@ -22,19 +22,23 @@ The previous Vercel and Supabase projects are no longer the deployment target. N
 
 ## Vercel project and alias inventory
 
-Last inventoried: 2026-11-08.
+Last inventoried: 2026-11-08T04:53Z.
 
 - Active Vercel team: `get-to-it-0dbb92e3` (`team_Qjuoq6EGN5zLqTKr3TpGi8uU`).
 - Active project: `get-to-it-wvpy` (`prj_7ZFE4kOPQgsrubitOv1cDcIMPCOx`).
 - Stable production domain: `get-to-it-wvpy.vercel.app`.
 - Custom domains: none.
 - Other project domains or stable aliases: none.
+- Live inventory result: 3 scopes, 1 project, 1 project domain and 42 aliases.
+  Of the aliases, 40 contain Vercel's `-git-` preview/branch marker; the two
+  non-preview entries are the canonical domain and the automatic production
+  deployment alias `get-to-it-wvpy-get-to-it-0dbb92e3.vercel.app`.
 - Automatic preview aliases: generated per deployment and managed by Vercel's
   deployment retention. They are not stable production hostnames; do not use
   them in documentation, auth callbacks or environment values.
 - Older Hobby team `johms-projects-1b869330`
   (`team_ezjDhEzSQL0lMa2XfF8xwZbc`): no projects, domains or aliases.
-- Personal Vercel scope: no projects or aliases.
+- Personal Vercel scope: no projects, domains or aliases.
 - Retired alias `get-to-it-five.vercel.app`: returns
   `404 DEPLOYMENT_NOT_FOUND`; no matching project or alias record. It is already
   detached.
@@ -55,10 +59,13 @@ npm run check:vercel-aliases -- --json
 unset VERCEL_TOKEN
 ```
 
+The npm command loads `.env.local` when present. `VERCEL_TOKEN` takes precedence;
+when it is unset, the command uses the existing project credential
+`VERCEL_API_TOKEN`, so the value does not need to be copied or exported by hand.
 The command performs `GET` requests only. It enumerates every accessible team
 and the personal scope, then lists each project's project domains and aliases.
-Set `VERCEL_TEAM_ID` only when the token cannot list teams. Keep the token out of
-shell history and source control.
+Set `VERCEL_TEAM_ID` only when the token cannot list teams. Keep every token out
+of shell history and source control.
 
 ## Pricing rollout (0034 and 0035)
 

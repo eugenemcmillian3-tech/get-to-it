@@ -10,13 +10,13 @@ import { dangerButton, hintClass, inputClass, labelClass, secondaryButton } from
  * Account deletion, behind two deliberate steps and a typed confirmation.
  * The copy states exactly what goes and what stays before anything happens.
  */
-export function DeleteAccountCard() {
+export function DeleteAccountCard({ className = "mt-10" }: { className?: string } = {}) {
   const [state, formAction] = useActionState(deleteAccountAction, idleFormState);
   const [open, setOpen] = useState(false);
 
   if (!open) {
     return (
-      <section aria-labelledby="delete-heading" className="mt-10">
+      <section aria-labelledby="delete-heading" className={className}>
         <h2 id="delete-heading" className="text-lg font-bold">
           Delete your account
         </h2>
@@ -36,7 +36,7 @@ export function DeleteAccountCard() {
   }
 
   return (
-    <section aria-labelledby="delete-heading" className="mt-10">
+    <section aria-labelledby="delete-heading" className={className}>
       <h2 id="delete-heading" className="text-lg font-bold">
         Delete your account
       </h2>

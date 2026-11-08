@@ -24,15 +24,17 @@ import type { WeeklyCheckin } from "@/lib/types";
 export function CheckinForm({
   weekStart,
   existing,
+  className = "mt-10",
 }: {
   weekStart: string;
   existing: WeeklyCheckin | null;
+  className?: string;
 }) {
   const [state, formAction] = useActionState(saveCheckinAction, idleFormState);
   const weekLabel = formatDeadline(weekStart) ?? weekStart;
 
   return (
-    <section aria-labelledby="checkin-heading" className="mt-10">
+    <section aria-labelledby="checkin-heading" className={className}>
       <h2 id="checkin-heading" className="text-lg font-bold">
         Weekly check-in
       </h2>

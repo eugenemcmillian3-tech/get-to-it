@@ -4,11 +4,15 @@
  *
  * Enumerates every accessible team and the personal scope, then lists each
  * project's project domains and aliases. Only GET requests are made. The token
- * is read from VERCEL_TOKEN and is never printed.
+ * is read from VERCEL_TOKEN, or from the existing VERCEL_API_TOKEN project
+ * credential when VERCEL_TOKEN is unset. It is never printed.
+ *
+ * `npm run check:vercel-aliases` loads .env.local when present, so the project
+ * credential can be used without copying or exporting it by hand.
  *
  * Usage:
- *   VERCEL_TOKEN=... node scripts/vercel-alias-inventory.mjs
- *   VERCEL_TOKEN=... node scripts/vercel-alias-inventory.mjs --json
+ *   npm run check:vercel-aliases
+ *   npm run check:vercel-aliases -- --json
  */
 
 import { resolve } from "node:path";
@@ -340,18 +344,24 @@ export function formatInventory(inventory) {
   return lines.join("\n");
 }
 
+export function resolveToken(env = process.env) {
+  return env.VERCEL_TOKEN?.trim() || env.VERCEL_API_TOKEN?.trim() || "";
+}
+
 function printUsage() {
-  console.log(`Usage: VERCEL_TOKEN=... node scripts/vercel-alias-inventory.mjs [--json]
+  console.log(`Usage: npm run check:vercel-aliases [-- --json]
 
 Options:
   --json    Print the complete inventory as JSON.
   --help    Show this help.
 
 Environment:
-  VERCEL_TOKEN     Vercel access token (required).
-  VERCEL_TEAM_ID   Optional fallback when the token cannot list teams.
+  VERCEL_TOKEN      Optional dedicated Vercel access token; takes precedence.
+  VERCEL_API_TOKEN  Existing project credential, used when VERCEL_TOKEN is unset.
+  VERCEL_TEAM_ID    Optional fallback when the token cannot list teams.
 
-The command performs GET requests only and never prints the token.`);
+The npm command loads .env.local when present. It performs GET requests only
+and never prints the token.`);
 }
 
 async function main() {
@@ -366,10 +376,10 @@ async function main() {
     throw new Error(`Unknown argument: ${unknown[0]}`);
   }
 
-  const token = process.env.VERCEL_TOKEN?.trim();
+  const token = resolveToken();
   if (!token) {
     printUsage();
-    throw new Error("VERCEL_TOKEN is required.");
+    throw new Error("VERCEL_TOKEN or VERCEL_API_TOKEN is required.");
   }
 
   const inventory = await inventoryVercel({
