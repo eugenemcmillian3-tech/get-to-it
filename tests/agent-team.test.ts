@@ -14,6 +14,7 @@ import {
   roleDefinition,
   runFixtureTask,
   selectRunnableTasks,
+  taskCallsLabel,
   taskCanUseTool,
   taskCanWritePath,
   taskScopeProblems,
@@ -275,5 +276,19 @@ describe("agent-team fixtures", () => {
     ).toContain("runtime limit");
     expect(TEAM_LIMITS.maxAgents).toBe(4);
     expect(TEAM_LIMITS.maxCalls).toBe(24);
+  });
+});
+
+describe("task call label", () => {
+  it("labels a task that made one call", () => {
+    expect(taskCallsLabel(1)).toBe("1 model call");
+  });
+
+  it("reports a task that needed a retry", () => {
+    expect(taskCallsLabel(2)).toBe("2 model calls, 1 retried");
+  });
+
+  it("handles a task that made no model calls", () => {
+    expect(taskCallsLabel(0)).toBe("no model calls");
   });
 });

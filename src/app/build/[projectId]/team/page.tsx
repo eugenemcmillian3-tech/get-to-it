@@ -13,6 +13,7 @@ import {
   TEAM_ROLES_SPEC,
   TEAM_ROLE_LABELS,
   TEAM_ROLE_MODELS,
+  taskCallsLabel,
   teamStatusLabel,
   type TeamTaskRecord,
 } from "@/lib/agent-team";
@@ -56,7 +57,7 @@ function TaskCard({
         <div>
           <dt className="font-semibold">Budget</dt>
           <dd className="text-muted">
-            {task.budget_seconds}s · {task.budget_calls} AI call(s) · {task.calls_used} used
+            {task.budget_seconds}s · {task.budget_calls} AI call(s) · {taskCallsLabel(task.calls_used)}
             {task.model ? ` · ${aiModelLabel(task.model)}` : " · fixture"}
           </dd>
         </div>
