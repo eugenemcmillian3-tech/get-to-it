@@ -52,9 +52,13 @@ export type AgentWorkerContext = {
 };
 
 export class AgentReplyError extends Error {
-  constructor(message: string) {
+  /** Model calls spent before this reply was rejected. */
+  attempts: number;
+
+  constructor(message: string, attempts = 1) {
     super(message);
     this.name = "AgentReplyError";
+    this.attempts = attempts;
   }
 }
 
@@ -263,12 +267,28 @@ export type ModelTaskResult = {
   branch_files: TeamBranchFile[];
   tokens: { input: number | null; output: number | null };
   model: string;
+  /** Model calls actually made: 1 normally, 2 after one rejected reply. */
+  attempts: number;
 };
 
 /**
+ * A reply that breaks the schema is a model mistake, not a task failure, so it
+ * is worth asking once more. The ceiling is deliberately two: every attempt is
+ * charged to the run's call budget, so one flaky model cannot spin a queue.
+ */
+export const MAX_REPLY_ATTEMPTS = 2;
+
+const RETRY_INSTRUCTION = [
+  "Your previous reply was rejected because it did not match the required JSON.",
+  "Return only one JSON object with exactly these keys: summary, findings, evidence, files.",
+  "No prose, no extra keys, no markdown fence. Respect every declared file claim.",
+].join(" ");
+
+/**
  * Runs one model-backed task. The caller must reserve credits first and close
- * the reservation with the returned tokens. Any validation failure throws, so
- * the caller records a failed task and the reservation is released.
+ * the reservation with the returned tokens. A malformed reply is retried at
+ * most once; any remaining failure throws, so the caller records a failed task
+ * and the reservation is released. Provider errors are never retried here.
  */
 export async function runModelAgentTask(
   task: TeamTaskRecord,
@@ -276,32 +296,47 @@ export async function runModelAgentTask(
   model: string,
   timeoutMs = 90_000,
 ): Promise<ModelTaskResult> {
-  const reply = await chatWithOllama({
-    model,
-    messages: buildAgentMessages(task, context),
-    format: "json",
-    temperature: 0.1,
-    timeoutMs,
-  });
+  const baseMessages = buildAgentMessages(task, context);
 
-  const parsed = parseAgentReply(reply.content);
-  const validated = validateAgentReply(task, parsed, context);
-  const needsReview =
-    task.role === "qa" ||
-    task.role === "security" ||
-    (task.role === "coordinator" && task.inputs.includes("closeout"));
+  for (let attempt = 1; attempt <= MAX_REPLY_ATTEMPTS; attempt += 1) {
+    const reply = await chatWithOllama({
+      model,
+      messages:
+        attempt === 1
+          ? baseMessages
+          : [...baseMessages, { role: "user" as const, content: RETRY_INSTRUCTION }],
+      format: "json",
+      temperature: 0.1,
+      timeoutMs,
+    });
 
-  return {
-    status: needsReview ? "awaiting_review" : "completed",
-    output: {
-      ...validated.output,
-      ...(task.role === "qa" ? { checks: context.integrationChecks } : {}),
-      ...(task.role === "security"
-        ? { findings: [...validated.output.findings, "Pattern review only: this is not a complete security audit."] }
-        : {}),
-    },
-    branch_files: validated.branch_files,
-    tokens: reply.tokens,
-    model: reply.model,
-  };
+    try {
+      const parsed = parseAgentReply(reply.content);
+      const validated = validateAgentReply(task, parsed, context);
+      const needsReview =
+        task.role === "qa" ||
+        task.role === "security" ||
+        (task.role === "coordinator" && task.inputs.includes("closeout"));
+
+      return {
+        status: needsReview ? "awaiting_review" : "completed",
+        output: {
+          ...validated.output,
+          ...(task.role === "qa" ? { checks: context.integrationChecks } : {}),
+          ...(task.role === "security"
+            ? { findings: [...validated.output.findings, "Pattern review only: this is not a complete security audit."] }
+            : {}),
+        },
+        branch_files: validated.branch_files,
+        tokens: reply.tokens,
+        model: reply.model,
+        attempts: attempt,
+      };
+    } catch (error) {
+      if (!(error instanceof AgentReplyError)) throw error;
+      if (attempt === MAX_REPLY_ATTEMPTS) throw new AgentReplyError(error.message, attempt);
+    }
+  }
+
+  throw new AgentReplyError("The model returned an unusable task result.", MAX_REPLY_ATTEMPTS);
 }

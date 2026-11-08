@@ -1510,8 +1510,9 @@ completed security audit.
   loop.
 - **Bounds.** At most four agents are scheduled per advance, with 24 AI calls,
   1,800 seconds and 24 tasks per run. Execution is request-scoped, not a
-  background parallel runtime. No recursive spawning, no unlimited self-retry, and agents cannot
-  change their own permissions. External actions are absent and still require
+  background parallel runtime. No recursive spawning and no unlimited self-retry:
+  a schema-invalid model reply is retried at most once, every attempt counts
+  against the call budget, and agents cannot change their own permissions. External actions are absent and still require
   explicit approval if added later.
 - **Fixture proof.** The built-in workers are deterministic controlled fixtures,
   so collaboration, a deliberate overlap, integration, a stale-branch conflict,
