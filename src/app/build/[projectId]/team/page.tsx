@@ -12,9 +12,11 @@ import {
 import {
   TEAM_ROLES_SPEC,
   TEAM_ROLE_LABELS,
+  TEAM_ROLE_MODELS,
   teamStatusLabel,
   type TeamTaskRecord,
 } from "@/lib/agent-team";
+import { aiModelLabel } from "@/lib/ai/models";
 import { requireSession } from "@/lib/auth";
 import { getAppTeam } from "@/lib/data/app-team";
 import { getIdentity } from "@/lib/identity";
@@ -55,6 +57,7 @@ function TaskCard({
           <dt className="font-semibold">Budget</dt>
           <dd className="text-muted">
             {task.budget_seconds}s · {task.budget_calls} AI call(s) · {task.calls_used} used
+            {task.model ? ` · ${aiModelLabel(task.model)}` : " · fixture"}
           </dd>
         </div>
         <div>
@@ -138,8 +141,9 @@ export default async function AppTeamPage({ params }: { params: Promise<{ projec
           <h1 className="text-3xl font-black leading-tight tracking-tight sm:text-4xl">Agent team</h1>
           <p className="mt-3 max-w-3xl text-sm leading-relaxed text-muted">
             Optional team mode for {project.name}. One approved specification, a durable task queue,
-            scoped roles, logical branches and one controlled integration step. The workers here are
-            controlled fixtures: no paid model calls, deployment credentials or external actions.
+            scoped roles, logical branches and one controlled integration step. Fixture mode is free;
+            model mode maps the six roles to the six Ollama models and reserves credits per task.
+            Neither mode has deployment credentials or external actions.
           </p>
           <div className="mt-3 flex flex-wrap gap-2 text-xs">
             <span className={chipClass}>Version {project.current_version || "none"}</span>
@@ -171,6 +175,7 @@ export default async function AppTeamPage({ params }: { params: Promise<{ projec
                     <tr className="border-b border-line">
                       <th className="py-2 pr-3 font-semibold">Role</th>
                       <th className="py-2 pr-3 font-semibold">Writes</th>
+                      <th className="py-2 pr-3 font-semibold">Model (model mode)</th>
                       <th className="py-2 font-semibold">Tools/capabilities</th>
                     </tr>
                   </thead>
@@ -180,6 +185,9 @@ export default async function AppTeamPage({ params }: { params: Promise<{ projec
                         <td className="py-2 pr-3 font-medium">{definition.label}</td>
                         <td className="py-2 pr-3 font-mono text-xs text-muted">
                           {definition.writeRoots.join(", ") || "none"}
+                        </td>
+                        <td className="py-2 pr-3 text-xs text-muted">
+                          {aiModelLabel(TEAM_ROLE_MODELS[role as keyof typeof TEAM_ROLE_MODELS])}
                         </td>
                         <td className="py-2 text-xs text-muted">
                           <p className="font-mono">{definition.tools.join(", ")}</p>
@@ -204,7 +212,7 @@ export default async function AppTeamPage({ params }: { params: Promise<{ projec
               <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-5">
                 <p><span className="font-semibold">Agent cap</span><br />{run.max_agents} per advance, {run.active_count} active</p>
                 <p><span className="font-semibold">AI calls</span><br />{run.calls_used} / {run.max_calls || "no calls allowed"}</p>
-                <p><span className="font-semibold">AI credits</span><br />{run.credits_spent ?? 0} / {run.credit_budget ?? 0} (fixture only)</p>
+                <p><span className="font-semibold">AI credits</span><br />{run.credits_spent ?? 0} / {run.credit_budget ?? 0} ({run.mode})</p>
                 <p><span className="font-semibold">Runtime</span><br />{run.runtime_seconds}s / {run.max_runtime_seconds}s</p>
                 <p><span className="font-semibold">Tasks</span><br />{tasksByStatus("completed")} completed, {tasksByStatus("awaiting_review")} awaiting review</p>
               </div>
@@ -326,7 +334,7 @@ export default async function AppTeamPage({ params }: { params: Promise<{ projec
           <ul className="mt-2 space-y-1 text-sm text-muted">
             <li>No public deployment, production credentials or external actions.</li>
             <li>No recursive spawning, unlimited retries, or permission changes by an agent.</li>
-            <li>No claim that a fixture run is a paid multi-agent test or a complete security audit.</li>
+            <li>No claim that a fixture run exercises the models, or that a security review is a complete audit.</li>
             <li>No integration without an explicit owner click and passing sandbox checks.</li>
           </ul>
           <p className="mt-3">

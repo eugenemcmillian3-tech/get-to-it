@@ -4173,6 +4173,83 @@ describeRestore("isolated restore and authorization drill", () => {
     expect(probe.rows[0].probe.ok).toBe(true);
   });
 
+  it("recovers stale AI reservations and stale agent tasks through the platform RPCs", async () => {
+    await client.query("delete from public.app_team_runs where project_id = $1", [accountB.appProjectId]);
+    const run = await client.query<{ id: string }>(
+      `insert into public.app_team_runs
+         (project_id, user_id, spec_version, spec, status, mode, model_by_role,
+          max_agents, max_calls, max_runtime_seconds, credit_budget, credits_spent, integration_status)
+       values ($1,$2,1,'{}'::jsonb,'running','model',
+               '{"frontend":"glm-5.3-flash"}'::jsonb,2,8,600,2,2,'pending')
+       returning id`,
+      [accountB.appProjectId, accountB.userId],
+    );
+    const runId = run.rows[0].id;
+
+    await client.query(
+      `insert into public.app_team_tasks
+         (run_id, project_id, user_id, position, role, objective, status,
+          budget_seconds, attempts, started_at)
+       values ($1,$2,$3,0,'frontend','Recover this bounded task.','running',10,1,now() - interval '10 minutes')`,
+      [runId, accountB.appProjectId, accountB.userId],
+    );
+
+    const request = await client.query<{ id: string }>(
+      `insert into public.ai_requests
+         (user_id, kind, model, status, credits_charged, budget_kind, budget_id, started_at)
+       values ($1,'team_task','glm-5.3-flash','in_flight',2,'swarm',$2,now() - interval '10 minutes')
+       returning id`,
+      [accountB.userId, runId],
+    );
+
+    const recovery = await client.query<{
+      ai: { recovered: number; credits_released: number };
+      tasks: { queued: number; failed: number };
+    }>(
+      `select public.recover_stale_ai_requests() as ai,
+              public.recover_stale_team_tasks() as tasks`,
+    );
+
+    expect(recovery.rows[0].ai.recovered).toBe(1);
+    expect(recovery.rows[0].ai.credits_released).toBe(2);
+    expect(recovery.rows[0].tasks.queued).toBe(1);
+
+    const requestAfter = await client.query<{ status: string }>(
+      "select status from public.ai_requests where id = $1",
+      [request.rows[0].id],
+    );
+    expect(requestAfter.rows[0].status).toBe("failed");
+
+    const taskAfter = await client.query<{ status: string }>(
+      "select status from public.app_team_tasks where run_id = $1",
+      [runId],
+    );
+    expect(taskAfter.rows[0].status).toBe("queued");
+
+    const runAfter = await client.query<{ credits_spent: number }>(
+      "select credits_spent from public.app_team_runs where id = $1",
+      [runId],
+    );
+    expect(Number(runAfter.rows[0].credits_spent)).toBe(0);
+
+    await client.query(
+      `update public.app_team_tasks
+          set status = 'running', attempts = 3, started_at = now() - interval '10 minutes'
+        where run_id = $1`,
+      [runId],
+    );
+    const exhausted = await client.query<{ tasks: { queued: number; failed: number } }>(
+      "select public.recover_stale_team_tasks() as tasks",
+    );
+    expect(exhausted.rows[0].tasks.failed).toBe(1);
+
+    const failedTask = await client.query<{ status: string }>(
+      "select status from public.app_team_tasks where run_id = $1",
+      [runId],
+    );
+    expect(failedTask.rows[0].status).toBe("failed");
+  });
+
   it("deletes one account and retains only accounting records", async () => {
     const usageBefore = await client.query<{ requests: number }>(
       "select coalesce(sum(requests), 0)::int as requests from public.ai_usage_daily",

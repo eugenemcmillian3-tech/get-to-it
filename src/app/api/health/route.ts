@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { hasOllamaKey } from "@/lib/ai/ollama";
 import { logOperational } from "@/lib/log";
+import { selfHealingEnabled } from "@/lib/platform-health";
 import { revisionLabel } from "@/lib/revision";
 import { getSupabaseSettings } from "@/lib/supabase/config";
 
@@ -34,19 +36,32 @@ export async function GET() {
   }
 
   const configuration = settings ? "configured" : "missing";
+  const modelProvider = hasOllamaKey() ? "configured" : "missing";
+  const recovery = !selfHealingEnabled()
+    ? "disabled"
+    : process.env.CRON_SECRET
+      ? "enabled"
+      : "missing-secret";
   const ok = configuration === "configured" && database === "ok";
 
   logOperational("health_check", {
     outcome: ok ? "ok" : "degraded",
     database,
     configuration,
+    model_provider: modelProvider,
+    self_healing: recovery,
   });
 
   return NextResponse.json(
     {
       status: ok ? "ok" : "degraded",
       revision: revisionLabel(),
-      checks: { database, configuration },
+      checks: {
+        database,
+        configuration,
+        model_provider: modelProvider,
+        self_healing: recovery,
+      },
       checked_at: new Date().toISOString(),
     },
     {

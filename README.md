@@ -19,6 +19,18 @@ The goal page also has an optional "I'M STUCK" panel that asks an open model for
 a starting point through Ollama's cloud API. It needs `OLLAMA_API_KEY`; without
 it the panel explains the missing key instead of inventing an answer.
 
+Agent teams have two modes. Fixture mode is free and deterministic. Model mode
+maps the six roles to the six configured Ollama models (GLM 5.3 Flash, DeepSeek
+V4.1 Flash, MiniMax M3.1 Flash, GPT-OSS 120B, Gemma 4 31B and Nemotron 3 Nano
+30B) and reserves two credits per task from a hard run budget. Every model branch
+still needs owner review and the normal controlled integration step.
+
+A protected platform recovery pass releases abandoned AI reservations and
+re-queues stale agent tasks. It is served by `/api/platform/health/run`, called
+every five minutes by the **Platform health recovery** workflow or a host cron,
+and authenticated with `CRON_SECRET`. A database or configuration outage is
+escalated, never reported as repaired.
+
 ## Stack
 
 - Next.js (App Router) + React + TypeScript
@@ -32,7 +44,7 @@ it the panel explains the missing key instead of inventing an answer.
 1. Create a Supabase project (or use an existing one).
 2. In the Supabase SQL editor, run every file in `supabase/migrations/` in
    filename order, from `0001_phase1_init.sql` through
-   `0043_phase35_experiment_workspace.sql`. Do not stop at an earlier phase: a missing
+   `0044_agent_models_and_platform_recovery.sql`. Do not stop at an earlier phase: a missing
    later migration leaves Project models, Evaluations, Build Room, Design,
    Releases, Integration Studio, the developer API and Connections returning a
    server error at request time.

@@ -37,7 +37,18 @@ export function StartTeamForm({ projectId }: { projectId: string }) {
   return (
     <form action={formAction}>
       <input type="hidden" name="project_id" value={projectId} />
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <label className="block text-sm font-medium">
+          Mode
+          <select
+            name="mode"
+            defaultValue="fixture"
+            className="mt-1 w-full rounded-lg border border-line bg-paper px-3 py-2"
+          >
+            <option value="fixture">Fixture (free)</option>
+            <option value="model">Model-backed (credits)</option>
+          </select>
+        </label>
         <label className="block text-sm font-medium">
           Maximum agents per advance
           <select
@@ -58,9 +69,12 @@ export function StartTeamForm({ projectId }: { projectId: string }) {
             name="max_calls"
             min={0}
             max={24}
-            defaultValue={0}
+            defaultValue={8}
             className="mt-1 w-full rounded-lg border border-line bg-paper px-3 py-2"
           />
+          <span className="mt-1 block text-xs font-normal text-muted">
+            Ignored in fixture mode. Model mode needs at least 1.
+          </span>
         </label>
         <label className="block text-sm font-medium">
           Maximum runtime (seconds)
@@ -74,6 +88,20 @@ export function StartTeamForm({ projectId }: { projectId: string }) {
             className="mt-1 w-full rounded-lg border border-line bg-paper px-3 py-2"
           />
         </label>
+        <label className="block text-sm font-medium">
+          Credit budget
+          <input
+            type="number"
+            name="credit_budget"
+            min={2}
+            max={48}
+            defaultValue={18}
+            className="mt-1 w-full rounded-lg border border-line bg-paper px-3 py-2"
+          />
+          <span className="mt-1 block text-xs font-normal text-muted">
+            Ignored in fixture mode. Model tasks reserve 2 credits each.
+          </span>
+        </label>
       </div>
       <label className="mt-3 flex items-start gap-2 text-sm">
         <input type="checkbox" name="conflict_fixture" className="mt-1" />
@@ -84,13 +112,13 @@ export function StartTeamForm({ projectId }: { projectId: string }) {
       </label>
       <div className="mt-4">
         <SubmitButton className={primaryButton} pendingLabel="Building the queue…">
-          Start controlled team run
+          Start bounded team run
         </SubmitButton>
       </div>
       <p className="mt-2 text-sm">
         <Note
           state={state}
-          idle="Fixture workers only. No paid model calls, no deployment, no external actions."
+          idle="Fixture mode is free. Model mode uses one Ollama model per role and reserves 2 credits per task. No deployment or external actions."
         />
       </p>
     </form>

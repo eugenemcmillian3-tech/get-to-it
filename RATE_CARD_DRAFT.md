@@ -94,6 +94,10 @@ The `review` row is one perspective call. A three-perspective review would be
 `app_repair` is one repair proposal; a build that requires three attempts has a
 **6-credit ($0.60)** AI ceiling.
 
+`team_task` (one model-backed agent task) is charged **2 credits ($0.20)**. Its
+token envelope will be measured from recorded usage after the first approved
+run; it is deliberately not estimated in this draft.
+
 ## 4. Model sensitivity
 
 Same **10,000 input + 2,000 output** workload, 1 credit, with the $0.002 compute/
