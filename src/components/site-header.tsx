@@ -2,6 +2,25 @@ import Link from "next/link";
 import { signOutAction } from "@/lib/actions/auth";
 import { focusRing, quietButton } from "@/lib/styles";
 
+const NAV_LINKS = [
+  { href: "/dashboard", label: "Goals" },
+  { href: "/plan", label: "Plan" },
+  { href: "/templates", label: "Templates" },
+  { href: "/workspace", label: "Workspaces" },
+  { href: "/workflows", label: "Workflows" },
+  { href: "/build", label: "Build an App" },
+  { href: "/futures", label: "Future paths" },
+  { href: "/reviews", label: "Reviews" },
+  { href: "/radar", label: "Radar" },
+  { href: "/outcomes", label: "Outcomes" },
+  { href: "/partner", label: "Partner" },
+  { href: "/reminders", label: "Reminders" },
+  { href: "/billing", label: "Plans" },
+  { href: "/credits", label: "Credits" },
+  { href: "/data", label: "Your data" },
+  { href: "/settings", label: "Settings" },
+];
+
 export function SiteHeader({
   displayName,
   email,
@@ -10,111 +29,44 @@ export function SiteHeader({
   email: string;
 }) {
   return (
-    <header className="border-b border-line bg-paper">
-      <div className="mx-auto flex w-full max-w-3xl flex-wrap items-center justify-between gap-3 px-5 py-4">
-        <Link
-          href="/dashboard"
-          className={`text-sm font-black uppercase tracking-[0.25em] ${focusRing}`}
-        >
-          GET TO IT
-        </Link>
-        <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
+    <header className="sticky top-0 z-40 border-b border-line/80 bg-paper/95 backdrop-blur">
+      <div className="mx-auto w-full max-w-5xl px-5">
+        <div className="flex min-h-16 flex-wrap items-center justify-between gap-3 py-3">
           <Link
-            href="/billing"
-            className={`rounded text-sm font-medium text-muted underline decoration-line underline-offset-4 hover:text-ink ${focusRing}`}
+            href="/dashboard"
+            className={`text-sm font-black uppercase tracking-[0.25em] ${focusRing}`}
           >
-            Plans
+            GET TO IT
           </Link>
-          <Link
-            href="/credits"
-            className={`rounded text-sm font-medium text-muted underline decoration-line underline-offset-4 hover:text-ink ${focusRing}`}
-          >
-            Credits
-          </Link>
-          <Link
-            href="/workflows"
-            className={`rounded text-sm font-medium text-muted underline decoration-line underline-offset-4 hover:text-ink ${focusRing}`}
-          >
-            Workflows
-          </Link>
-          <Link
-            href="/futures"
-            className={`rounded text-sm font-medium text-muted underline decoration-line underline-offset-4 hover:text-ink ${focusRing}`}
-          >
-            Future paths
-          </Link>
-          <Link
-            href="/reviews"
-            className={`rounded text-sm font-medium text-muted underline decoration-line underline-offset-4 hover:text-ink ${focusRing}`}
-          >
-            Reviews
-          </Link>
-          <Link
-            href="/radar"
-            className={`rounded text-sm font-medium text-muted underline decoration-line underline-offset-4 hover:text-ink ${focusRing}`}
-          >
-            Radar
-          </Link>
-          <Link
-            href="/outcomes"
-            className={`rounded text-sm font-medium text-muted underline decoration-line underline-offset-4 hover:text-ink ${focusRing}`}
-          >
-            Outcomes
-          </Link>
-          <Link
-            href="/build"
-            className={`rounded text-sm font-medium text-muted underline decoration-line underline-offset-4 hover:text-ink ${focusRing}`}
-          >
-            Build an App
-          </Link>
-          <Link
-            href="/workspace"
-            className={`rounded text-sm font-medium text-muted underline decoration-line underline-offset-4 hover:text-ink ${focusRing}`}
-          >
-            Workspaces
-          </Link>
-          <Link
-            href="/partner"
-            className={`rounded text-sm font-medium text-muted underline decoration-line underline-offset-4 hover:text-ink ${focusRing}`}
-          >
-            Partner
-          </Link>
-          <Link
-            href="/templates"
-            className={`rounded text-sm font-medium text-muted underline decoration-line underline-offset-4 hover:text-ink ${focusRing}`}
-          >
-            Templates
-          </Link>
-          <Link
-            href="/reminders"
-            className={`rounded text-sm font-medium text-muted underline decoration-line underline-offset-4 hover:text-ink ${focusRing}`}
-          >
-            Reminders
-          </Link>
-          <Link
-            href="/data"
-            className={`rounded text-sm font-medium text-muted underline decoration-line underline-offset-4 hover:text-ink ${focusRing}`}
-          >
-            Your data
-          </Link>
-          <Link
-            href="/settings"
-            className={`rounded text-sm font-medium text-muted underline decoration-line underline-offset-4 hover:text-ink ${focusRing}`}
-          >
-            Settings
-          </Link>
-          <span
-            className="max-w-[12rem] truncate text-sm text-muted sm:max-w-[16rem]"
-            title={email}
-          >
-            {displayName}
-          </span>
-          <form action={signOutAction}>
-            <button type="submit" className={quietButton}>
-              Sign out
-            </button>
-          </form>
+          <div className="flex min-w-0 items-center gap-3">
+            <span
+              className="max-w-[11rem] truncate text-sm text-muted sm:max-w-[18rem]"
+              title={email}
+            >
+              {displayName}
+            </span>
+            <form action={signOutAction}>
+              <button type="submit" className={quietButton}>
+                Sign out
+              </button>
+            </form>
+          </div>
         </div>
+
+        <nav
+          aria-label="Primary"
+          className="-mx-1 flex gap-1 overflow-x-auto pb-2 [scrollbar-width:none]"
+        >
+          {NAV_LINKS.map((link) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              className={`whitespace-nowrap rounded-lg px-2.5 py-1.5 text-sm font-medium text-muted transition hover:bg-card hover:text-ink ${focusRing}`}
+            >
+              {link.label}
+            </Link>
+          ))}
+        </nav>
       </div>
     </header>
   );
