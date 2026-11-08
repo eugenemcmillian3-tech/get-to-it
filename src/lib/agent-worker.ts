@@ -237,7 +237,9 @@ export function buildAgentMessages(
         "Use complete file contents, not patches. Return files only for declared claims.",
         "Never include a secret, token, key, password, deployment command or external action.",
         "Do not add scope, pages, entities, tests, configuration or dependencies.",
-        "If the role cannot write, return no files.",
+        definition.canWrite
+          ? `Write only the declared claims: ${task.file_claims.join(", ") || "none"}.`
+          : `${definition.label} cannot write files, so "files" must be an empty array [].`,
       ].join("\n"),
     },
     {
