@@ -3,6 +3,7 @@ import {
   MODEL_HEALTH_DEGRADED_RATE,
   MODEL_HEALTH_MIN_TASKS,
   MODEL_HEALTH_WATCH_RATE,
+  MODEL_HEALTH_WINDOW,
   summariseModelHealth,
   type TeamModelSample,
 } from "@/lib/agent-team";
@@ -72,22 +73,55 @@ describe("model health summary", () => {
 
   it("reports a clean role as stable and a rising rate as watch or regression", () => {
     const stable = summariseModelHealth(repeat(20));
-    expect(stable[0].status).toBe("stable");
+    expect(stable[0]).toMatchObject({ tasks: MODEL_HEALTH_WINDOW, retried: 0, status: "stable" });
     expect(stable[0].retryRate).toBe(0);
 
-    const watchCount = Math.ceil(MODEL_HEALTH_WATCH_RATE * 20);
+    const watchCount = Math.ceil(MODEL_HEALTH_WATCH_RATE * MODEL_HEALTH_WINDOW);
     const watch = summariseModelHealth([
-      ...repeat(20 - watchCount),
       ...repeat(watchCount, { retries: 1 }),
+      ...repeat(20),
     ]);
     expect(watch[0].status).toBe("watch");
 
-    const degradedCount = Math.ceil(MODEL_HEALTH_DEGRADED_RATE * 20);
+    const degradedCount = Math.ceil(MODEL_HEALTH_DEGRADED_RATE * MODEL_HEALTH_WINDOW);
     const degraded = summariseModelHealth([
-      ...repeat(20 - degradedCount),
       ...repeat(degradedCount, { retries: 1 }),
+      ...repeat(20),
     ]);
     expect(degraded[0].status).toBe("degraded");
+  });
+
+  it("judges only the newest tasks per role and model", () => {
+    const health = summariseModelHealth(repeat(30));
+    expect(health[0].tasks).toBe(MODEL_HEALTH_WINDOW);
+  });
+
+  it("stops marking a model degraded once its failure ages out of the window", () => {
+    const health = summariseModelHealth([
+      ...repeat(MODEL_HEALTH_WINDOW),
+      sample({ status: "failed", retries: 1, retry_reason: "summary: too_big" }),
+      ...repeat(MODEL_HEALTH_WINDOW),
+    ]);
+
+    expect(health).toHaveLength(1);
+    expect(health[0]).toMatchObject({
+      tasks: MODEL_HEALTH_WINDOW,
+      retried: 0,
+      failed: 0,
+      status: "stable",
+      lastRetryReason: null,
+    });
+  });
+
+  it("keeps the newest retry reason inside the window", () => {
+    const health = summariseModelHealth([
+      ...repeat(MODEL_HEALTH_WINDOW - 1),
+      sample({ retries: 1, retry_reason: "oldest retry still counted" }),
+      sample({ retries: 1, retry_reason: "pushed out of the window" }),
+    ]);
+
+    expect(health[0]).toMatchObject({ tasks: MODEL_HEALTH_WINDOW, retried: 1 });
+    expect(health[0].lastRetryReason).toBe("oldest retry still counted");
   });
 
   it("keeps each model's history separate after a switch", () => {
