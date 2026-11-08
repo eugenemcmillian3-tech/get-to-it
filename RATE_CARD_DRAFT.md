@@ -207,6 +207,17 @@ millionths-of-a-dollar-per-1K-token units:
 DeepSeek off-peak rows can be added later only if the dashboard can represent
 time-of-day pricing; a single `ai_prices` row is the conservative peak figure.
 
+### Team model moves (2026-11-08)
+
+- Security moved to `mimo-v2.6-flash` and backend to `mimo-v2.6-pro`; the notes
+  above record those probes.
+- Coordinator moved to `deepseek-v4-pro`: 16 live coordinator tasks produced 2
+  retries and no failures at ~12.9s average, against 5 retries and 2 failures in
+  24 tasks on `glm-5.3-flash` (~16s).
+- No verified `ai_prices` row exists for `deepseek-v4-pro`, `mimo-v2.6-pro` or
+  `mimo-v2.6-flash`, and none was invented. Billing stays off until verified
+  prices are available.
+
 ## 9. What this implementation does not do
 
 - It does not write `ai_prices`, activate a live rate, enable live billing, or
