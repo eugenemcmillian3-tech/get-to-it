@@ -57,6 +57,8 @@ function task(
     model: null,
     calls_used: 0,
     attempts: 0,
+    retries: 0,
+    retry_reason: null,
     branch_files: [],
     changed_files: [],
     output: null,

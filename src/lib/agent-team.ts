@@ -202,6 +202,10 @@ export type TeamTaskRecord = TeamTaskDraft & {
   model: string | null;
   calls_used: number;
   attempts: number;
+  /** Replies rejected before the task produced its result; 0 means the first reply stood. */
+  retries: number;
+  /** Redacted reason for the most recent rejected reply, if any. */
+  retry_reason: string | null;
   branch_files: TeamBranchFile[];
   changed_files: string[];
   output: TeamTaskOutput | null;
@@ -794,6 +798,95 @@ export function taskCallsLabel(callsUsed: number): string {
   if (!Number.isFinite(callsUsed) || callsUsed <= 0) return "no model calls";
   if (callsUsed === 1) return "1 model call";
   return `${callsUsed} model calls, ${callsUsed - 1} retried`;
+}
+
+/** Finished model tasks a role needs before its retry rate means anything. */
+export const MODEL_HEALTH_MIN_TASKS = 4;
+/** At or above this retry rate a role is worth watching. */
+export const MODEL_HEALTH_WATCH_RATE = 0.1;
+/** At or above this retry rate the model has regressed, not just hiccuped. */
+export const MODEL_HEALTH_DEGRADED_RATE = 0.25;
+/** Newest finished model tasks the health summary reads for one project. */
+export const MODEL_HEALTH_SAMPLE_SIZE = 120;
+
+export type TeamModelHealthStatus = "stable" | "watch" | "degraded" | "insufficient";
+
+/** What one role on one model did, counted from tasks that actually ran. */
+export type TeamModelHealth = {
+  role: TeamRole;
+  model: string;
+  tasks: number;
+  retried: number;
+  failed: number;
+  retryRate: number;
+  lastRetryReason: string | null;
+  status: TeamModelHealthStatus;
+};
+
+export type TeamModelSample = Pick<
+  TeamTaskRecord,
+  "role" | "model" | "status" | "retries" | "retry_reason"
+>;
+
+const FINISHED_TASK_STATUSES: TeamTaskStatus[] = ["completed", "awaiting_review", "failed"];
+
+/**
+ * Counts retries and failures per role and model from finished tasks.
+ *
+ * Fixture tasks, unfinished tasks and tasks that never called a model are
+ * ignored: none of them say anything about a model. Rows are grouped by role
+ * and model together, so after a switch the previous model keeps its own
+ * history instead of being blended into the new one.
+ *
+ * One retry is not a regression — the retry exists to absorb a single bad
+ * reply — so a rate needs MODEL_HEALTH_MIN_TASKS samples before it means
+ * anything. A failure is never treated as noise: it costs the owner a task.
+ * Samples are expected newest first; the newest retry reason wins.
+ */
+export function summariseModelHealth(samples: TeamModelSample[]): TeamModelHealth[] {
+  const roleOrder = Object.keys(TEAM_ROLES_SPEC) as TeamRole[];
+  const groups = new Map<string, Omit<TeamModelHealth, "retryRate" | "status">>();
+
+  for (const sample of samples) {
+    if (!sample.model) continue;
+    if (!FINISHED_TASK_STATUSES.includes(sample.status)) continue;
+
+    const key = `${sample.role}:${sample.model}`;
+    const group = groups.get(key) ?? {
+      role: sample.role,
+      model: sample.model,
+      tasks: 0,
+      retried: 0,
+      failed: 0,
+      lastRetryReason: null,
+    };
+    group.tasks += 1;
+    if (sample.retries > 0) group.retried += 1;
+    if (sample.status === "failed") group.failed += 1;
+    if (!group.lastRetryReason && sample.retries > 0 && sample.retry_reason) {
+      group.lastRetryReason = sample.retry_reason;
+    }
+    groups.set(key, group);
+  }
+
+  return [...groups.values()]
+    .map((group) => {
+      const rate = group.tasks > 0 ? group.retried / group.tasks : 0;
+      const status: TeamModelHealthStatus =
+        group.failed > 0
+          ? "degraded"
+          : group.tasks < MODEL_HEALTH_MIN_TASKS
+            ? "insufficient"
+            : rate >= MODEL_HEALTH_DEGRADED_RATE
+              ? "degraded"
+              : rate >= MODEL_HEALTH_WATCH_RATE
+                ? "watch"
+                : "stable";
+      return { ...group, retryRate: Math.round(rate * 1000) / 1000, status };
+    })
+    .sort(
+      (a, b) => roleOrder.indexOf(a.role) - roleOrder.indexOf(b.role) || b.tasks - a.tasks,
+    );
 }
 
 export function teamStatusLabel(status: TeamTaskStatus): string {

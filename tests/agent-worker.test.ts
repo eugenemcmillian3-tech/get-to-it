@@ -49,6 +49,8 @@ function task(role: TeamTaskRecord["role"], fileClaims: string[] = []): TeamTask
     model: "glm-5.3-flash",
     calls_used: 0,
     attempts: 1,
+    retries: 0,
+    retry_reason: null,
     branch_files: [],
     changed_files: [],
     output: null,
@@ -164,6 +166,7 @@ describe("model reply retry", () => {
 
     expect(chatMock).toHaveBeenCalledTimes(2);
     expect(result.attempts).toBe(2);
+    expect(result.retry_reason).toContain("unusable task result");
     expect(result.branch_files.map((file) => file.path)).toEqual(claims);
     expect(result.tokens).toEqual({ input: 12, output: 9 });
   });
@@ -191,6 +194,20 @@ describe("model reply retry", () => {
       runModelAgentTask(task("frontend", claims), context, "glm-5.3-flash"),
     ).rejects.toThrow("Ollama returned 500");
     expect(chatMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("records no retry reason when the first reply is accepted", async () => {
+    chatMock.mockResolvedValueOnce({
+      content: validReply,
+      model: "glm-5.3-flash",
+      tokens: { input: 8, output: 4 },
+    });
+
+    const result = await runModelAgentTask(task("frontend", claims), context, "glm-5.3-flash");
+
+    expect(chatMock).toHaveBeenCalledTimes(1);
+    expect(result.attempts).toBe(1);
+    expect(result.retry_reason).toBeNull();
   });
 });
 

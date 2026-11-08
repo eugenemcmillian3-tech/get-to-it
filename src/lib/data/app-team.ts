@@ -1,9 +1,13 @@
 import type { Session } from "@/lib/auth";
-import type {
-  TeamEventRecord,
-  TeamIntegrationRecord,
-  TeamRunRecord,
-  TeamTaskRecord,
+import { summariseModelHealth } from "@/lib/agent-team";
+import {
+  MODEL_HEALTH_SAMPLE_SIZE,
+  type TeamEventRecord,
+  type TeamIntegrationRecord,
+  type TeamModelHealth,
+  type TeamModelSample,
+  type TeamRunRecord,
+  type TeamTaskRecord,
 } from "@/lib/agent-team";
 import { DataError } from "@/lib/data/goals";
 
@@ -21,6 +25,8 @@ export type AppTeamDetail = {
   tasks: TeamTaskRecord[];
   integration: TeamIntegrationRecord | null;
   events: TeamEventRecord[];
+  /** Retry and failure counts per role and model, measured across this project. */
+  modelHealth: TeamModelHealth[];
 };
 
 export async function getAppTeam(
@@ -52,10 +58,23 @@ export async function getAppTeam(
     throw new DataError(LOAD_ERROR);
   }
   if (!run) {
-    return { project, run: null, tasks: [], integration: null, events: [] };
+    return { project, run: null, tasks: [], integration: null, events: [], modelHealth: [] };
   }
 
-  const [tasks, integration, events] = await Promise.all([
+  // Model health is measured per project, not per run: one run has a single
+  // task per role, which is far too few to judge a model on. Only finished
+  // model tasks count, because a fixture run never calls a model.
+  const healthQuery = session.supabase
+    .from("app_team_tasks")
+    .select("role, model, status, retries, retry_reason")
+    .eq("project_id", projectId)
+    .eq("user_id", session.user.id)
+    .not("model", "is", null)
+    .in("status", ["completed", "awaiting_review", "failed"])
+    .order("finished_at", { ascending: false })
+    .limit(MODEL_HEALTH_SAMPLE_SIZE);
+
+  const [tasks, integration, events, health] = await Promise.all([
     session.supabase
       .from("app_team_tasks")
       .select("*")
@@ -77,9 +96,10 @@ export async function getAppTeam(
       .eq("user_id", session.user.id)
       .order("created_at", { ascending: false })
       .limit(30),
+    healthQuery,
   ]);
 
-  for (const result of [tasks, integration, events]) {
+  for (const result of [tasks, integration, events, health]) {
     if (result.error) {
       console.error("getAppTeam child failed:", result.error.message);
       throw new DataError(LOAD_ERROR);
@@ -92,5 +112,6 @@ export async function getAppTeam(
     tasks: (tasks.data ?? []) as TeamTaskRecord[],
     integration: (integration.data as TeamIntegrationRecord | null) ?? null,
     events: (events.data ?? []) as TeamEventRecord[],
+    modelHealth: summariseModelHealth((health.data ?? []) as TeamModelSample[]),
   };
 }

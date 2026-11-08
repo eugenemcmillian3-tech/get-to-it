@@ -481,6 +481,8 @@ export async function advanceTeamAction(
 
     let result;
     let callsThisTask = 0;
+    let retriesThisTask = 0;
+    let retryReason: string | null = null;
     if (run.mode === "fixture") {
       result = runFixtureTask(task, context);
     } else {
@@ -510,6 +512,8 @@ export async function advanceTeamAction(
         // reflects provider calls rather than tasks.
         callsThisTask = modelResult.attempts;
         callsUsed += modelResult.attempts;
+        retriesThisTask = Math.max(0, modelResult.attempts - 1);
+        retryReason = modelResult.retry_reason;
       } catch (error) {
         await finishAiRequest(session, reserved.reservation.id, "failed", "agent-task-failed");
         const message =
@@ -518,6 +522,8 @@ export async function advanceTeamAction(
             : ollamaErrorMessage(error);
         callsThisTask = error instanceof AgentReplyError ? error.attempts : 1;
         callsUsed += callsThisTask;
+        retriesThisTask = error instanceof AgentReplyError ? Math.max(0, error.attempts - 1) : 0;
+        retryReason = retriesThisTask > 0 ? message.slice(0, 400) : null;
         result = {
           status: "failed" as const,
           output: { summary: "The model-backed task failed." },
@@ -535,6 +541,8 @@ export async function advanceTeamAction(
         changed_files: result.branch_files.map((file) => file.path),
         output: result.output,
         calls_used: callsThisTask,
+        retries: retriesThisTask,
+        retry_reason: retryReason,
         blocker: "blocker" in result ? result.blocker ?? null : null,
         error: "error" in result ? result.error ?? null : null,
         finished_at: new Date().toISOString(),
@@ -550,6 +558,19 @@ export async function advanceTeamAction(
       task.id,
       "system",
     );
+
+    // A retry is absorbed silently by design, but the owner should still see
+    // it: a rising retry count is how a model regression shows up first.
+    if (retriesThisTask > 0) {
+      await event(
+        session,
+        run.id,
+        "task.retried",
+        `${task.role}: ${retriesThisTask === 1 ? "one reply was rejected and retried" : `${retriesThisTask} replies were rejected`}${retryReason ? ` — ${retryReason}` : ""}`,
+        task.id,
+        "system",
+      );
+    }
   }
 
   if (callsUsed !== run.calls_used) {
