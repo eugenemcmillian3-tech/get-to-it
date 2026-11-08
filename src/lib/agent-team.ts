@@ -65,7 +65,7 @@ export type TeamRunMode = (typeof TEAM_RUN_MODES)[number];
 export const TEAM_ROLE_MODELS: Record<TeamRole, string> = {
   coordinator: "glm-5.3-flash",
   frontend: "deepseek-v4.1-flash",
-  backend: "minimax-m3.1-flash",
+  backend: "mimo-v2.6-pro",
   data: "gpt-oss:120b-cloud",
   qa: "gemma4:31b-cloud",
   security: "mimo-v2.6-flash",

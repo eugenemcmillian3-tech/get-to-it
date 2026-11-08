@@ -34,6 +34,10 @@ returned files it cannot write. The nemotron rows below are kept as history; a
 `mimo-v2.6-flash` price row must be added from a verified source before any
 billing activation, and the envelopes above are unchanged until then.
 
+The backend role moved from `minimax-m3.1-flash` to `mimo-v2.6-pro` on the
+same date, for latency: it was clean but took 28-90s per task. Its price row is
+likewise unverified, and the `minimax` rows below are kept as history.
+
 **Model-id caveat:** Ollama's API documentation says to use the base model name
 for API requests, not the `:cloud` suffix used by the app picker. The `:31b-cloud`
 and `:30b-cloud` tags also have no distinct price row, so the family rates above
