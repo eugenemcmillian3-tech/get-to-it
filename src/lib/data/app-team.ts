@@ -61,13 +61,13 @@ export async function getAppTeam(
     return { project, run: null, tasks: [], integration: null, events: [], modelHealth: [] };
   }
 
-  // Model health is measured per project, not per run: one run has a single
-  // task per role, which is far too few to judge a model on. Only finished
-  // model tasks count, because a fixture run never calls a model.
+  // Model health is account-wide, not per project: the six models are shared,
+  // and a project holds at most one run of about seven tasks, so a per-project
+  // rate could never fill the sample floor. Only finished model tasks count,
+  // because a fixture run never calls a model.
   const healthQuery = session.supabase
     .from("app_team_tasks")
     .select("role, model, status, retries, retry_reason")
-    .eq("project_id", projectId)
     .eq("user_id", session.user.id)
     .not("model", "is", null)
     .in("status", ["completed", "awaiting_review", "failed"])
