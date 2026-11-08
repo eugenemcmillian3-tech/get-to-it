@@ -2,7 +2,10 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { getSupabaseSettings } from "@/lib/supabase/config";
 
-const PROTECTED_PREFIXES = ["/dashboard", "/goals"];
+// Every build page gates itself with requireSession too. This prefix is the
+// outer layer, so a page added under /build cannot serve content to a
+// signed-out visitor just because it forgot the check.
+const PROTECTED_PREFIXES = ["/dashboard", "/goals", "/build"];
 const AUTH_PAGES = ["/sign-in", "/sign-up"];
 
 export async function proxy(request: NextRequest) {
