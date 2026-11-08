@@ -12,10 +12,10 @@ export type AiModel = {
 
 export const AI_MODELS: AiModel[] = [
   {
-    id: "glm-5.3-flash",
-    label: "GLM 5.3 Flash",
-    vendor: "Z.ai",
-    blurb: "Default. Fast, multimodal, strong on coding and agentic steps.",
+    id: "deepseek-v4-pro",
+    label: "DeepSeek v4 Pro",
+    vendor: "DeepSeek",
+    blurb: "Default. Holds a long structured reply on the first attempt.",
   },
   {
     id: "deepseek-v4.1-flash",
@@ -49,7 +49,7 @@ export const AI_MODELS: AiModel[] = [
   },
 ];
 
-export const DEFAULT_AI_MODEL = "glm-5.3-flash";
+export const DEFAULT_AI_MODEL = "deepseek-v4-pro";
 
 export function isAiModel(id: string): boolean {
   return AI_MODELS.some((model) => model.id === id);

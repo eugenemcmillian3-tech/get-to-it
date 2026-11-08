@@ -63,7 +63,7 @@ export type TeamRunMode = (typeof TEAM_RUN_MODES)[number];
 
 /** Every role has a distinct model from the six IDs configured in Ollama. */
 export const TEAM_ROLE_MODELS: Record<TeamRole, string> = {
-  coordinator: "glm-5.3-flash",
+  coordinator: "deepseek-v4-pro",
   frontend: "deepseek-v4.1-flash",
   backend: "mimo-v2.6-pro",
   data: "gpt-oss:120b-cloud",
