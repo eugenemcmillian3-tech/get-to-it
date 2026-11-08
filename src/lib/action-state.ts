@@ -196,6 +196,14 @@ export type MissionState = {
 
 export const idleMissionState: MissionState = { status: "idle" };
 
+export type ExperimentState = {
+  status: "idle" | "error" | "success";
+  message?: string;
+  nonce?: number;
+};
+
+export const idleExperimentState: ExperimentState = { status: "idle" };
+
 export type OutcomeState = {
   status: "idle" | "error" | "success";
   message?: string;

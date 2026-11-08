@@ -61,7 +61,7 @@ const connectionString = process.env.RESTORE_TEST_DATABASE_URL;
 
 const describeRestore = connectionString ? describe : describe.skip;
 
-const EXPECTED_CORE_TABLES = 94;
+const EXPECTED_CORE_TABLES = 107;
 
 type Seeded = {
   userId: string;
@@ -552,7 +552,12 @@ describeRestore("isolated restore and authorization drill", () => {
                              'app_eval_workspaces','app_eval_tasks','app_eval_configurations',
                              'app_eval_budgets','app_eval_runs','app_eval_capability_profiles',
                              'app_eval_recommendations',
-                             'app_project_models','app_change_scenarios','app_change_experiments')`,
+                             'app_project_models','app_change_scenarios','app_change_experiments',
+                             'mission_projects','mission_milestones','mission_milestone_dependencies',
+                             'mission_agent_jobs','mission_job_dependencies','mission_approvals',
+                             'mission_events','experiments','experiment_observations',
+                             'experiment_feedback','experiment_approvals','experiment_reviews',
+                             'experiment_events')`,
     );
     expect(Number(tables.rows[0].count)).toBe(EXPECTED_CORE_TABLES);
   });
@@ -4547,6 +4552,511 @@ describeRestore("isolated restore and authorization drill", () => {
     });
     expect(draftBudgetBlocked.ok).toBe(false);
     expect(draftBudgetBlocked.code).toBe("budget-exhausted");
+  });
+
+  it("coordinates a mission across projects with bounded jobs and separate approvals", async () => {
+    const missionId = accountA.missionId;
+    const workspaceId = accountA.workspaceId;
+    const projectId = accountA.appProjectId;
+    const project2Id = randomUUID();
+    const m1 = randomUUID();
+    const m2 = randomUUID();
+    const j1 = randomUUID();
+    const j2 = randomUUID();
+    const j3 = randomUUID();
+    const j4 = randomUUID();
+    const j5 = randomUUID();
+    const j6 = randomUUID();
+    const j7 = randomUUID();
+    const j8 = randomUUID();
+    const approvalId = randomUUID();
+    const agentApprovalId = randomUUID();
+    const helperId = randomUUID();
+    const helperEmail = `mission-helper-${randomUUID()}@example.test`;
+
+    // Another account cannot read the mission jobs or link its project.
+    const hidden = await asUser(accountB.userId, async () => {
+      const result = await client.query<{ count: string }>(
+        "select count(*)::text as count from public.mission_agent_jobs where mission_id = $1",
+        [missionId],
+      );
+      return result.rows[0].count;
+    });
+    expect(hidden).toBe("0");
+    await expect(
+      asUser(accountB.userId, async () => {
+        await client.query(
+          `insert into public.mission_projects
+             (mission_id, workspace_id, project_id, label, linked_by)
+           values ($1, $2, $3, 'Intruder link', $4)`,
+          [missionId, workspaceId, projectId, accountB.userId],
+        );
+      }),
+    ).rejects.toThrow(/row-level security/);
+
+    await asUser(accountA.userId, async () => {
+      await client.query(
+        `update public.missions
+            set status = 'active', max_parallel_jobs = 1, max_agent_jobs = 5,
+                max_runtime_seconds = 60, max_agent_calls = 12
+          where id = $1 and workspace_id = $2`,
+        [missionId, workspaceId],
+      );
+      await client.query(
+        `insert into public.app_projects
+           (id, user_id, name, purpose, target_users, workflows, required_pages,
+            entities, auth_requirements, integrations, design_preferences,
+            definition_of_done)
+         values ($1,$2,'Pilot dashboard','A dashboard for the learning pilot.',
+                 'Pilot coordinators','Review feedback','/pilot | Pilot | See feedback',
+                 'feedback: note','none','Email reminders','Calm and clear',
+                 'Feedback can be reviewed')`,
+        [project2Id, accountA.userId],
+      );
+      await client.query(
+        `insert into public.mission_projects
+           (mission_id, workspace_id, project_id, label, linked_by)
+         values ($1, $2, $3, 'Learning service website', $4),
+                ($1, $2, $5, 'Pilot dashboard', $4)`,
+        [missionId, workspaceId, projectId, accountA.userId, project2Id],
+      );
+      await client.query(
+        `insert into public.mission_milestones
+           (id, mission_id, workspace_id, title, description, owner_id, review_at,
+            status, position, created_by)
+         values ($1,$2,$3,'Public website','The public learning service site.',
+                 $4,'2026-11-20','planned',0,$4)`,
+        [m1, missionId, workspaceId, accountA.userId],
+      );
+      await client.query(
+        `insert into public.mission_milestones
+           (id, mission_id, workspace_id, title, description, owner_id, review_at,
+            status, position, created_by)
+         values ($1,$2,$3,'Pilot feedback','Feedback from the first pilot.',
+                 $4,'2026-11-27','planned',1,$4)`,
+        [m2, missionId, workspaceId, accountA.userId],
+      );
+      await client.query(
+        `insert into public.mission_milestone_dependencies
+           (mission_id, workspace_id, milestone_id, depends_on_id, created_by)
+         values ($1,$2,$3,$4,$5)`,
+        [missionId, workspaceId, m2, m1, accountA.userId],
+      );
+
+      const jobs = [
+        { id: j1, project: projectId, milestone: m1, title: "Build the public site", dedupe: "site", status: "queued", budget: 120, calls: 0, output: null },
+        { id: j2, project: projectId, milestone: m2, title: "Run the pilot review", dedupe: "pilot", status: "queued", budget: 120, calls: 0, output: null },
+        { id: j3, project: projectId, milestone: m2, title: "Write pilot notes", dedupe: "notes", status: "queued", budget: 120, calls: 0, output: null },
+        { id: j4, project: projectId, milestone: m1, title: "Keep the finished brief", dedupe: "brief", status: "completed", budget: 120, calls: 0, output: { test_evidence: "The brief was checked." } },
+        { id: j5, project: project2Id, milestone: null, title: "Probe another project", dedupe: "probe", status: "queued", budget: 120, calls: 1, output: null },
+      ];
+      for (const item of jobs) {
+        await client.query(
+          `insert into public.mission_agent_jobs
+             (id, mission_id, workspace_id, project_id, milestone_id, title,
+              objective, role, status, dedupe_key, budget_seconds, budget_calls,
+              output, created_by)
+           values ($1,$2,$3,$4,$5,$6,$7,'backend',$8,$9,$10,$11,$12::jsonb,$13)`,
+          [item.id, missionId, workspaceId, item.project, item.milestone, item.title,
+           "Produce one checked artifact for the pilot.", item.status, item.dedupe,
+           item.budget, item.calls, item.output ? JSON.stringify(item.output) : null,
+           accountA.userId],
+        );
+      }
+      await client.query(
+        `insert into public.mission_job_dependencies
+           (mission_id, workspace_id, job_id, depends_on_job_id, created_by)
+         values ($1,$2,$3,$4,$5)`,
+        [missionId, workspaceId, j3, j2, accountA.userId],
+      );
+    });
+
+    const claim = (userId: string, jobId: string) =>
+      asUser(userId, async () => {
+        const result = await client.query<{ r: { ok: boolean; code?: string } }>(
+          "select public.mission_control_claim_job($1) as r",
+          [jobId],
+        );
+        return result.rows[0].r;
+      });
+    const finish = (userId: string, jobId: string, status: string, note: string, output?: unknown) =>
+      asUser(userId, async () => {
+        const result = await client.query<{ r: { ok: boolean; code?: string } }>(
+          "select public.mission_control_finish_job($1,$2,$3,$4::jsonb) as r",
+          [jobId, status, note, output ? JSON.stringify(output) : null],
+        );
+        return result.rows[0].r;
+      });
+
+    // Runtime, calls, concurrency and dependency limits all use the mission row.
+    expect((await claim(accountA.userId, j1)).code).toBe("mission-runtime-limit");
+    await asUser(accountA.userId, async () => {
+      await client.query("update public.missions set max_runtime_seconds = 900, max_agent_calls = 0 where id = $1", [missionId]);
+    });
+    expect((await claim(accountA.userId, j5)).code).toBe("mission-call-limit");
+    await asUser(accountA.userId, async () => {
+      await client.query("update public.missions set max_agent_calls = 12 where id = $1", [missionId]);
+    });
+    expect((await claim(accountA.userId, j1)).ok).toBe(true);
+    expect((await claim(accountA.userId, j5)).code).toBe("mission-concurrency");
+    expect((await claim(accountA.userId, j2)).code).toBe("dependency-pending");
+
+    expect((await finish(accountA.userId, j1, "completed", "Site checks passed.", { test_evidence: "Route checks passed." })).ok).toBe(true);
+    await asUser(accountA.userId, async () => {
+      await client.query("update public.mission_milestones set status = 'done' where id = $1", [m1]);
+    });
+    expect((await claim(accountA.userId, j2)).ok).toBe(true);
+    expect((await finish(accountA.userId, j2, "failed", "The pilot plan was incomplete.")).ok).toBe(true);
+
+    const blockedAfterFailure = await client.query<{ status: string; blocker: string }>(
+      "select status, blocker from public.mission_agent_jobs where id = $1",
+      [j3],
+    );
+    expect(blockedAfterFailure.rows[0].status).toBe("blocked");
+    expect(blockedAfterFailure.rows[0].blocker).toContain("failed");
+
+    const cancelledJob = await asUser(accountA.userId, async () => {
+      const result = await client.query<{ r: { ok: boolean } }>(
+        "select public.mission_control_cancel_job($1) as r",
+        [j2],
+      );
+      return result.rows[0].r;
+    });
+    expect(cancelledJob.ok).toBe(true);
+    const cancelledDownstream = await client.query<{ status: string }>(
+      "select status from public.mission_agent_jobs where id = $1",
+      [j3],
+    );
+    expect(cancelledDownstream.rows[0].status).toBe("cancelled");
+
+    // A stale running job is recovered, then the total-job limit blocks more work.
+    await client.query(
+      `insert into public.mission_agent_jobs
+         (id, mission_id, workspace_id, project_id, title, objective, role, status,
+          dedupe_key, budget_seconds, output, started_at, created_by)
+       values ($1,$2,$3,$4,'Recover a stale job','Preserve any partial output.',
+               'backend','running','stale',120,$5::jsonb, now() - interval '2 hours',$6)`,
+      [j6, missionId, workspaceId, projectId, JSON.stringify({ test_evidence: "Partial output kept." }), accountA.userId],
+    );
+    for (const [id, key] of [[j7, "queued-a"], [j8, "queued-b"]] as const) {
+      await client.query(
+        `insert into public.mission_agent_jobs
+           (id, mission_id, workspace_id, project_id, title, objective, role, status,
+            dedupe_key, budget_seconds, budget_calls, created_by)
+         values ($1,$2,$3,$4,$5,'Wait for the mission limit.','backend','queued',$6,120,0,$7)`,
+        [id, missionId, workspaceId, projectId, `Queued ${key}`, key, accountA.userId],
+      );
+    }
+    await asUser(accountA.userId, async () => {
+      await client.query("update public.missions set max_parallel_jobs = 2 where id = $1", [missionId]);
+    });
+    expect((await claim(accountA.userId, j7)).code).toBe("mission-job-limit");
+
+    const recovered = await asUser(accountA.userId, async () => {
+      const result = await client.query<{ r: { ok: boolean; recovered?: number } }>(
+        "select public.mission_control_recover($1) as r",
+        [missionId],
+      );
+      return result.rows[0].r;
+    });
+    expect(recovered.recovered).toBe(1);
+    const recoveredJob = await client.query<{ status: string; output: unknown }>(
+      "select status, output from public.mission_agent_jobs where id = $1",
+      [j6],
+    );
+    expect(recoveredJob.rows[0].status).toBe("blocked");
+    expect(recoveredJob.rows[0].output).toEqual({ test_evidence: "Partial output kept." });
+
+    // A requester cannot approve their own request. A joined member cannot decide
+    // until the owner promotes them, then the decision is recorded separately.
+    await asUser(accountA.userId, async () => {
+      await client.query(
+        `insert into public.mission_approvals
+           (id, mission_id, workspace_id, kind, summary, scope, requested_by,
+            requested_by_kind, status, created_by)
+         values ($1,$2,$3,'deployment','Deploy the pilot','Deploy the pilot to the preview project.',
+                 $4,'human','pending',$4)`,
+        [approvalId, missionId, workspaceId, accountA.userId],
+      );
+    });
+    const selfDecision = await asUser(accountA.userId, async () => {
+      const result = await client.query<{ r: { ok: boolean; code?: string } }>(
+        "select public.mission_control_decide_approval($1,'approved','') as r",
+        [approvalId],
+      );
+      return result.rows[0].r;
+    });
+    expect(selfDecision.code).toBe("self-approval");
+
+    await client.query(
+      "insert into auth.users (id, email, instance_id) values ($1,$2,'00000000-0000-0000-0000-000000000000')",
+      [helperId, helperEmail],
+    );
+    const invitation = await asUser(accountA.userId, async () => {
+      const result = await client.query<{ r: { ok: boolean; token?: string } }>(
+        "select public.create_workspace_invitation($1,$2,'member') as r",
+        [workspaceId, helperEmail],
+      );
+      return result.rows[0].r;
+    });
+    expect(invitation.ok).toBe(true);
+    if (!invitation.token) throw new Error("mission drill invitation was not created");
+    await asUser(helperId, async () => {
+      await client.query("select public.accept_workspace_invitation($1)", [invitation.token]);
+    });
+    expect((await claim(helperId, j5)).code).toBe("forbidden");
+    const memberDecision = await asUser(helperId, async () => {
+      const result = await client.query<{ r: { ok: boolean; code?: string } }>(
+        "select public.mission_control_decide_approval($1,'approved','') as r",
+        [approvalId],
+      );
+      return result.rows[0].r;
+    });
+    expect(memberDecision.code).toBe("forbidden");
+    await asUser(accountA.userId, async () => {
+      const promoted = await client.query<{ r: { ok: boolean } }>(
+        "select public.set_workspace_member_role($1,$2,'admin') as r",
+        [workspaceId, helperId],
+      );
+      expect(promoted.rows[0].r.ok).toBe(true);
+    });
+    const adminDecision = await asUser(helperId, async () => {
+      const result = await client.query<{ r: { ok: boolean } }>(
+        "select public.mission_control_decide_approval($1,'approved','Ready for review.') as r",
+        [approvalId],
+      );
+      return result.rows[0].r;
+    });
+    expect(adminDecision.ok).toBe(true);
+
+    await asUser(accountA.userId, async () => {
+      await client.query(
+        `insert into public.mission_approvals
+           (id, mission_id, workspace_id, kind, summary, scope, requested_by,
+            requested_by_kind, status, created_by)
+         values ($1,$2,$3,'permission_increase','Raise the agent call limit',
+                 'Allow one more call for the pilot job.',null,'agent','pending',$4)`,
+        [agentApprovalId, missionId, workspaceId, accountA.userId],
+      );
+      const result = await client.query<{ r: { ok: boolean } }>(
+        "select public.mission_control_decide_approval($1,'approved','Human decision.') as r",
+        [agentApprovalId],
+      );
+      expect(result.rows[0].r.ok).toBe(true);
+    });
+
+    await asUser(accountA.userId, async () => {
+      const result = await client.query<{ r: { ok: boolean; cancelled?: number } }>(
+        "select public.mission_control_cancel_mission($1) as r",
+        [missionId],
+      );
+      expect(result.rows[0].r.ok).toBe(true);
+      expect(result.rows[0].r.cancelled).toBeGreaterThanOrEqual(3);
+    });
+
+    const preserved = await client.query<{ id: string; status: string; output: unknown }>(
+      "select id, status, output from public.mission_agent_jobs where id = any($1::uuid[]) order by array_position($1::uuid[], id)",
+      [[j1, j4]],
+    );
+    expect(preserved.rows.map((row) => row.status)).toEqual(["completed", "completed"]);
+    expect(preserved.rows.map((row) => row.output)).toEqual([
+      { test_evidence: "Route checks passed." },
+      { test_evidence: "The brief was checked." },
+    ]);
+
+    const updateTrail = await asUser(accountA.userId, async () =>
+      client.query("update public.mission_events set detail = 'rewritten' where mission_id = $1", [missionId]),
+    );
+    expect(updateTrail.rowCount).toBe(0);
+    const deleteTrail = await asUser(accountA.userId, async () =>
+      client.query("delete from public.mission_events where mission_id = $1", [missionId]),
+    );
+    expect(deleteTrail.rowCount).toBe(0);
+  });
+
+
+
+  it("keeps experiments bounded, consent-gated and separately approved", async () => {
+    const workspaceId = accountA.workspaceId;
+    const experimentId = randomUUID();
+    const approvalId = randomUUID();
+    const reviewId = randomUUID();
+    const observationId = randomUUID();
+
+    const hidden = await asUser(accountB.userId, async () => {
+      const result = await client.query<{ count: string }>(
+        "select count(*)::text as count from public.experiments where workspace_id = $1",
+        [workspaceId],
+      );
+      return result.rows[0].count;
+    });
+    expect(hidden).toBe("0");
+
+    await asUser(accountA.userId, async () => {
+      await client.query(
+        `insert into public.experiments
+           (id, workspace_id, mission_id, future_path_id, radar_signal_id,
+            learning_goal_id, outcome_review_id, created_by, question, hypothesis,
+            target_users, evidence_available, assumptions, proposed_prototype,
+            success_criteria, failure_criteria, time_limit_minutes, resource_limit,
+            privacy_requirements, consent_requirements, stop_conditions,
+            ai_disclosure, review_at)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,
+                 'Could a short reminder help volunteers return?',
+                 'A consented reminder will help some volunteers return.',
+                 'Volunteers who attended once',
+                 'Two people said they forgot the time.',
+                 'People can stop the reminder.',
+                 'One reminder workflow with a visible stop control.',
+                 'Two people complete it and say it is clear.',
+                 'No one can find the stop control.',
+                 120, 'One facilitator, no paid ads',
+                 'Do not store names or contact details.',
+                 'Explain the test and ask before recording feedback.',
+                 'Stop if anyone cannot stop.',
+                 'Tell participants which parts are AI-assisted.',
+                 '2026-11-22')`,
+        [experimentId, workspaceId, accountA.missionId, accountA.futurePathId,
+         accountA.radarSignalId, accountA.goalId, accountA.outcomeReviewId, accountA.userId],
+      );
+      await client.query(
+        `insert into public.experiment_observations
+           (id, experiment_id, workspace_id, author_id, kind, text, source)
+         values ($1,$2,$3,$4,'measured','Two of three completed the workflow.','run 1')`,
+        [observationId, experimentId, workspaceId, accountA.userId],
+      );
+      await client.query(
+        `insert into public.experiment_feedback
+           (experiment_id, workspace_id, author_id, kind, participant_reference,
+            text, identifiable, consent_confirmed, consent_note, permission_to_quote)
+         values ($1,$2,$3,'opinion','Participant 1',
+                 'The stop control was easy to find.', false, true,
+                 'They agreed to an anonymous note.', false)`,
+        [experimentId, workspaceId, accountA.userId],
+      );
+      await client.query(
+        `insert into public.experiment_approvals
+           (id, experiment_id, workspace_id, kind, summary, scope, requested_by)
+         values ($1,$2,$3,'outreach','Ask three volunteers for an interview',
+                 'Send one invitation and do not follow up more than once.',$4)`,
+        [approvalId, experimentId, workspaceId, accountA.userId],
+      );
+    });
+
+    await expect(
+      asUser(accountB.userId, async () => {
+        await client.query(
+          `insert into public.experiments
+             (workspace_id, created_by, question, hypothesis, target_users,
+              proposed_prototype, success_criteria, failure_criteria,
+              time_limit_minutes, privacy_requirements, consent_requirements,
+              stop_conditions, ai_disclosure, review_at)
+           values ($1,$2,'Intruder experiment question?',
+                   'An intruder hypothesis that is long enough.',
+                   'Intruder users','A tiny intruder prototype.',
+                   'A success criterion','A failure criterion',60,
+                   'No privacy','No consent','No stop',
+                   'No AI disclosure for this intruder experiment.','2026-11-22')`,
+          [workspaceId, accountB.userId],
+        );
+      }),
+    ).rejects.toThrow(/row-level security/);
+
+    await expect(
+      asUser(accountA.userId, async () => {
+        await client.query(
+          `insert into public.experiments
+             (workspace_id, created_by, question, hypothesis, target_users,
+              proposed_prototype, success_criteria, failure_criteria,
+              time_limit_minutes, privacy_requirements, consent_requirements,
+              stop_conditions, ai_disclosure, high_stakes, review_at)
+           values ($1,$2,'A high-stakes research question?',
+                   'This should never be stored by the generic workflow.',
+                   'Patients','A clinical decision prototype.',
+                   'A clinical success criterion','A clinical failure criterion',60,
+                   'Clinical privacy','Clinical consent','Clinical stop',
+                   'Participants are told about AI assistance.','true','2026-11-22')`,
+          [workspaceId, accountA.userId],
+        );
+      }),
+    ).rejects.toThrow(/high-stakes/);
+
+    await expect(
+      asUser(accountA.userId, async () => {
+        await client.query(
+          `insert into public.experiment_feedback
+             (experiment_id, workspace_id, author_id, kind, text)
+           values ($1,$2,$3,'opinion','This was never consented to.')`,
+          [experimentId, workspaceId, accountA.userId],
+        );
+      }),
+    ).rejects.toThrow(/row-level security|check constraint/);
+
+    const selfApproval = await asUser(accountA.userId, async () => {
+      const result = await client.query<{ r: { ok: boolean; code?: string } }>(
+        "select public.experiment_decide_approval($1,'approved','') as r",
+        [approvalId],
+      );
+      return result.rows[0].r;
+    });
+    expect(selfApproval.code).toBe("self-approval");
+
+    await asUser(accountA.userId, async () => {
+      await client.query(
+        `insert into public.experiment_reviews
+           (id, experiment_id, workspace_id, built, observed, failed, unknown,
+            decision, decision_note, decided_by, decided_at)
+         values ($1,$2,$3,'A one-screen workflow.','Two people completed it.',
+                 'The first label was unclear.','Whether it helps over time.',
+                 'revise','Change the label and run one short test.',$4, now())`,
+        [reviewId, experimentId, workspaceId, accountA.userId],
+      );
+    });
+    await expect(
+      asUser(accountA.userId, async () => {
+        await client.query(
+          "update public.experiment_reviews set decision_note = 'rewritten' where id = $1",
+          [reviewId],
+        );
+      }),
+    ).rejects.toThrow(/cannot be rewritten/);
+
+    const updateObservation = await asUser(accountA.userId, async () =>
+      client.query("update public.experiment_observations set text = 'rewritten' where id = $1", [observationId]),
+    );
+    expect(updateObservation.rowCount).toBe(0);
+    const deleteObservation = await asUser(accountA.userId, async () =>
+      client.query("delete from public.experiment_observations where id = $1", [observationId]),
+    );
+    expect(deleteObservation.rowCount).toBe(0);
+
+    const approved = await asUser(accountA.userId, async () => {
+      const result = await client.query<{ r: { ok: boolean; project_id?: string } }>(
+        "select public.experiment_approve_prototype($1,$2) as r",
+        [experimentId, accountA.appProjectId],
+      );
+      return result.rows[0].r;
+    });
+    expect(approved.ok).toBe(true);
+    expect(approved.project_id).toBe(accountA.appProjectId);
+
+    const approvedAgain = await asUser(accountA.userId, async () => {
+      const result = await client.query<{ r: { ok: boolean; code?: string } }>(
+        "select public.experiment_approve_prototype($1,$2) as r",
+        [experimentId, accountA.appProjectId],
+      );
+      return result.rows[0].r;
+    });
+    expect(approvedAgain.code).toBe("already-approved");
+
+    const hiddenFeedback = await asUser(accountB.userId, async () => {
+      const result = await client.query<{ count: string }>(
+        "select count(*)::text as count from public.experiment_feedback where experiment_id = $1",
+        [experimentId],
+      );
+      return result.rows[0].count;
+    });
+    expect(hiddenFeedback).toBe("0");
   });
 
 });

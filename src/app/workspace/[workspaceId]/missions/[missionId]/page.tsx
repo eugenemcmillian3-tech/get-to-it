@@ -156,6 +156,14 @@ export default async function MissionPage({
           <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted">
             {NO_AUTO_PUBLISH_NOTE}
           </p>
+        <p className="mt-4">
+          <Link
+            href={`/workspace/${workspaceId}/missions/${mission.id}/control`}
+            className={secondaryButton}
+          >
+            Open mission control
+          </Link>
+        </p>
         </header>
 
         <section aria-labelledby="record-heading" className={`${cardClass} mt-6`}>

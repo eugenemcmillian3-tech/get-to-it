@@ -125,9 +125,12 @@ export default async function WorkspacePage({
           </p>
         </header>
 
-        <p className="mt-5">
+        <p className="mt-5 flex flex-wrap gap-2">
           <Link href={`/workspace/${workspaceId}/missions`} className={secondaryButton}>
             Missions
+          </Link>
+          <Link href={`/workspace/${workspaceId}/experiments`} className={secondaryButton}>
+            Experiments
           </Link>
         </p>
 
