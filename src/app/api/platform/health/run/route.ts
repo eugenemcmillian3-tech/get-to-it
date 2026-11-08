@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { hasOllamaKey } from "@/lib/ai/ollama";
+import { cronRequestAuthorized } from "@/lib/cron-auth";
 import { logOperational, logOperationalError } from "@/lib/log";
 import { planPlatformRecovery, selfHealingEnabled } from "@/lib/platform-health";
 
@@ -19,14 +20,6 @@ export const dynamic = "force-dynamic";
  * papered over. This route does not deploy, roll back or call a model.
  */
 
-function authorized(request: Request): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false;
-  const header = request.headers.get("authorization") ?? "";
-  if (!header.startsWith("Bearer ")) return false;
-  return header.slice(7) === secret;
-}
-
 async function run(request: Request) {
   if (!selfHealingEnabled()) {
     return NextResponse.json(
@@ -42,7 +35,7 @@ async function run(request: Request) {
     );
   }
 
-  if (!authorized(request)) {
+  if (!cronRequestAuthorized(request)) {
     return NextResponse.json(
       { ok: false, error: "Unauthorized" },
       { status: 401, headers: { "cache-control": "no-store" } },
