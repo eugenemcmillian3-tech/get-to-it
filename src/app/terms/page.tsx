@@ -6,7 +6,6 @@ import { CREDIT_VALUE_LABEL, AI_OPERATION_PRICES } from "@/lib/credits/pricing";
 import {
   CONTACT_EMAIL,
   OPERATOR_ADDRESS,
-  OPERATOR_DETAILS_PUBLISHED,
   OPERATOR_NAME,
 } from "@/lib/legal";
 import { focusRing } from "@/lib/styles";
@@ -180,11 +179,13 @@ export default function TermsPage() {
             <>{" "}You can reach us through the support request form on the Plans page.</>
           )}
         </p>
-        {OPERATOR_DETAILS_PUBLISHED ? null : (
+        {OPERATOR_ADDRESS ? null : (
           <p className="mt-3 rounded-xl border border-line bg-card p-3 text-sm text-muted">
-            A registered business address and a direct contact address will be
-            published in this section before any paid plan is offered. Until then
-            the support form is the route to a person.
+            A registered business address will be published in this section
+            before any paid plan is offered. Until then{" "}
+            {CONTACT_EMAIL
+              ? "the contact address above and the support form are the routes to a person."
+              : "the support form is the route to a person."}
           </p>
         )}
       </section>

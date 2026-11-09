@@ -22,10 +22,6 @@ export function contactEmail(): string {
 
 export const CONTACT_EMAIL = contactEmail();
 
-/** True only when a real postal address and a real contact inbox are published. */
-export const OPERATOR_DETAILS_PUBLISHED =
-  OPERATOR_ADDRESS.length > 0 && CONTACT_EMAIL.length > 0;
-
 /** How to reach a human, as a sentence a page can render. */
 export const CONTACT_SENTENCE = CONTACT_EMAIL
   ? `Email ${CONTACT_EMAIL}`
