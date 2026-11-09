@@ -19,6 +19,7 @@ steps are not reversible by deploy alone.
 | Operation prices and budgets | `0034`, `0035` applied; unchanged by any billing switch |
 | Provider cost per model | Recorded in `public.ai_prices` (see §7) |
 | Free AI allowance | Off: `public.ai_limits.per_user_daily = 0` |
+| Purchase receipt email | Built and wired to the webhook; needs `RESEND_API_KEY` (see §4) |
 
 ## 2. Prerequisites
 
@@ -61,6 +62,8 @@ Add or change these in the **production** environment, then redeploy:
 | `STRIPE_PRICE_ID_STARTER` … `_STUDIO` | the five **live** price IDs |
 | `STRIPE_WEBHOOK_SECRET` | signing secret of the **live** webhook endpoint |
 | `CREDIT_RPC_TOKEN` | unchanged; must equal `public.app_secrets` → `credit_webhook` |
+| `RESEND_API_KEY` | Resend key allowed to send from the receipt domain; without it receipts are recorded as skipped, not failed |
+| `RESEND_FROM` | optional; defaults to `no-reply@mail.network-x-ai.win`, which must be a verified Resend domain |
 
 The endpoint to register in Stripe is `https://<your-domain>/api/stripe/webhook`,
 subscribed to `checkout.session.completed`, `checkout.session.expired` and

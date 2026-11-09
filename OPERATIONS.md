@@ -23,6 +23,8 @@ Two rules come before all of it:
 | `STRIPE_SECRET_KEY` | no | **server only** | `src/lib/credits/stripe.ts` | Checkout shows a setup message; nothing charges |
 | `STRIPE_WEBHOOK_SECRET` | no | **server only** | `src/app/api/stripe/webhook/route.ts` | The webhook returns 503 |
 | `CREDIT_RPC_TOKEN` | no | **server only** | webhook route | The webhook returns 503 |
+| `RESEND_API_KEY` | no | **server only** | `src/lib/credits/receipt.ts` | A completed purchase is recorded but no receipt email is sent |
+| `RESEND_FROM` | no | **server only** | `src/lib/credits/receipt.ts` | Receipts send from the documented `no-reply@mail.network-x-ai.win` sender |
 | `STRIPE_ALLOW_LIVE` | no | **server only** | `src/lib/credits/stripe.ts` | A `sk_live_` key is refused |
 | `CRON_SECRET` | for scheduled recovery | **server only** | `/api/reminders/run`, `/api/platform/health/run` | Both scheduler endpoints return 503; in-app delivery still works |
 | `PLATFORM_SELF_HEALING` | no | **server only** | `src/lib/platform-health.ts` | Defaults to enabled; set to `false` to disable the recovery route |

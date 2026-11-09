@@ -338,3 +338,39 @@ export function factsFromEvent(event: StripeEvent): EventFacts {
     receiptUrl: read("receipt_url"),
   };
 }
+
+export type PaymentDetails = {
+  customerEmail: string | null;
+  amountTotal: number | null;
+  currency: string | null;
+};
+
+/**
+ * Buyer and amount, for the receipt email. Kept separate from `EventFacts` so the
+ * ingestion contract stays exactly the fields the database needs.
+ */
+export function paymentDetailsFromEvent(event: StripeEvent): PaymentDetails {
+  const object = event.data.object;
+
+  const customer = object.customer_details as { email?: unknown } | undefined;
+  const customerEmail =
+    typeof customer?.email === "string" && customer.email.length > 0
+      ? customer.email
+      : typeof object.customer_email === "string" && object.customer_email.length > 0
+        ? object.customer_email
+        : null;
+
+  const amountTotal =
+    typeof object.amount_total === "number"
+      ? object.amount_total
+      : typeof object.amount === "number"
+        ? object.amount
+        : null;
+
+  const currency =
+    typeof object.currency === "string" && object.currency.length > 0
+      ? object.currency
+      : null;
+
+  return { customerEmail, amountTotal, currency };
+}
