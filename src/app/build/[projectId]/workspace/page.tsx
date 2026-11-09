@@ -112,12 +112,13 @@ export default async function WorkspacePage({
 
         {!configured ? (
           <section className={`${cardClass} mt-5 border-danger/40`}>
-            <h2 className="text-lg font-bold">The runner is not configured</h2>
+            <h2 className="text-lg font-bold">The preview backend is not configured</h2>
             <p className="mt-1 text-sm leading-relaxed text-muted">
-              Set <code>PREVIEW_RUNNER_URL</code>, <code>PREVIEW_RUNNER_TOKEN</code>,{" "}
-              <code>PREVIEW_SIGNING_SECRET</code> and <code>PREVIEW_PUBLIC_ORIGIN</code> on the app,
-              and matching runner values on a Linux host that supports unprivileged namespaces.
-              Nothing is executed until then, and the app does not pretend a preview exists.
+              Set <code>RENDER_API_KEY</code> and <code>RENDER_WORKSPACE_ID</code> to run checks in
+              Render Sandboxes, or set <code>PREVIEW_RUNNER_URL</code>, <code>PREVIEW_RUNNER_TOKEN</code>,{" "}
+              <code>PREVIEW_SIGNING_SECRET</code> and <code>PREVIEW_PUBLIC_ORIGIN</code> with a runner on
+              a Linux host that supports unprivileged namespaces. Nothing is executed until then, and the
+              app does not pretend a preview exists.
             </p>
           </section>
         ) : null}
