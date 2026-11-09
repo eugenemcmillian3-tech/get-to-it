@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { factsFromEvent, getWebhookSecret, parseStripeEvent, verifyStripeSignature } from "@/lib/credits/stripe";
+import { factsFromEvent, getWebhookSecret, parseStripeEvent, paymentDetailsFromEvent, verifyStripeSignature } from "@/lib/credits/stripe";
+import { sendPurchaseReceipt } from "@/lib/credits/receipt";
 import { getSupabaseSettings } from "@/lib/supabase/config";
 
 export const runtime = "nodejs";
@@ -129,5 +130,31 @@ export async function POST(request: Request) {
 
   // A refund that would leave a negative balance needs a person. Acknowledge it
   // so it is not retried forever; it is parked in payment_events as failed.
+  //
+  // Only a genuinely granted purchase earns a receipt: a replay returns
+  // `duplicate` and a refund grants nothing, so neither sends mail.
+  const granted = (data ?? {}) as { granted?: unknown; payment_id?: unknown };
+  if (
+    result.ok !== false &&
+    typeof granted.granted === "number" &&
+    granted.granted > 0
+  ) {
+    const details = paymentDetailsFromEvent(event);
+    const receipt = await sendPurchaseReceipt({
+      email: details.customerEmail,
+      paymentId:
+        typeof granted.payment_id === "string" ? granted.payment_id : event.id,
+      credits: granted.granted,
+      amountCents: details.amountTotal,
+      currency: details.currency,
+      receiptUrl: facts.receiptUrl,
+    });
+
+    if (!receipt.sent) {
+      // Deliberately not an error response: the payment is already recorded.
+      console.warn(`Purchase receipt not sent: ${receipt.reason}`);
+    }
+  }
+
   return NextResponse.json({ ok: true, result: data });
 }
