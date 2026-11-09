@@ -33,25 +33,38 @@ export type PreviewCheckName = (typeof PREVIEW_CHECK_LABELS)[number][0];
 export const PREVIEW_CHECK_NAMES = PREVIEW_CHECK_LABELS.map(([name]) => name);
 
 export type PreviewConfig = {
+  mode: "runner" | "sandbox";
   runnerUrl: string;
   runnerToken: string;
   signingSecret: string;
   publicOrigin: string;
 };
 
-/** Null unless every server-only value is configured. Never invents a fallback. */
+/**
+ * Null unless a backend is configured. Never invents a fallback.
+ *
+ * A complete local runner wins; otherwise Render Sandboxes is used when its key
+ * and workspace are present. A sandbox deployment has no preview origin, so the
+ * preview action reports the beta limitation instead of building a dead link.
+ */
 export function getPreviewConfig(): PreviewConfig | null {
   const runnerUrl = process.env.PREVIEW_RUNNER_URL?.trim();
   const runnerToken = process.env.PREVIEW_RUNNER_TOKEN?.trim();
   const signingSecret = process.env.PREVIEW_SIGNING_SECRET?.trim();
   const publicOrigin = process.env.PREVIEW_PUBLIC_ORIGIN?.trim();
 
-  if (!runnerUrl || !runnerToken || !signingSecret || !publicOrigin) return null;
-  if (!/^https?:\/\/[^/\s]+$/.test(runnerUrl)) return null;
-  if (!/^https?:\/\/[^/\s]+$/.test(publicOrigin)) return null;
-  if (runnerToken.length < 24 || signingSecret.length < 24) return null;
+  if (runnerUrl && runnerToken && signingSecret && publicOrigin) {
+    if (!/^https?:\/\/[^/\s]+$/.test(runnerUrl)) return null;
+    if (!/^https?:\/\/[^/\s]+$/.test(publicOrigin)) return null;
+    if (runnerToken.length < 24 || signingSecret.length < 24) return null;
+    return { mode: "runner", runnerUrl: runnerUrl.replace(/\/$/, ""), runnerToken, signingSecret, publicOrigin };
+  }
 
-  return { runnerUrl: runnerUrl.replace(/\/$/, ""), runnerToken, signingSecret, publicOrigin };
+  if (process.env.RENDER_API_KEY?.trim() && process.env.RENDER_WORKSPACE_ID?.trim()) {
+    return { mode: "sandbox", runnerUrl: "", runnerToken: "", signingSecret: "", publicOrigin: "" };
+  }
+
+  return null;
 }
 
 export class PreviewError extends Error {
@@ -113,6 +126,12 @@ export async function createRunnerWorkspace(
     files: { path: string; content: string }[];
   },
 ): Promise<RunnerWorkspace> {
+  if (config.mode === "sandbox") {
+    if (input.files.length === 0) throw new PreviewError("The project has no files to check.");
+    const { newSandboxKey } = await import("./preview-sandbox");
+    return { key: newSandboxKey(), status: "ready" };
+  }
+
   const payload = (await runnerFetch(config, "/v1/workspaces", {
     method: "POST",
     body: JSON.stringify(input),
@@ -127,6 +146,9 @@ export async function updateRunnerWorkspace(
   key: string,
   input: { projectId: string; files: { path: string; content: string }[] },
 ): Promise<void> {
+  // A sandbox is stateless: files are uploaded by the check run itself.
+  if (config.mode === "sandbox") return;
+
   await runnerFetch(config, `/v1/workspaces/${key}/files`, {
     method: "PUT",
     body: JSON.stringify(input),
@@ -148,7 +170,13 @@ export type CheckResult = {
   log: string;
 };
 
-export async function runRunnerChecks(config: PreviewConfig, key: string): Promise<CheckResult> {
+export async function runRunnerChecks(
+  config: PreviewConfig,
+  key: string,
+  files?: { path: string; content: string }[],
+): Promise<CheckResult> {
+  if (config.mode === "sandbox") return runSandboxChecksFor(config, files);
+
   const payload = (await runnerFetch(config, `/v1/workspaces/${key}/checks`, {
     method: "POST",
   }, 240_000)) as Partial<CheckResult>;
@@ -166,6 +194,12 @@ export async function startRunnerPreview(
   config: PreviewConfig,
   key: string,
 ): Promise<{ host: string; expiresAt: number }> {
+  if (config.mode === "sandbox") {
+    throw new PreviewError(
+      "Render Sandboxes is in public beta and does not yet provide public URLs, so a live preview cannot be opened. Checks and the bounded repair loop still run in the sandbox.",
+    );
+  }
+
   const payload = (await runnerFetch(config, `/v1/workspaces/${key}/preview`, {
     method: "POST",
   }, 180_000)) as { host?: unknown; expiresAt?: unknown };
@@ -175,7 +209,31 @@ export async function startRunnerPreview(
 }
 
 export async function stopRunnerWorkspace(config: PreviewConfig, key: string): Promise<void> {
+  // A sandbox terminates itself at the end of its check run, including failures.
+  if (config.mode === "sandbox") return;
+
   await runnerFetch(config, `/v1/workspaces/${key}/stop`, { method: "POST" }, 15_000);
+}
+
+/** Runs one stateless check pass in a Render sandbox. */
+async function runSandboxChecksFor(
+  _config: PreviewConfig,
+  files?: { path: string; content: string }[],
+): Promise<CheckResult> {
+  const { getSandboxConfig, createRenderSandboxClient, runSandboxChecks, SandboxUnavailableError } = await import(
+    "./preview-sandbox"
+  );
+  const sandboxConfig = getSandboxConfig();
+  if (!sandboxConfig) throw new PreviewError("Render Sandboxes is not configured on this server.");
+  if (!files || files.length === 0) throw new PreviewError("The project has no files to check.");
+
+  try {
+    const client = await createRenderSandboxClient(sandboxConfig);
+    return await runSandboxChecks(sandboxConfig, client, files);
+  } catch (error) {
+    if (error instanceof SandboxUnavailableError) throw new PreviewError(error.message);
+    throw new PreviewError("The Render sandbox could not complete the checks. Nothing in the project was changed.");
+  }
 }
 
 export function previewToken(

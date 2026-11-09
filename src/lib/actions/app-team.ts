@@ -929,7 +929,7 @@ export async function integrateTeamAction(
       files: result.files,
     });
     runnerKey = created.key;
-    const checkResult = await runRunnerChecks(config, created.key);
+    const checkResult = await runRunnerChecks(config, created.key, result.files);
     checks = checkResult.checks;
     log = checkResult.log;
     checksFailed = checkResult.status !== "passed";

@@ -13,6 +13,7 @@ import {
 } from "@/lib/preview-workspace";
 
 const config: PreviewConfig = {
+  mode: "runner",
   runnerUrl: "http://127.0.0.1:4311",
   runnerToken: "t".repeat(32),
   signingSecret: "s".repeat(32),
