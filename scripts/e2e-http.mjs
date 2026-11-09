@@ -293,7 +293,10 @@ async function main() {
   await page("/outcomes");
   await page("/workspace");
   await page("/build");
+  await page("/build/import");
   await page("/credits");
+  await page("/billing");
+  await page("/evaluations");
   await page("/workflows");
   await page("/owner", 404);
   await page(`/goals/${created.goal}`);
