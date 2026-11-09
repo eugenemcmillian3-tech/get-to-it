@@ -227,7 +227,10 @@ async function apiCheck(path, expected, options = {}) {
   const text = (await response.text()).slice(0, 400);
   const location = response.headers.get("location") ?? "";
   const locationOk = !options.locationIncludes || location.includes(options.locationIncludes);
-  const row = { path, status: response.status, expected, location, ok: response.status === expected && locationOk, body: text };
+  // `expected` may be a list where the correct status depends on the target's
+  // configuration rather than on the code under test.
+  const accepted = Array.isArray(expected) ? expected : [expected];
+  const row = { path, status: response.status, expected, location, ok: accepted.includes(response.status) && locationOk, body: text };
   if (!row.ok) failures.push(row);
   return row;
 }
@@ -318,7 +321,9 @@ async function main() {
     ["/api/v1", 200, {}],
     ["/api/v1/projects", 401, { method: "POST", body: "{}" }],
     ["/api/mcp", 401, { method: "POST", body: "{}" }],
-    ["/api/reminders/run", 503, { method: "POST" }],
+    // 503 when CRON_SECRET is unset, 401 when it is set and no bearer token was
+    // sent. Both mean the same thing: it refuses to run without the secret.
+    ["/api/reminders/run", [401, 503], { method: "POST" }],
     ["/auth/callback", 307, {}],
     ["/api/composio/callback?state=x&connected_account_id=ca_test", 307, { locationIncludes: "composio=" }],
   ]) {
