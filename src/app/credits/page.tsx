@@ -332,6 +332,18 @@ export default async function CreditsPage({
           </p>
         </section>
 
+        <p className="mt-6 flex flex-wrap gap-4 border-t border-line pt-4 text-sm text-muted">
+          <Link href="/terms" className={`underline decoration-line underline-offset-4 hover:text-ink ${focusRing}`}>
+            Terms
+          </Link>
+          <Link href="/privacy" className={`underline decoration-line underline-offset-4 hover:text-ink ${focusRing}`}>
+            Privacy
+          </Link>
+          <Link href="/refunds" className={`underline decoration-line underline-offset-4 hover:text-ink ${focusRing}`}>
+            Refunds
+          </Link>
+        </p>
+
         <p className="mt-8">
           <Link href="/dashboard" className={secondaryButton}>
             Back to your goals

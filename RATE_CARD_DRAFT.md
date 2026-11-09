@@ -30,13 +30,24 @@ uncached input, again the conservative case.
 
 **Change on 2026-11-08:** the security role moved from
 `nemotron-3-nano:30b-cloud` to `mimo-v2.6-flash`, because nemotron repeatedly
-returned files it cannot write. The nemotron rows below are kept as history; a
-`mimo-v2.6-flash` price row must be added from a verified source before any
-billing activation, and the envelopes above are unchanged until then.
+returned files it cannot write. The nemotron rows below are kept as history;`mimo-v2.6-flash` is priced at **$0.14 input / $0.0028 cached / $0.28 output**
+per 1M tokens, verified from `https://ollama.com/pricing` on 2026-11-09. The
+envelopes above are unchanged.
 
 The backend role moved from `minimax-m3.1-flash` to `mimo-v2.6-pro` on the
-same date, for latency: it was clean but took 28-90s per task. Its price row is
-likewise unverified, and the `minimax` rows below are kept as history.
+same date, for latency: it was clean but took 28-90s per task. It is priced at
+**$0.435 input / $0.0036 cached / $0.87 output** per 1M tokens, verified on
+2026-11-09. The `minimax` rows below are kept as history.
+
+The coordinator role uses `deepseek-v4-pro`, which had no row either: peak
+**$1.32 input / $0.044 cached / $3.96 output** per 1M tokens (off-peak $0.66 /
+$0.022 / $1.98), verified on 2026-11-09. Peak rates are used so the margin stays
+the conservative case.
+
+All three rows are now recorded in `public.ai_prices` by
+`0047_ai_prices_verified.sql`. That records **cost only**: the customer-facing
+credit prices in `0034` and the operation budgets in `0035` are unchanged, and
+live billing is still off.
 
 **Model-id caveat:** Ollama's API documentation says to use the base model name
 for API requests, not the `:cloud` suffix used by the app picker. The `:31b-cloud`
