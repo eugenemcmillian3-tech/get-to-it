@@ -622,7 +622,7 @@ export async function runDeploymentPrechecksAction(
       files,
     });
     key = created.key;
-    const checks = await runRunnerChecks(config, key);
+    const checks = await runRunnerChecks(config, key, files);
     await stopRunnerWorkspace(config, key).catch(() => undefined);
     key = null;
     const passed = checks.status === "passed";

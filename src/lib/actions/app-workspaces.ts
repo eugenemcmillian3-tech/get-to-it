@@ -40,7 +40,7 @@ import { isUuid, readText } from "@/lib/validation";
 const SESSION_EXPIRED = "Your session expired. Sign in again to keep going.";
 const NOT_AVAILABLE = "That app project isn't available to you.";
 const RUNNER_MISSING =
-  "The preview runner isn't configured on this server. Add PREVIEW_RUNNER_URL, PREVIEW_RUNNER_TOKEN, PREVIEW_SIGNING_SECRET and PREVIEW_PUBLIC_ORIGIN.";
+  "The preview backend isn't configured on this server. Add either PREVIEW_RUNNER_URL, PREVIEW_RUNNER_TOKEN, PREVIEW_SIGNING_SECRET and PREVIEW_PUBLIC_ORIGIN, or RENDER_API_KEY and RENDER_WORKSPACE_ID to run checks in Render Sandboxes.";
 
 function fail(message: string, remaining?: number): BuildState {
   return { status: "error", message, remaining, nonce: Date.now() };
@@ -187,7 +187,7 @@ export async function startWorkspaceAction(
 
     if (error || !workspace) throw new PreviewError("The workspace could not be saved.");
 
-    const checks = await runRunnerChecks(config, created.key);
+    const checks = await runRunnerChecks(config, created.key, files);
     const failed = checks.status !== "passed";
     const message = failed
       ? `Checks failed: ${checkSummary(checks.checks)}. Nothing is hidden; inspect the log and repair or fix the source.`
@@ -247,7 +247,7 @@ export async function runWorkspaceChecksAction(
   try {
     const files = await projectFiles(session, projectId);
     await updateRunnerWorkspace(config, workspace.runner_key, { projectId, files });
-    const checks = await runRunnerChecks(config, workspace.runner_key);
+    const checks = await runRunnerChecks(config, workspace.runner_key, files);
     const failed = checks.status !== "passed";
 
     await session.supabase
@@ -468,7 +468,7 @@ export async function repairWorkspaceAction(
     }
 
     await updateRunnerWorkspace(config, workspace.runner_key, { projectId, files: applied.files });
-    const rerun = await runRunnerChecks(config, workspace.runner_key);
+    const rerun = await runRunnerChecks(config, workspace.runner_key, applied.files);
     const failed = rerun.status !== "passed";
 
     await session.supabase

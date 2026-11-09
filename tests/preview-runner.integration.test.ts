@@ -78,6 +78,7 @@ describe.skipIf(!enabled)("isolated preview runner", () => {
       hostSuffix: "preview.localhost",
     });
     config = {
+      mode: "runner",
       runnerUrl: "http://127.0.0.1:4611",
       runnerToken: "control-".repeat(6),
       signingSecret: "signing-".repeat(6),

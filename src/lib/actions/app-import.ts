@@ -452,7 +452,7 @@ export async function runImportBaselineAction(
       files,
     });
     key = workspace.key;
-    const checks = await runRunnerChecks(config, key);
+    const checks = await runRunnerChecks(config, key, files);
     const failures = checks.checks
       .filter((check) => check.status === "failed" || check.status === "timed_out")
       .map((check) => check.label);

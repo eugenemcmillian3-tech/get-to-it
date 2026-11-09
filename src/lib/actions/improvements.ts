@@ -283,7 +283,7 @@ export async function testChangeAction(
       files: row.patch_files as DeploymentFile[],
     });
     key = created.key;
-    const checks = await runRunnerChecks(config, key);
+    const checks = await runRunnerChecks(config, key, row.patch_files as DeploymentFile[]);
     if (checks.status !== "passed") {
       await session.supabase
         .from("app_change_requests")
