@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { CONTACT_EMAIL, CONTACT_SENTENCE, OPERATOR_ADDRESS, OPERATOR_NAME } from "@/lib/legal";
 import { focusRing } from "@/lib/styles";
 
 const LEGAL_LINKS = [
@@ -55,19 +56,33 @@ export function LegalShell({
 
         <div className="mt-8 space-y-6 leading-relaxed">{children}</div>
 
-        <footer className="mt-10 border-t border-line pt-4 text-sm text-muted">
+        <footer className="mt-10 space-y-2 border-t border-line pt-4 text-sm text-muted">
           <p>
-            Questions about this page: use the support request form on the Plans
-            page once you are signed in, or reply to any receipt email you were
-            sent.{" "}
-            <Link
-              href="/sign-in"
-              className={`font-semibold text-ink underline decoration-line underline-offset-4 ${focusRing}`}
-            >
-              Sign in
-            </Link>
-            .
+            {OPERATOR_NAME} operates this service
+            {OPERATOR_ADDRESS ? `, at ${OPERATOR_ADDRESS}` : ""}. Questions about
+            this page: {CONTACT_SENTENCE.toLowerCase()}.{" "}
+            {CONTACT_EMAIL ? null : (
+              <>
+                <Link
+                  href="/sign-in"
+                  className={`font-semibold text-ink underline decoration-line underline-offset-4 ${focusRing}`}
+                >
+                  Sign in
+                </Link>
+                .
+              </>
+            )}
           </p>
+          {CONTACT_EMAIL ? (
+            <p>
+              <a
+                href={`mailto:${CONTACT_EMAIL}`}
+                className={`font-semibold text-ink underline decoration-line underline-offset-4 ${focusRing}`}
+              >
+                {CONTACT_EMAIL}
+              </a>
+            </p>
+          ) : null}
         </footer>
       </main>
     </div>
