@@ -11,6 +11,7 @@ const saved = {
   from: process.env.RESEND_FROM,
   origin: process.env.APP_ORIGIN,
   base: process.env.RESEND_API_BASE,
+  contact: process.env.NEXT_PUBLIC_LEGAL_CONTACT_EMAIL,
 };
 
 function restore(name: string, value: string | undefined) {
@@ -35,6 +36,7 @@ beforeEach(() => {
   restore("RESEND_FROM", undefined);
   restore("APP_ORIGIN", "https://app.example");
   restore("RESEND_API_BASE", undefined);
+  restore("NEXT_PUBLIC_LEGAL_CONTACT_EMAIL", undefined);
 });
 
 afterEach(() => {
@@ -42,6 +44,7 @@ afterEach(() => {
   restore("RESEND_FROM", saved.from);
   restore("APP_ORIGIN", saved.origin);
   restore("RESEND_API_BASE", saved.base);
+  restore("NEXT_PUBLIC_LEGAL_CONTACT_EMAIL", saved.contact);
   vi.unstubAllGlobals();
 });
 
@@ -86,6 +89,23 @@ describe("purchase receipt", () => {
     expect(built.text).toContain("https://pay.example/receipt");
     expect(built.text).toContain("https://app.example/refunds");
     expect(built.html).toContain("50");
+  });
+
+  it("never invites a reply to the no-reply sender", () => {
+    const built = buildPurchaseReceipt(receiptInput());
+
+    expect(built.text).not.toMatch(/reply to this email/i);
+    expect(built.html).not.toMatch(/reply to this email/i);
+    expect(built.text).toContain("support form on the Plans page");
+  });
+
+  it("names the published support inbox instead of asking for a reply", () => {
+    process.env.NEXT_PUBLIC_LEGAL_CONTACT_EMAIL = "help@example.test";
+
+    const built = buildPurchaseReceipt(receiptInput());
+
+    expect(built.text).toContain("help@example.test");
+    expect(built.text).not.toMatch(/reply to this email/i);
   });
 
   it("formats money without throwing on an unknown currency", () => {

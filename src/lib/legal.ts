@@ -15,8 +15,12 @@ export const OPERATOR_NAME =
 export const OPERATOR_ADDRESS =
   process.env.NEXT_PUBLIC_LEGAL_OPERATOR_ADDRESS?.trim() || "";
 
-export const CONTACT_EMAIL =
-  process.env.NEXT_PUBLIC_LEGAL_CONTACT_EMAIL?.trim() || "";
+/** The published contact inbox, read at call time so callers see the live value. */
+export function contactEmail(): string {
+  return process.env.NEXT_PUBLIC_LEGAL_CONTACT_EMAIL?.trim() || "";
+}
+
+export const CONTACT_EMAIL = contactEmail();
 
 /** True only when a real postal address and a real contact inbox are published. */
 export const OPERATOR_DETAILS_PUBLISHED =
@@ -25,4 +29,4 @@ export const OPERATOR_DETAILS_PUBLISHED =
 /** How to reach a human, as a sentence a page can render. */
 export const CONTACT_SENTENCE = CONTACT_EMAIL
   ? `Email ${CONTACT_EMAIL}`
-  : "Use the support request form on the Plans page once you are signed in, or reply to any receipt email you were sent";
+  : "Use the support request form on the Plans page once you are signed in";
