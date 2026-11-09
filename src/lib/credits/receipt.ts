@@ -9,6 +9,8 @@
  * caller passes a stable payment id so Resend can drop a duplicate send.
  */
 
+import { contactEmail } from "../legal";
+
 export const DEFAULT_RECEIPT_SENDER = "no-reply@mail.network-x-ai.win";
 
 export type ReceiptInput = {
@@ -36,6 +38,20 @@ export function hasResendKey(): boolean {
 function siteOrigin(): string | null {
   const value = process.env.APP_ORIGIN?.trim().replace(/\/+$/, "");
   return value ? value : null;
+}
+
+/**
+ * How a buyer reaches a person.
+ *
+ * Receipts go out from a no-reply mailbox, so the copy must never invite a
+ * reply: it names the published support inbox when there is one and falls back
+ * to the same support form the legal pages point at.
+ */
+export function supportSentence(): string {
+  const email = contactEmail();
+  return email
+    ? `Questions? Email ${email}, or use the support form on the Plans page.`
+    : "Questions? Use the support form on the Plans page.";
 }
 
 /** Money for display only; the authoritative amounts stay in the database. */
@@ -87,7 +103,7 @@ export function buildPurchaseReceipt(input: ReceiptInput): {
       (refundsUrl ? ` The full policy is at ${refundsUrl}.` : ""),
     termsUrl ? `Terms: ${termsUrl}` : null,
     "",
-    "Questions: reply to this email, or use the support form on the Plans page.",
+    supportSentence(),
   ].filter((line): line is string => line !== null);
 
   const rows: Array<[string, string]> = [
@@ -112,7 +128,7 @@ export function buildPurchaseReceipt(input: ReceiptInput): {
         ? ` <a href="${escapeHtml(refundsUrl)}">Refund policy</a>.`
         : "") +
       "</p>",
-    '<p style="margin:8px 0 0;font-size:13px;color:#555">Questions? Reply to this email, or use the support form on the Plans page.</p>',
+    `<p style="margin:8px 0 0;font-size:13px;color:#555">${escapeHtml(supportSentence())}</p>`,
     "</div>",
   ].join("");
 

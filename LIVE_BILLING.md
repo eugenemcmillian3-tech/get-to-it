@@ -19,7 +19,7 @@ steps are not reversible by deploy alone.
 | Operation prices and budgets | `0034`, `0035` applied; unchanged by any billing switch |
 | Provider cost per model | Recorded in `public.ai_prices` (see §7) |
 | Free AI allowance | Off: `public.ai_limits.per_user_daily = 0` |
-| Purchase receipt email | Built and wired to the webhook; needs `RESEND_API_KEY` (see §4) |
+| Purchase receipt email | Built and wired to the webhook; needs `RESEND_API_KEY`, sends from `RESEND_FROM` (default `no-reply@mail.network-x-ai.win`), and delivery to a real mailbox is verified on the live deployment. The body's support line names `NEXT_PUBLIC_LEGAL_CONTACT_EMAIL` when it is set, so set it before charging (see §2 and §4) |
 
 ## 2. Prerequisites
 
