@@ -3,6 +3,12 @@ import Link from "next/link";
 import { LegalShell } from "@/components/legal-shell";
 import { formatUsd } from "@/lib/credits/format";
 import { CREDIT_VALUE_LABEL, AI_OPERATION_PRICES } from "@/lib/credits/pricing";
+import {
+  CONTACT_EMAIL,
+  OPERATOR_ADDRESS,
+  OPERATOR_DETAILS_PUBLISHED,
+  OPERATOR_NAME,
+} from "@/lib/legal";
 import { focusRing } from "@/lib/styles";
 
 export const metadata: Metadata = { title: "Terms — GET TO IT" };
@@ -155,7 +161,36 @@ export default function TermsPage() {
       </section>
 
       <section>
-        <h2 className="text-lg font-bold">10. Changes to these terms</h2>
+        <h2 className="text-lg font-bold">10. Who you are contracting with</h2>
+        <p className="mt-2 text-muted">
+          The service is operated by {OPERATOR_NAME}
+          {OPERATOR_ADDRESS ? `, whose business address is ${OPERATOR_ADDRESS}` : ""}.
+          {CONTACT_EMAIL ? (
+            <>
+              {" "}You can reach us at{" "}
+              <a
+                href={`mailto:${CONTACT_EMAIL}`}
+                className={`font-semibold text-ink underline decoration-line underline-offset-4 ${focusRing}`}
+              >
+                {CONTACT_EMAIL}
+              </a>
+              .
+            </>
+          ) : (
+            <>{" "}You can reach us through the support request form on the Plans page.</>
+          )}
+        </p>
+        {OPERATOR_DETAILS_PUBLISHED ? null : (
+          <p className="mt-3 rounded-xl border border-line bg-card p-3 text-sm text-muted">
+            A registered business address and a direct contact address will be
+            published in this section before any paid plan is offered. Until then
+            the support form is the route to a person.
+          </p>
+        )}
+      </section>
+
+      <section>
+        <h2 className="text-lg font-bold">11. Changes to these terms</h2>
         <p className="mt-2 text-muted">
           If these terms change in a way that affects what you pay or what you
           are allowed to do, we will show the change in the app before it applies

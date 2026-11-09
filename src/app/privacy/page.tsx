@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { LegalShell } from "@/components/legal-shell";
+import { CONTACT_EMAIL, OPERATOR_ADDRESS, OPERATOR_NAME } from "@/lib/legal";
 import { focusRing } from "@/lib/styles";
 
 export const metadata: Metadata = { title: "Privacy — GET TO IT" };
@@ -12,7 +13,27 @@ export default function PrivacyPage() {
       summary="This notice lists what GET TO IT stores, which services process it, how long it stays, and how to remove it. It describes the software as it is built, not a marketing promise."
     >
       <section>
-        <h2 className="text-lg font-bold">1. What we store</h2>
+        <h2 className="text-lg font-bold">1. Who is responsible</h2>
+        <p className="mt-2 text-muted">
+          {OPERATOR_NAME} is the controller of the data described here
+          {OPERATOR_ADDRESS ? `, at ${OPERATOR_ADDRESS}` : ""}. Privacy requests
+          go to{" "}
+          {CONTACT_EMAIL ? (
+            <a
+              href={`mailto:${CONTACT_EMAIL}`}
+              className={`font-semibold text-ink underline decoration-line underline-offset-4 ${focusRing}`}
+            >
+              {CONTACT_EMAIL}
+            </a>
+          ) : (
+            "the support request form on the Plans page"
+          )}
+          .
+        </p>
+      </section>
+
+      <section>
+        <h2 className="text-lg font-bold">2. What we store</h2>
         <ul className="mt-2 list-disc space-y-1 pl-5 text-muted">
           <li>
             <strong className="text-ink">Account details:</strong> your email
