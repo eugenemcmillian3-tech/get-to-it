@@ -45,6 +45,8 @@ const MAX_PROJECT_BYTES = 1_500_000;
 
 const MAX_IMPORT_FILES = 400;
 const MAX_IMPORT_BYTES = 1_500_000;
+/** app_files.content is a text column capped at 60,000 characters by a check. */
+const MAX_IMPORT_FILE_CHARS = 60_000;
 /** Relative, no traversal, no leading slash, no shell metacharacters. */
 const SAFE_PATH = /^(?!\/)(?!.*\.\.)[A-Za-z0-9._\-/]+$/;
 
@@ -199,8 +201,14 @@ async function readImport(
       return { error: "Each file needs a string path and a string content.", status: 400 };
     }
     const path = file.path.trim();
-    if (!SAFE_PATH.test(path)) {
-      return { error: `Unsafe file path: ${path.slice(0, 60)}`, status: 400 };
+    if (!SAFE_PATH.test(path) || path.length > 160) {
+      return { error: `Unsafe or overlong file path: ${path.slice(0, 60)}`, status: 400 };
+    }
+    if (file.content.length > MAX_IMPORT_FILE_CHARS) {
+      return {
+        error: `${path} is ${file.content.length} characters; app_files stores at most ${MAX_IMPORT_FILE_CHARS} per file.`,
+        status: 413,
+      };
     }
     if (seen.has(path)) {
       return { error: `Duplicate file path: ${path}`, status: 400 };
@@ -242,6 +250,8 @@ function keyRole(key: string): string {
 
 async function diagnostics(db: ServiceDb) {
   const info: Record<string, unknown> = { key_role: keyRole(process.env.SUPABASE_SERVICE_ROLE_KEY ?? "") };
+  const accounts = await db.auth.admin.listUsers({ page: 1, perPage: 100 });
+  info.accounts = accounts.error ? `error: ${accounts.error.message}` : (accounts.data?.users?.length ?? 0);
   for (const table of ["app_projects", "app_files", "app_workspaces", "app_workspace_runs"]) {
     const { count, error } = await db.from(table).select("id", { count: "exact", head: true });
     info[table] = error ? `error: ${error.message}` : count;
@@ -301,9 +311,28 @@ export async function POST(request: Request) {
       );
     }
 
+    // app_projects has no default for the intake columns, so a real row needs them.
+    const projectFields = {
+      user_id: ownerId,
+      name: parsed.name,
+      purpose: "A standalone invoicing tool for freelancers: build an invoice, print it to PDF, and get paid without an account.",
+      target_users: "Freelancers, small studios and independent contractors.",
+      workflows: "Enter business and client details, add line items, apply a tax rate, then print or save the invoice as a PDF.",
+      required_pages: "/ landing with pricing, /invoice builder",
+      entities: "",
+      auth_requirements: "none",
+      integrations: "",
+      design_preferences: "",
+      definition_of_done: "Typecheck, lint, unit tests and a production build all pass in the Render sandbox.",
+      status: "generated",
+      last_generation_status: "succeeded",
+      last_generation_note: `Imported ${parsed.files.length} files through the sandbox self-test.`.slice(0, 500),
+      last_generated_at: new Date().toISOString(),
+    };
+
     const { data: created, error: createError } = await db
       .from("app_projects")
-      .insert({ user_id: ownerId, name: parsed.name })
+      .insert(projectFields)
       .select("id, name")
       .single();
     if (createError || !created) {
