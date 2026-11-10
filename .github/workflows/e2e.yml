@@ -21,6 +21,8 @@ concurrency:
 
 permissions:
   contents: read
+  # The stale-account sweep files one issue when it removes a leftover.
+  issues: write
 
 jobs:
   authenticated-e2e:
@@ -63,6 +65,8 @@ jobs:
       - name: Sweep stale E2E accounts
         env:
           E2E_SERVICE_ROLE_KEY: ${{ secrets.E2E_SUPABASE_SERVICE_ROLE_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: npm run test:e2e:cleanup
 
       - name: Install Playwright Chromium
