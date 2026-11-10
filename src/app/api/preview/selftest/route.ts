@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 import { secretsMatch } from "@/lib/cron-auth";
+import { getSupabaseSettings } from "@/lib/supabase/config";
+import { isUuid } from "@/lib/validation";
 import {
   createRenderSandboxClient,
   getSandboxConfig,
@@ -10,23 +13,29 @@ import {
 /**
  * Render Sandboxes self-test.
  *
- * Proves the deployed backend end to end without a signed-in user: it uploads a
- * tiny fixture project to a real sandbox, runs the same fixed command policy the
- * workspace uses, and reports each check's exit code and the wall time. No user
- * data is involved and the fixture is a constant of this module, so the endpoint
- * cannot be used to run arbitrary code.
+ * Proves the deployed backend end to end without a signed-in user: it hands a
+ * file set to a real sandbox, runs the same fixed command policy the workspace
+ * uses, and reports each check's exit code and the wall time.
+ *
+ * Three inputs, all server-side:
+ *   - nothing: a constant fixture owned by this module.
+ *   - `?list=1`: the ten most recently updated projects, so a real id can be
+ *     chosen without opening the app.
+ *   - `?project=<uuid>`: that project's stored files, read with the service role
+ *     exactly like the workspace does. `?case=failing` only applies to the
+ *     fixture, because a real project's files are never edited here.
  *
  * Requires `Authorization: Bearer $PREVIEW_SELFTEST_TOKEN`. With the variable
  * unset the route is disabled and refuses everything — the same fail-closed rule
- * the cron routes follow.
- *
- * `?case=failing` swaps in a deliberately wrong assertion so the failure path
- * can be observed as a non-zero exit code rather than assumed.
+ * the cron routes follow. No command comes from the request: the policy is fixed.
  */
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
+
+const MAX_PROJECT_FILES = 400;
+const MAX_PROJECT_BYTES = 1_500_000;
 
 const PACKAGE_JSON = `{
   "name": "sandbox-selftest",
@@ -131,6 +140,15 @@ function refuse(error: string, status: number) {
   return NextResponse.json({ ok: false, error }, { status, headers: { "cache-control": "no-store" } });
 }
 
+function serviceSupabase() {
+  const settings = getSupabaseSettings();
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!settings || !serviceRoleKey) return null;
+  return createClient(settings.url, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
+
 export async function POST(request: Request) {
   const token = process.env.PREVIEW_SELFTEST_TOKEN?.trim();
   if (!token) {
@@ -142,15 +160,79 @@ export async function POST(request: Request) {
     return refuse("Unauthorized.", 401);
   }
 
+  const search = new URL(request.url).searchParams;
+  const wantsList = search.get("list") === "1";
+  const projectId = search.get("project");
+
+  if (!wantsList && projectId !== null && !isUuid(projectId)) {
+    return refuse("The project id is not a UUID.", 400);
+  }
+
   const config = getSandboxConfig();
   if (!config) {
     return refuse("Render Sandboxes is not configured on this server.", 503);
   }
 
-  const failing = new URL(request.url).searchParams.get("case") === "failing";
-  const files = failing
-    ? FIXTURE.map((file) => (file.path === "lib/sum.test.mjs" ? { path: file.path, content: FAILING_TEST } : file))
-    : FIXTURE;
+  const db = serviceSupabase();
+  if (!db) {
+    return refuse("NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required to read a project.", 503);
+  }
+
+  if (wantsList) {
+    const { data, error } = await db
+      .from("app_projects")
+      .select("id, name, status, updated_at")
+      .order("updated_at", { ascending: false })
+      .limit(10);
+    if (error) return refuse("The project list could not be read.", 500);
+    return NextResponse.json(
+      { ok: true, projects: data ?? [] },
+      { headers: { "cache-control": "no-store" } },
+    );
+  }
+
+  let files: { path: string; content: string }[] = FIXTURE;
+  let label = "fixture";
+  let project: { id: string; name: string | null; status: string | null } | null = null;
+
+  if (projectId !== null) {
+    const { data: row, error: projectError } = await db
+      .from("app_projects")
+      .select("id, name, status")
+      .eq("id", projectId)
+      .maybeSingle();
+    if (projectError) return refuse("The project lookup failed.", 500);
+    if (!row) return refuse("No project with that id exists.", 404);
+
+    const { data: rows, error: filesError } = await db
+      .from("app_files")
+      .select("path, content")
+      .eq("project_id", projectId)
+      .order("path", { ascending: true })
+      .limit(MAX_PROJECT_FILES + 1);
+    if (filesError) return refuse("The project files could not be read.", 500);
+
+    const stored = (rows ?? []) as { path: string; content: string }[];
+    const bytes = stored.reduce((total, file) => total + file.content.length, 0);
+    if (stored.length === 0) return refuse("That project has no stored files.", 409);
+    if (stored.length > MAX_PROJECT_FILES) {
+      return refuse(`That project has more than ${MAX_PROJECT_FILES} files; run it from the workspace instead.`, 413);
+    }
+    if (bytes > MAX_PROJECT_BYTES) {
+      return refuse(`That project has more than ${MAX_PROJECT_BYTES} bytes of source.`, 413);
+    }
+
+    project = { id: row.id as string, name: (row.name as string | null) ?? null, status: (row.status as string | null) ?? null };
+    files = stored;
+    label = project.name ?? project.id;
+  }
+
+  const failing = projectId === null && search.get("case") === "failing";
+  if (failing) {
+    files = FIXTURE.map((file) =>
+      file.path === "lib/sum.test.mjs" ? { path: file.path, content: FAILING_TEST } : file,
+    );
+  }
 
   try {
     const client = await createRenderSandboxClient(config);
@@ -158,7 +240,11 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         ok: true,
-        case: failing ? "failing" : "passing",
+        case: projectId === null ? (failing ? "failing" : "fixture") : "project",
+        project,
+        label,
+        file_count: files.length,
+        bytes: files.reduce((total, file) => total + file.content.length, 0),
         status: result.status,
         wall_ms: result.durationMs,
         checks: result.checks.map((check) => ({
