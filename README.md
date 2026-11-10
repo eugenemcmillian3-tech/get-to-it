@@ -847,7 +847,8 @@ secret as `STRIPE_WEBHOOK_SECRET`, and any long random value as
 use the service-role key for billing. Point a Stripe test-mode webhook at
 `/api/stripe/webhook`
 for `checkout.session.completed`, `checkout.session.expired` and
-`charge.refunded`, and add your user id to `public.app_owners` to open `/owner`.
+`charge.refunded`, and grant yourself the owner role (see **Granting the owner
+role** below) to open `/owner`.
 A `sk_live_...` key is ignored unless `STRIPE_ALLOW_LIVE=true` is also set:
 taking real money is a deliberate step, not a side effect of pasting a key.
 
@@ -856,6 +857,27 @@ tasks, AI outcomes, reported tokens, known versus unknown cost, credits sold and
 spent, adjustments, payment states and webhook failures. Access is checked in
 the database, not the browser, and no task title, note or saved work is selected.
 Manual adjustments require a note and land in the same ledger.
+
+**Granting the owner role.** `public.app_owners` is operator-managed: no route
+and no server action writes it, and the browser roles have no grants on the
+table, so the dashboard cannot be handed out from the app. Use the script with
+the service-role key, addressed by the email the person signs in with — no user
+id is pasted into SQL, code or a config file, so there is nothing to keep in
+sync when an account is recreated:
+
+```bash
+npm run owner:grant -- --list                     # who owns the dashboard today
+npm run owner:grant -- --email you@example.com    # grant by email
+npm run owner:grant -- --email you@example.com --revoke
+```
+
+It needs `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in the
+environment (`E2E_SERVICE_ROLE_KEY` is accepted too). Both actions are
+idempotent: granting an existing owner and revoking a non-owner report that and
+change nothing. The row lands in `public.app_owners` and `app_is_owner()` reads
+it on the next request, so `/owner` opens for that account and stays a 404 for
+everyone else. The script never prints the key, and it creates no accounts — the
+person signs up first.
 
 **Deleting an account** removes the person from the ledger while keeping the
 rows as an accounting record; unused credits are not refunded automatically.
