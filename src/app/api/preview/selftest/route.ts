@@ -37,6 +37,11 @@ import {
  * Requires `Authorization: Bearer $PREVIEW_SELFTEST_TOKEN`. With the variable
  * unset the route is disabled and refuses everything — the same fail-closed rule
  * the cron routes follow. No command comes from the request: the policy is fixed.
+ *
+ * A production deployment also refuses it unless
+ * `ALLOW_PREVIEW_SELFTEST_IN_PRODUCTION=1` is set. This is test tooling that can
+ * rewrite or delete any project through the service role, so shipping it live by
+ * default would leave a self-test surface answering in production.
  */
 
 export const runtime = "nodejs";
@@ -286,6 +291,18 @@ export async function POST(request: Request) {
   const token = process.env.PREVIEW_SELFTEST_TOKEN?.trim();
   if (!token) {
     return refuse("PREVIEW_SELFTEST_TOKEN is not set, so the sandbox self-test is disabled.", 503);
+  }
+
+  // Production has to opt in: everything below can write, replace or delete real
+  // project rows, so this route is test tooling, not a production capability.
+  if (
+    process.env.VERCEL_ENV === "production" &&
+    process.env.ALLOW_PREVIEW_SELFTEST_IN_PRODUCTION !== "1"
+  ) {
+    return refuse(
+      "The sandbox self-test is disabled in production. Run it against a preview deployment, or set ALLOW_PREVIEW_SELFTEST_IN_PRODUCTION=1 deliberately.",
+      404,
+    );
   }
 
   const header = request.headers.get("authorization") ?? "";

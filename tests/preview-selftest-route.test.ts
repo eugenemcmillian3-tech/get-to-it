@@ -126,4 +126,24 @@ describe("sandbox self-test route", () => {
     expect(text).not.toContain("self-test-token-value-1234");
     expect(text).not.toContain("rnd_should_never_appear");
   });
+
+  it("is refused on a production deployment unless explicitly allowed", async () => {
+    vi.stubEnv("PREVIEW_SELFTEST_TOKEN", "a-long-enough-self-test-token");
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("ALLOW_PREVIEW_SELFTEST_IN_PRODUCTION", "");
+    const response = await call({ authorization: "Bearer a-long-enough-self-test-token" });
+    expect(response.status).toBe(404);
+    expect((await response.json()).error).toContain("production");
+  });
+
+  it("reaches the sandbox on production only when the opt-in flag is set", async () => {
+    vi.stubEnv("PREVIEW_SELFTEST_TOKEN", "a-long-enough-self-test-token");
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("ALLOW_PREVIEW_SELFTEST_IN_PRODUCTION", "1");
+    vi.stubEnv("RENDER_API_KEY", "");
+    vi.stubEnv("RENDER_WORKSPACE_ID", "");
+    const response = await call({ authorization: "Bearer a-long-enough-self-test-token" });
+    expect(response.status).toBe(503);
+    expect((await response.json()).error).toContain("not configured");
+  });
 });
