@@ -1,0 +1,59 @@
+name: E2E account sweep
+
+# The authenticated E2E suites delete the accounts they create, but only if
+# they reach their own cleanup. A cancelled, timed-out or killed run leaves
+# disposable accounts behind, and the suite job only sweeps when it runs — so a
+# quiet period hides exactly the leftovers nobody is looking at.
+#
+# This runs the same sweep on a schedule: accounts past the age guard are
+# removed, recent ones are reported without being removed, and a GitHub issue
+# records what was found.
+
+on:
+  schedule:
+    # Daily at 05:41 UTC.
+    - cron: "41 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: e2e-account-sweep
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+
+      - name: Verify sweep configuration
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.E2E_SUPABASE_URL }}
+          E2E_SERVICE_ROLE_KEY: ${{ secrets.E2E_SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          missing=0
+          for name in NEXT_PUBLIC_SUPABASE_URL E2E_SERVICE_ROLE_KEY; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is not configured. Add the E2E Supabase secrets described in README.md."
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      # No npm ci: the sweep imports only node:fs and uses the built-in fetch.
+      - name: Sweep stale E2E accounts
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.E2E_SUPABASE_URL }}
+          E2E_SERVICE_ROLE_KEY: ${{ secrets.E2E_SUPABASE_SERVICE_ROLE_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: npm run test:e2e:cleanup
