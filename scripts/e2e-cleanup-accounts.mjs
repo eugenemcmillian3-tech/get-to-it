@@ -1,28 +1,31 @@
 #!/usr/bin/env node
 /**
- * Removes disposable E2E accounts that a killed run never got to delete, and
- * reports what it removed somewhere a person will see it.
+ * Finds disposable E2E accounts a killed run left behind, removes the ones that
+ * are safely stale, and reports both to a place a person will see.
  *
  * The three suites (e2e-http, e2e-functional, e2e-team-seats) each delete the
  * accounts they create in a `finally` block. That covers a failed assertion,
  * but not a run that is cancelled or killed before `finally` runs at all — a CI
  * timeout, a cancelled job, or a `kill -9`. Those accounts then stay forever.
  *
- * This sweep runs before the suites and removes leftovers, with two guards so
- * it can never touch real data:
+ * Two rules, and the difference between them matters:
  *
- *   - the address must end in `@get-to-it.test`, which only these suites use;
- *   - it must be at least MIN_AGE_MINUTES old, so a suite running right now
- *     (on another branch, or a second job) keeps its accounts.
+ *   - an account older than MIN_AGE_MINUTES is deleted: no suite runs that
+ *     long, so it cannot belong to a run still in progress;
+ *   - an account younger than that is only reported, never deleted, because a
+ *     suite may be using it right now and removing it would break that run.
  *
- * When it removes anything it also writes a step summary and opens (or updates)
+ * Both tiers are limited to addresses ending in `@get-to-it.test`, which only
+ * these suites use, so no real account can match either rule.
+ *
+ * When anything is found the sweep writes a step summary and opens (or updates)
  * one GitHub issue, following the same pattern as the production monitors, so
  * a killed run becomes visible without anyone reading a CI log.
  *
  * Environment:
  *   NEXT_PUBLIC_SUPABASE_URL   Supabase project URL
  *   E2E_SERVICE_ROLE_KEY       service-role key (SUPABASE_SERVICE_ROLE_KEY also accepted)
- *   E2E_CLEANUP_DRY_RUN=1      report what would go, delete nothing, file nothing
+ *   E2E_CLEANUP_DRY_RUN=1      report what would happen, delete nothing, file nothing
  *   GITHUB_TOKEN               optional; workflow token used to file the issue
  *   GITHUB_REPOSITORY          optional; owner/repo for the issue
  *   GITHUB_STEP_SUMMARY        optional; set by Actions
@@ -41,7 +44,7 @@ const MIN_AGE_MINUTES = 60;
 const PAGE_SIZE = 200;
 const MAX_PAGES = 20;
 
-const ISSUE_TITLE = "E2E cleanup: stale disposable accounts were removed";
+const ISSUE_TITLE = "E2E cleanup: disposable accounts need attention";
 const GITHUB_API_BASE = (process.env.GITHUB_API_BASE ?? "https://api.github.com").replace(/\/$/, "");
 
 function requireConfiguration() {
@@ -122,27 +125,49 @@ async function github(path, options = {}) {
 }
 
 /**
- * What was removed, in plain words. Only test addresses appear here, and they
- * are the point of the report, so they are safe to publish in the repo.
+ * What the sweep found, in plain words. Only test addresses appear here, and
+ * they are the point of the report, so they are safe to publish in the repo.
  */
 function reportLines(summary) {
-  const list = summary.removed.map((email) => `- \`${email}\``).join("\n");
-  return [
-    `Swept **${summary.deleted}** disposable test account(s) that an earlier **E2E run left behind**.`,
-    "",
-    "Those suites delete their own accounts, so a leftover means the run was cancelled, timed out, or killed before its cleanup could execute.",
-    "",
-    list,
-    "",
-    `Only addresses ending in \`${TEST_ADDRESS_SUFFIX}\` and older than ${summary.min_age_minutes} minutes are swept, so accounts from a run in progress are never touched. No real account can match this rule.`,
-  ].join("\n");
+  const bullets = (emails) => emails.map((email) => `- \`${email}\``).join("\n");
+  const parts = [];
+
+  if (summary.deleted > 0) {
+    parts.push(
+      [
+        `Removed **${summary.deleted}** disposable test account(s) left behind by an earlier **E2E run**.`,
+        "",
+        bullets(summary.removed),
+        "",
+        "Those suites delete their own accounts, so a leftover means a run was cancelled, timed out, or killed before its cleanup could execute.",
+      ].join("\n"),
+    );
+  }
+
+  if (summary.young_count > 0) {
+    parts.push(
+      [
+        `Left in place: **${summary.young_count}** disposable test account(s) younger than the ${summary.min_age_minutes}-minute guard.`,
+        "",
+        bullets(summary.young),
+        "",
+        "These may belong to a suite running right now, or to one killed moments ago. The sweep never removes them early, because deleting a live run's account would break that run. If they are still here once the guard passes, the next sweep removes them — seeing the same account here twice means it is an orphan.",
+      ].join("\n"),
+    );
+  }
+
+  parts.push(
+    `Only addresses ending in \`${TEST_ADDRESS_SUFFIX}\` are considered, so no real account can match.`,
+  );
+
+  return parts.join("\n\n");
 }
 
 function writeStepSummary(summary) {
   const path = process.env.GITHUB_STEP_SUMMARY ?? "";
   if (!path) return;
   try {
-    appendFileSync(path, `## Stale E2E accounts swept\n\n${reportLines(summary)}\n\n`);
+    appendFileSync(path, `## E2E cleanup sweep\n\n${reportLines(summary)}\n\n`);
   } catch (error) {
     console.error(`Could not write the step summary: ${error.message}`);
   }
@@ -182,31 +207,34 @@ async function main() {
 
   const cutoff = Date.now() - MIN_AGE_MINUTES * 60_000;
   const users = await listUsers();
-  const stale = users.filter((user) => {
+
+  const stale = [];
+  const young = [];
+  for (const user of users) {
     const email = String(user?.email ?? "");
-    if (!email.endsWith(TEST_ADDRESS_SUFFIX)) return false;
+    if (!email.endsWith(TEST_ADDRESS_SUFFIX)) continue;
     const created = Date.parse(user?.created_at ?? "");
-    return !Number.isNaN(created) && created < cutoff;
-  });
+    if (Number.isNaN(created)) continue;
+    (created < cutoff ? stale : young).push({ user, email });
+  }
 
   const deleted = [];
   const failed = [];
 
-  for (const user of stale) {
-    const label = user.email ?? user.id;
+  for (const entry of stale) {
     if (DRY_RUN) {
-      deleted.push(label);
+      deleted.push(entry.email);
       continue;
     }
     try {
-      await admin(`/users/${user.id}`, { method: "DELETE" });
-      deleted.push(label);
+      await admin(`/users/${entry.user.id}`, { method: "DELETE" });
+      deleted.push(entry.email);
     } catch (error) {
       // A 404 means something else removed it first, which is the goal anyway.
       if (/\(404\)/.test(error.message)) {
-        deleted.push(label);
+        deleted.push(entry.email);
       } else {
-        failed.push({ email: label, error: error.message });
+        failed.push({ email: entry.email, error: error.message });
       }
     }
   }
@@ -216,14 +244,16 @@ async function main() {
     matched: stale.length,
     deleted: deleted.length,
     failed: failed.length,
+    young_count: young.length,
     dry_run: DRY_RUN,
     min_age_minutes: MIN_AGE_MINUTES,
     removed: deleted,
+    young: young.map((entry) => entry.email),
     failures: failed,
   };
   console.log(JSON.stringify(summary, null, 2));
 
-  if (summary.deleted > 0 && !DRY_RUN) {
+  if ((summary.deleted > 0 || summary.young_count > 0) && !DRY_RUN) {
     writeStepSummary(summary);
     try {
       await reportToIssue(summary);
