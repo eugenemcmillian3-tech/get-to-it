@@ -447,6 +447,8 @@ export async function POST(request: Request) {
           status: check.status,
           exit_code: check.code,
           log_chars: check.log.length,
+          // Only a failure needs its output to be diagnosable, and only its tail.
+          ...(check.status === "passed" ? {} : { log_tail: check.log.slice(-600) }),
         })),
       },
       { headers: { "cache-control": "no-store" } },
