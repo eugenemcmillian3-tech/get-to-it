@@ -204,6 +204,14 @@ export type ExperimentState = {
 
 export const idleExperimentState: ExperimentState = { status: "idle" };
 
+export type OrchestrationState = {
+  status: "idle" | "error" | "success";
+  message?: string;
+  nonce?: number;
+};
+
+export const idleOrchestrationState: OrchestrationState = { status: "idle" };
+
 export type OutcomeState = {
   status: "idle" | "error" | "success";
   message?: string;

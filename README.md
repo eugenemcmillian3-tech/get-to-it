@@ -1826,3 +1826,56 @@ Corrections are new rows with reason `adjustment`. `credit_ledger_guard` require
 a non-null `user_id`, so an orphaned purchase cannot be reversed anonymously.
 Either decide which account the correction belongs to, or leave the row as
 history.
+
+## MAGI outcome orchestration (Phase 36)
+
+Orchestration carries an approved goal from planning to verification and a human
+outcome decision. It references an existing mission, experiment, learning goal,
+radar signal, scenario or earlier review by id; a new goal is stored as an
+existing-style mission. Nothing is copied into a second store.
+
+`supabase/migrations/0048_phase36_magi_orchestration.sql` adds the contract,
+task, evidence, checkpoint, event and review tables. Contracts are versioned and
+immutable once approved: approval binds to one version and fingerprint, and a
+material change (spending, scope, recipients, data access, consent, targets,
+external effects, time, criteria or tools) needs a new version and its own
+approval. `orchestration_transition` repeats the lifecycle table server-side, and
+client roles have no `update` grant on the lifecycle tables: status moves,
+reservations, verification and the outcome decision happen only through the
+security-definer functions.
+
+Spending is integer micro-credits (1 000 000 = 1 credit = $0.10 retail), using
+the existing rate card. `orchestration_reserve_task` locks the orchestration row,
+so two concurrent tasks cannot reserve past the authorized maximum; failure
+releases the unused reservation and charges nothing. Agent output never marks a
+task verified: verification needs a matching, passing automated test, direct
+observation or human judgment, and agent consensus is refused as independent
+verification.
+
+**This migration is applied to the production Supabase project**
+(`qhlzjhdcnlokbsdsrqqy`), with explicit approval, on 2026-11-11. The management
+API takes inline SQL, so the single committed file was applied as four tracked
+chunks: `0048_phase36_a_schema`, `_b_rpcs`, `_c_review_and_rls` and
+`_d_tighten_grants`. The migration history therefore carries four rows for one
+file; every statement is idempotent, so re-running this file against a fresh
+database is still the intended path. Older drift is still there and unrelated:
+`0045`-`0047` are in effect on that project but were never recorded, so the
+history table stops at `0044` before these four rows.
+
+Verified on the hosted project afterwards: 7 tables with RLS enabled and 13
+policies; 16 functions whose body hashes match this file byte-for-byte; 31
+foreign keys; `authenticated` holding only `select` and `insert` (`select` alone
+on `orchestration_reviews`), with no `update`, `delete` or `truncate`, and `anon`
+holding nothing. Nothing was deployed: the orchestration routes start working
+only once this branch is merged and built, and no prototype was generated,
+published or measured, and no external action was performed.
+
+The file was executed first against a disposable PostgreSQL 18 instance with the
+Supabase-provided objects stubbed: the DDL applied and re-applied cleanly, and 56
+RLS/RPC checks passed for cross-tenant access, contract approval, budget
+reservation and release, the external-action gate, verification, immutability and
+review gating. That harness could not model Supabase's default privileges, which
+grant `ALL` on new `public` tables to `authenticated`; on the hosted project that
+left `update`, `delete` and `truncate` in place despite the narrower `grant`
+statements, so they are now revoked explicitly, as `0046` did for
+`app_projects`.
