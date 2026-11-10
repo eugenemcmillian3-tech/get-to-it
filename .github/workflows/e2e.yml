@@ -60,6 +60,11 @@ jobs:
           done
           exit "$missing"
 
+      - name: Sweep stale E2E accounts
+        env:
+          E2E_SERVICE_ROLE_KEY: ${{ secrets.E2E_SUPABASE_SERVICE_ROLE_KEY }}
+        run: npm run test:e2e:cleanup
+
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
