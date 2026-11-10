@@ -3,8 +3,8 @@ import { POST } from "../src/app/api/preview/selftest/route";
 
 const URL_SELFTEST = "https://app.example/api/preview/selftest";
 
-function call(headers: Record<string, string> = {}) {
-  return POST(new Request(URL_SELFTEST, { method: "POST", headers }));
+function call(headers: Record<string, string> = {}, query = "") {
+  return POST(new Request(`${URL_SELFTEST}${query}`, { method: "POST", headers }));
 }
 
 afterEach(() => {
@@ -29,6 +29,13 @@ describe("sandbox self-test route", () => {
     vi.stubEnv("PREVIEW_SELFTEST_TOKEN", "a-long-enough-self-test-token");
     const response = await call();
     expect(response.status).toBe(401);
+  });
+
+  it("rejects a malformed project id before touching anything", async () => {
+    vi.stubEnv("PREVIEW_SELFTEST_TOKEN", "a-long-enough-self-test-token");
+    const response = await call({ authorization: "Bearer a-long-enough-self-test-token" }, "?project=not-a-uuid");
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toContain("UUID");
   });
 
   it("reports unconfigured sandboxes instead of running anything", async () => {
