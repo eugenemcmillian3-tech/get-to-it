@@ -50,6 +50,7 @@ describe("sandbox self-test route", () => {
   it("rejects a file larger than app_files can store", async () => {
     vi.stubEnv("PREVIEW_SELFTEST_TOKEN", "a-long-enough-self-test-token");
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://example.supabase.co");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "test-anon-key");
     vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "test-key");
     const response = await POST(
       new Request(`${URL_SELFTEST}?import=1`, {
@@ -65,6 +66,7 @@ describe("sandbox self-test route", () => {
   it("rejects a path that tries to escape the project directory", async () => {
     vi.stubEnv("PREVIEW_SELFTEST_TOKEN", "a-long-enough-self-test-token");
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://example.supabase.co");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "test-anon-key");
     vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "test-key");
     const response = await POST(
       new Request(`${URL_SELFTEST}?import=1`, {
