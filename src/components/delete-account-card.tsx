@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { SubmitButton } from "@/components/submit-button";
 import { idleFormState } from "@/lib/action-state";
 import { deleteAccountAction } from "@/lib/actions/account";
@@ -13,11 +13,21 @@ import { dangerButton, hintClass, inputClass, labelClass, secondaryButton } from
 export function DeleteAccountCard({ className = "mt-10" }: { className?: string } = {}) {
   const [state, formAction] = useActionState(deleteAccountAction, idleFormState);
   const [open, setOpen] = useState(false);
+  const sectionRef = useRef<HTMLElement | null>(null);
+
+  // A link from Settings arrives with #delete-account, but a client-side
+  // navigation does not scroll to a fragment on its own, so the card would
+  // stay thousands of pixels below the fold. Bring it into view when asked.
+  useEffect(() => {
+    if (window.location.hash === "#delete-account") {
+      sectionRef.current?.scrollIntoView({ block: "start" });
+    }
+  }, []);
 
   if (!open) {
     return (
       <section
-        id="delete-account"
+        id="delete-account" ref={sectionRef}
         aria-labelledby="delete-heading"
         className={className}
       >
@@ -41,7 +51,7 @@ export function DeleteAccountCard({ className = "mt-10" }: { className?: string 
 
   return (
     <section
-      id="delete-account"
+      id="delete-account" ref={sectionRef}
       aria-labelledby="delete-heading"
       className={className}
     >
