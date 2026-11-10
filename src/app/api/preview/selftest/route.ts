@@ -23,6 +23,10 @@ import {
  *     chosen without opening the app.
  *   - `?diag=1`: which role the configured Supabase key carries and how many
  *     rows the app tables hold. Names and counts only, never row contents.
+ *   - `?import=1` with `{ name, files }` in the body: stores a new project and its
+ *     files for the first account in the database, so an app built outside this
+ *     repo can be checked here. Paths are validated and every row it writes is
+ *     removed again if any insert fails.
  *   - `?project=<uuid>`: that project's stored files, read with the service role
  *     exactly like the workspace does. `?case=failing` only applies to the
  *     fixture, because a real project's files are never edited here.
@@ -38,6 +42,11 @@ export const maxDuration = 300;
 
 const MAX_PROJECT_FILES = 400;
 const MAX_PROJECT_BYTES = 1_500_000;
+
+const MAX_IMPORT_FILES = 400;
+const MAX_IMPORT_BYTES = 1_500_000;
+/** Relative, no traversal, no leading slash, no shell metacharacters. */
+const SAFE_PATH = /^(?!\/)(?!.*\.\.)[A-Za-z0-9._\-/]+$/;
 
 const PACKAGE_JSON = `{
   "name": "sandbox-selftest",
@@ -151,6 +160,70 @@ function serviceSupabase() {
   });
 }
 
+type ServiceDb = NonNullable<ReturnType<typeof serviceSupabase>>;
+
+type ImportFile = { path: string; content: string };
+
+/** Validates an import body without trusting a single byte of it. */
+async function readImport(
+  request: Request,
+): Promise<{ name: string; files: ImportFile[] } | { error: string; status: number }> {
+  let body: { name?: unknown; files?: unknown };
+  try {
+    body = (await request.json()) as { name?: unknown; files?: unknown };
+  } catch {
+    return { error: "The request body must be JSON.", status: 400 };
+  }
+
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  if (name.length === 0 || name.length > 120) {
+    return { error: "A project name of 1-120 characters is required.", status: 400 };
+  }
+  if (!Array.isArray(body.files) || body.files.length === 0) {
+    return { error: "A non-empty files array is required.", status: 400 };
+  }
+  if (body.files.length > MAX_IMPORT_FILES) {
+    return { error: `An import may contain at most ${MAX_IMPORT_FILES} files.`, status: 413 };
+  }
+
+  const files: ImportFile[] = [];
+  const seen = new Set<string>();
+  let bytes = 0;
+
+  for (const raw of body.files) {
+    if (!raw || typeof raw !== "object") {
+      return { error: "Each file needs a string path and a string content.", status: 400 };
+    }
+    const file = raw as { path?: unknown; content?: unknown };
+    if (typeof file.path !== "string" || typeof file.content !== "string") {
+      return { error: "Each file needs a string path and a string content.", status: 400 };
+    }
+    const path = file.path.trim();
+    if (!SAFE_PATH.test(path)) {
+      return { error: `Unsafe file path: ${path.slice(0, 60)}`, status: 400 };
+    }
+    if (seen.has(path)) {
+      return { error: `Duplicate file path: ${path}`, status: 400 };
+    }
+    seen.add(path);
+    bytes += file.content.length;
+    files.push({ path, content: file.content });
+  }
+
+  if (bytes > MAX_IMPORT_BYTES) {
+    return { error: `An import may contain at most ${MAX_IMPORT_BYTES} bytes.`, status: 413 };
+  }
+
+  return { name, files };
+}
+
+/** The first account in the database, used when no owner is named. */
+async function firstUserId(db: ServiceDb): Promise<string | null> {
+  const { data, error } = await db.auth.admin.listUsers({ page: 1, perPage: 1 });
+  if (error || !data?.users?.length) return null;
+  return data.users[0]?.id ?? null;
+}
+
 /**
  * The JWT role of the configured Supabase key, without exposing the key. An anon
  * key is filtered by row level security and silently returns no rows, which looks
@@ -167,7 +240,7 @@ function keyRole(key: string): string {
   }
 }
 
-async function diagnostics(db: ReturnType<typeof serviceSupabase> & object) {
+async function diagnostics(db: ServiceDb) {
   const info: Record<string, unknown> = { key_role: keyRole(process.env.SUPABASE_SERVICE_ROLE_KEY ?? "") };
   for (const table of ["app_projects", "app_files", "app_workspaces", "app_workspace_runs"]) {
     const { count, error } = await db.from(table).select("id", { count: "exact", head: true });
@@ -204,6 +277,59 @@ export async function POST(request: Request) {
     }
     return NextResponse.json(
       { ok: true, diag: await diagnostics(db) },
+      { headers: { "cache-control": "no-store" } },
+    );
+  }
+
+  // Importing writes rows, so it needs the database but no sandbox backend.
+  if (search.get("import") === "1") {
+    if (!db) {
+      return refuse("NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required to import a project.", 503);
+    }
+    const parsed = await readImport(request);
+    if ("error" in parsed) return refuse(parsed.error, parsed.status);
+
+    const requestedOwner = search.get("owner");
+    if (requestedOwner !== null && !isUuid(requestedOwner)) {
+      return refuse("The owner id is not a UUID.", 400);
+    }
+    const ownerId = requestedOwner ?? (await firstUserId(db));
+    if (!ownerId) {
+      return refuse(
+        "There are no accounts in this deployment's database, so an imported project would have no owner.",
+        409,
+      );
+    }
+
+    const { data: created, error: createError } = await db
+      .from("app_projects")
+      .insert({ user_id: ownerId, name: parsed.name })
+      .select("id, name")
+      .single();
+    if (createError || !created) {
+      return refuse(`The project could not be created: ${createError?.message ?? "no row returned"}`, 500);
+    }
+
+    const importedId = created.id as string;
+    const bytes = parsed.files.reduce((total, file) => total + file.content.length, 0);
+
+    for (let index = 0; index < parsed.files.length; index += 100) {
+      const chunk = parsed.files.slice(index, index + 100).map((file) => ({
+        project_id: importedId,
+        user_id: ownerId,
+        path: file.path,
+        content: file.content,
+      }));
+      const { error: filesError } = await db.from("app_files").insert(chunk);
+      if (filesError) {
+        // Never leave a half-imported project behind.
+        await db.from("app_projects").delete().eq("id", importedId);
+        return refuse(`The files could not be stored: ${filesError.message}`, 500);
+      }
+    }
+
+    return NextResponse.json(
+      { ok: true, project: created, files: parsed.files.length, bytes },
       { headers: { "cache-control": "no-store" } },
     );
   }
