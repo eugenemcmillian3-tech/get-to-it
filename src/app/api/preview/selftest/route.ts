@@ -196,11 +196,12 @@ export async function POST(request: Request) {
   }
 
   const db = serviceSupabase();
-  if (!db) {
-    return refuse("NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required to read a project.", 503);
-  }
 
+  // Diagnostics are about the database, so they do not need a sandbox backend.
   if (search.get("diag") === "1") {
+    if (!db) {
+      return refuse("NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required for diagnostics.", 503);
+    }
     return NextResponse.json(
       { ok: true, diag: await diagnostics(db) },
       { headers: { "cache-control": "no-store" } },
@@ -210,6 +211,10 @@ export async function POST(request: Request) {
   const config = getSandboxConfig();
   if (!config) {
     return refuse("Render Sandboxes is not configured on this server.", 503);
+  }
+
+  if (!db) {
+    return refuse("NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required to read a project.", 503);
   }
 
   if (wantsList) {
