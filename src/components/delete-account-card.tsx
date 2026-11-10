@@ -16,7 +16,11 @@ export function DeleteAccountCard({ className = "mt-10" }: { className?: string 
 
   if (!open) {
     return (
-      <section aria-labelledby="delete-heading" className={className}>
+      <section
+        id="delete-account"
+        aria-labelledby="delete-heading"
+        className={className}
+      >
         <h2 id="delete-heading" className="text-lg font-bold">
           Delete your account
         </h2>
@@ -36,7 +40,11 @@ export function DeleteAccountCard({ className = "mt-10" }: { className?: string 
   }
 
   return (
-    <section aria-labelledby="delete-heading" className={className}>
+    <section
+      id="delete-account"
+      aria-labelledby="delete-heading"
+      className={className}
+    >
       <h2 id="delete-heading" className="text-lg font-bold">
         Delete your account
       </h2>

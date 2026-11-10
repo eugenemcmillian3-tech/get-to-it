@@ -71,6 +71,16 @@ export default async function SettingsPage() {
           </Link>
         </p>
 
+        <p className="mt-3 text-sm text-muted">
+          <Link
+            href="/dashboard#delete-account"
+            className={`rounded font-semibold text-ink underline decoration-line underline-offset-4 hover:decoration-ink ${focusRing}`}
+          >
+            Delete your account
+          </Link>{" "}
+          — remove your login and everything stored with it.
+        </p>
+
         <p className="mt-8 text-xs leading-relaxed text-muted">
           Reminders are stored in your account. There is no email, SMS or push
           delivery in GET TO IT — the inbox is the only channel.
