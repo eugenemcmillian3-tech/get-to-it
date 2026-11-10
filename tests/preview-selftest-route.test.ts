@@ -31,6 +31,22 @@ describe("sandbox self-test route", () => {
     expect(response.status).toBe(401);
   });
 
+  it("refuses to import without a database configured", async () => {
+    vi.stubEnv("PREVIEW_SELFTEST_TOKEN", "a-long-enough-self-test-token");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
+    const response = await POST(
+      new Request(`${URL_SELFTEST}?import=1`, {
+        method: "POST",
+        headers: { authorization: "Bearer a-long-enough-self-test-token", "content-type": "application/json" },
+        body: JSON.stringify({ name: "InvoiceKit", files: [{ path: "package.json", content: "{}" }] }),
+      }),
+    );
+    expect(response.status).toBe(503);
+    expect((await response.json()).error).toContain("import");
+  });
+
   it("rejects a malformed project id before touching anything", async () => {
     vi.stubEnv("PREVIEW_SELFTEST_TOKEN", "a-long-enough-self-test-token");
     const response = await call({ authorization: "Bearer a-long-enough-self-test-token" }, "?project=not-a-uuid");
