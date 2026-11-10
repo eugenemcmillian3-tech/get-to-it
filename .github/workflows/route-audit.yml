@@ -1,0 +1,48 @@
+name: Route and metadata audit
+
+# The unit tests read source; this reads what production actually serves. It
+# exists because a missing favicon and a bare /goals path both shipped green:
+# neither shows up in a typecheck, a lint or a unit test.
+#
+# After a merge it waits for the commit's revision to appear on /api/health
+# before auditing, so it never grades the previous deployment.
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Daily at 06:23 UTC, to catch a regression that lands outside a merge.
+    - cron: "23 6 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: route-audit-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      AUDIT_BASE_URL: https://get-to-it-wvpy.vercel.app
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+
+      # No npm ci: the audit uses only Node's built-in fetch, so it cannot be
+      # broken by a dependency install or a registry outage.
+      - name: Audit the deployed origin
+        run: |
+          set -euo pipefail
+          args=(--base "$AUDIT_BASE_URL")
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            args+=(--expect-revision "$GITHUB_SHA")
+          fi
+          node scripts/route-audit.mjs "${args[@]}"

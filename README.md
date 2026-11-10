@@ -1812,3 +1812,17 @@ own request, and approval never performs the external action. The outcome review
 keeps the original hypothesis and records what was built, observed, failed and
 remains unknown before a person chooses continue, revise or stop. A deployed
 prototype is not treated as proof of social benefit.
+
+## Reading the credit ledger
+
+`credit_ledger` is append-only: a balance is the sum of its rows, and no row is
+ever updated or deleted. When a payment row is deleted the ledger row survives
+with `payment_id` set to null, so `owner_metrics()` still counts those credits as
+sold while `payments_paid` and `revenue_cents` drop to zero. A purchase made in
+test mode and later cleaned up therefore shows as credits sold with no matching
+payment: visible in the totals, not corrupt.
+
+Corrections are new rows with reason `adjustment`. `credit_ledger_guard` requires
+a non-null `user_id`, so an orphaned purchase cannot be reversed anonymously.
+Either decide which account the correction belongs to, or leave the row as
+history.
