@@ -21,6 +21,8 @@ import {
  *   - nothing: a constant fixture owned by this module.
  *   - `?list=1`: the ten most recently updated projects, so a real id can be
  *     chosen without opening the app.
+ *   - `?diag=1`: which role the configured Supabase key carries and how many
+ *     rows the app tables hold. Names and counts only, never row contents.
  *   - `?project=<uuid>`: that project's stored files, read with the service role
  *     exactly like the workspace does. `?case=failing` only applies to the
  *     fixture, because a real project's files are never edited here.
@@ -149,6 +151,31 @@ function serviceSupabase() {
   });
 }
 
+/**
+ * The JWT role of the configured Supabase key, without exposing the key. An anon
+ * key is filtered by row level security and silently returns no rows, which looks
+ * exactly like an empty database.
+ */
+function keyRole(key: string): string {
+  const parts = key.split(".");
+  if (parts.length !== 3) return key.startsWith("sb_secret_") ? "secret" : key.startsWith("sb_publishable_") ? "publishable" : "unknown";
+  try {
+    const claims = JSON.parse(Buffer.from(parts[1], "base64").toString("utf8")) as { role?: unknown };
+    return typeof claims.role === "string" ? claims.role : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+async function diagnostics(db: ReturnType<typeof serviceSupabase> & object) {
+  const info: Record<string, unknown> = { key_role: keyRole(process.env.SUPABASE_SERVICE_ROLE_KEY ?? "") };
+  for (const table of ["app_projects", "app_files", "app_workspaces", "app_workspace_runs"]) {
+    const { count, error } = await db.from(table).select("id", { count: "exact", head: true });
+    info[table] = error ? `error: ${error.message}` : count;
+  }
+  return info;
+}
+
 export async function POST(request: Request) {
   const token = process.env.PREVIEW_SELFTEST_TOKEN?.trim();
   if (!token) {
@@ -168,14 +195,21 @@ export async function POST(request: Request) {
     return refuse("The project id is not a UUID.", 400);
   }
 
-  const config = getSandboxConfig();
-  if (!config) {
-    return refuse("Render Sandboxes is not configured on this server.", 503);
-  }
-
   const db = serviceSupabase();
   if (!db) {
     return refuse("NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required to read a project.", 503);
+  }
+
+  if (search.get("diag") === "1") {
+    return NextResponse.json(
+      { ok: true, diag: await diagnostics(db) },
+      { headers: { "cache-control": "no-store" } },
+    );
+  }
+
+  const config = getSandboxConfig();
+  if (!config) {
+    return refuse("Render Sandboxes is not configured on this server.", 503);
   }
 
   if (wantsList) {
