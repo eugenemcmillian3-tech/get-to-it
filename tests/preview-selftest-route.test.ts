@@ -79,6 +79,26 @@ describe("sandbox self-test route", () => {
     expect((await response.json()).error).toContain("Unsafe");
   });
 
+  it("rejects a malformed replace id", async () => {
+    vi.stubEnv("PREVIEW_SELFTEST_TOKEN", "a-long-enough-self-test-token");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://example.supabase.co");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "test-anon-key");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "test-key");
+    const response = await call({ authorization: "Bearer a-long-enough-self-test-token" }, "?replace=nope");
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toContain("replace id");
+  });
+
+  it("rejects a malformed delete id", async () => {
+    vi.stubEnv("PREVIEW_SELFTEST_TOKEN", "a-long-enough-self-test-token");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://example.supabase.co");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "test-anon-key");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "test-key");
+    const response = await call({ authorization: "Bearer a-long-enough-self-test-token" }, "?delete=nope");
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toContain("delete id");
+  });
+
   it("rejects a malformed project id before touching anything", async () => {
     vi.stubEnv("PREVIEW_SELFTEST_TOKEN", "a-long-enough-self-test-token");
     const response = await call({ authorization: "Bearer a-long-enough-self-test-token" }, "?project=not-a-uuid");

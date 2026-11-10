@@ -27,6 +27,9 @@ import {
  *     files for the first account in the database, so an app built outside this
  *     repo can be checked here. Paths are validated and every row it writes is
  *     removed again if any insert fails.
+ *   - `?replace=<uuid>`: the same body, but rewritten over an existing project.
+ *     The previous file set is restored if the new one cannot be stored.
+ *   - `?delete=<uuid>`: removes a project; its files go with it by cascade.
  *   - `?project=<uuid>`: that project's stored files, read with the service role
  *     exactly like the workspace does. `?case=failing` only applies to the
  *     fixture, because a real project's files are never edited here.
@@ -225,6 +228,26 @@ async function readImport(
   return { name, files };
 }
 
+/** Inserts files in chunks. Returns a message on failure, or null on success. */
+async function writeFiles(
+  db: ServiceDb,
+  projectId: string,
+  userId: string,
+  files: ImportFile[],
+): Promise<string | null> {
+  for (let index = 0; index < files.length; index += 100) {
+    const chunk = files.slice(index, index + 100).map((file) => ({
+      project_id: projectId,
+      user_id: userId,
+      path: file.path,
+      content: file.content,
+    }));
+    const { error } = await db.from("app_files").insert(chunk);
+    if (error) return error.message;
+  }
+  return null;
+}
+
 /** The first account in the database, used when no owner is named. */
 async function firstUserId(db: ServiceDb): Promise<string | null> {
   const { data, error } = await db.auth.admin.listUsers({ page: 1, perPage: 1 });
@@ -291,13 +314,93 @@ export async function POST(request: Request) {
     );
   }
 
-  // Importing writes rows, so it needs the database but no sandbox backend.
-  if (search.get("import") === "1") {
+  // Importing, replacing and deleting write rows, so they need the database but
+  // no sandbox backend.
+  const replaceId = search.get("replace");
+  const deleteId = search.get("delete");
+
+  if (search.get("import") === "1" || replaceId !== null || deleteId !== null) {
     if (!db) {
-      return refuse("NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required to import a project.", 503);
+      return refuse(
+        "NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required to import, replace or delete a project.",
+        503,
+      );
     }
+    if (replaceId !== null && !isUuid(replaceId)) return refuse("The replace id is not a UUID.", 400);
+    if (deleteId !== null && !isUuid(deleteId)) return refuse("The delete id is not a UUID.", 400);
+
+    if (deleteId !== null) {
+      const { data: doomed, error: lookupError } = await db
+        .from("app_projects")
+        .select("id, name")
+        .eq("id", deleteId)
+        .maybeSingle();
+      if (lookupError) return refuse("The project lookup failed.", 500);
+      if (!doomed) return refuse("No project with that id exists.", 404);
+
+      const { error: deleteError } = await db.from("app_projects").delete().eq("id", deleteId);
+      if (deleteError) return refuse(`The project could not be deleted: ${deleteError.message}`, 500);
+
+      return NextResponse.json(
+        { ok: true, deleted: doomed, note: "app_files rows were removed by the cascade." },
+        { headers: { "cache-control": "no-store" } },
+      );
+    }
+
     const parsed = await readImport(request);
     if ("error" in parsed) return refuse(parsed.error, parsed.status);
+
+    if (replaceId !== null) {
+      const { data: target, error: lookupError } = await db
+        .from("app_projects")
+        .select("id, user_id")
+        .eq("id", replaceId)
+        .maybeSingle();
+      if (lookupError) return refuse("The project lookup failed.", 500);
+      if (!target) return refuse("No project with that id exists.", 404);
+      const ownerId = target.user_id as string;
+
+      const { data: previous, error: readError } = await db
+        .from("app_files")
+        .select("path, content")
+        .eq("project_id", replaceId);
+      if (readError) return refuse("The existing files could not be read.", 500);
+      const snapshot = (previous ?? []) as ImportFile[];
+
+      const { error: clearError } = await db.from("app_files").delete().eq("project_id", replaceId);
+      if (clearError) return refuse(`The existing files could not be cleared: ${clearError.message}`, 500);
+
+      const failure = await writeFiles(db, replaceId, ownerId, parsed.files);
+      if (failure) {
+        // Restore the previous set rather than leaving an empty project behind.
+        await db.from("app_files").delete().eq("project_id", replaceId);
+        await writeFiles(db, replaceId, ownerId, snapshot);
+        return refuse(`The replacement was rolled back: ${failure}`, 500);
+      }
+
+      const { data: updated, error: updateError } = await db
+        .from("app_projects")
+        .update({
+          name: parsed.name,
+          last_generation_note: `Replaced ${parsed.files.length} files through the sandbox self-test.`.slice(0, 500),
+          last_generated_at: new Date().toISOString(),
+        })
+        .eq("id", replaceId)
+        .select("id, name")
+        .single();
+      if (updateError || !updated) return refuse("The files were replaced but the project name was not updated.", 500);
+
+      return NextResponse.json(
+        {
+          ok: true,
+          replaced: updated,
+          files: parsed.files.length,
+          previous_files: snapshot.length,
+          bytes: parsed.files.reduce((total, file) => total + file.content.length, 0),
+        },
+        { headers: { "cache-control": "no-store" } },
+      );
+    }
 
     const requestedOwner = search.get("owner");
     if (requestedOwner !== null && !isUuid(requestedOwner)) {
@@ -342,19 +445,11 @@ export async function POST(request: Request) {
     const importedId = created.id as string;
     const bytes = parsed.files.reduce((total, file) => total + file.content.length, 0);
 
-    for (let index = 0; index < parsed.files.length; index += 100) {
-      const chunk = parsed.files.slice(index, index + 100).map((file) => ({
-        project_id: importedId,
-        user_id: ownerId,
-        path: file.path,
-        content: file.content,
-      }));
-      const { error: filesError } = await db.from("app_files").insert(chunk);
-      if (filesError) {
-        // Never leave a half-imported project behind.
-        await db.from("app_projects").delete().eq("id", importedId);
-        return refuse(`The files could not be stored: ${filesError.message}`, 500);
-      }
+    const failure = await writeFiles(db, importedId, ownerId, parsed.files);
+    if (failure) {
+      // Never leave a half-imported project behind.
+      await db.from("app_projects").delete().eq("id", importedId);
+      return refuse(`The files could not be stored: ${failure}`, 500);
     }
 
     return NextResponse.json(
