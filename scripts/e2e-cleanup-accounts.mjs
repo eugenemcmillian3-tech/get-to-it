@@ -181,17 +181,25 @@ async function reportToIssue(summary) {
   }
 
   const body = reportLines(summary);
-  const open = await github(`/repos/${repo}/issues?state=open&per_page=100`);
-  const existing = Array.isArray(open)
-    ? open.find((issue) => issue?.title === ISSUE_TITLE && !issue?.pull_request)
+  // Two sweeps can overlap: the suite job runs one, and the schedule runs
+  // another. Looking at closed issues too means whoever loses the race updates
+  // the existing report (reopening it if a person had closed it) instead of
+  // filing a duplicate.
+  const listed = await github(`/repos/${repo}/issues?state=all&per_page=100`);
+  const existing = Array.isArray(listed)
+    ? listed.find((issue) => issue?.title === ISSUE_TITLE && !issue?.pull_request)
     : undefined;
 
   if (existing) {
+    const payload = { body };
+    if (existing.state === "closed") payload.state = "open";
     await github(`/repos/${repo}/issues/${existing.number}`, {
       method: "PATCH",
-      body: JSON.stringify({ body }),
+      body: JSON.stringify(payload),
     });
-    console.log(`Updated open issue #${existing.number}`);
+    console.log(
+      `${existing.state === "closed" ? "Reopened" : "Updated"} issue #${existing.number}`,
+    );
     return;
   }
 
