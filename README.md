@@ -1984,6 +1984,12 @@ purge and workspace deletion failed for any superseded or transferred entry.
 Clearing a link and filling an empty one are allowed now; rewiring an existing
 link is not.
 
+`0054_phase28_role_null_guards` applies the same NULL-role fix to the Phase 28
+build room, where a non-member could create or cancel a build task, review,
+merge or rebase a changeset, and link a project into a workspace they were not a
+member of. The build-room guards now reject a null role, and
+`npm run check:role-guards` fails CI if any function reintroduces the pattern.
+
 Checks run for this phase: `tsc --noEmit`, `eslint` on the new files, the full
 `vitest run` (930 passing) including the new pure-rule suite in
 `tests/knowledge.test.ts` (validity, promotion refusal, verification

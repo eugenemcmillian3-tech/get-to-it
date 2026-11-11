@@ -337,10 +337,26 @@ The harness checks the rules the migrations enforce, not the interface:
   `transferred_from` link instead of raising (the case 0053 fixed);
 - client roles cannot write, recorded evidence cannot be deleted, and deleting an
   account removes its workspace and knowledge.
+- a caller with no project role cannot create a build task, review a
+  changeset, or link a project into a workspace they do not belong to.
 
 CI runs this on every pull request and on every push to `main`, inside the
 `checks` job, so a migration that reopens one of these guards fails the build
 rather than waiting for someone to run the drill by hand.
+
+### Role guard audit
+
+```bash
+npm run check:role-guards
+```
+
+`scripts/sql-role-guard-audit.mjs` reads the latest definition of every function
+across the migrations and fails when a role guard can pass for a caller with no
+role: `v_role not in ('owner','admin')` is `NULL`, not false, when there is no
+role, so `if ... then raise` never runs. This defect shipped twice — in the
+Phase 37 knowledge functions (0052) and in the Phase 28 build room (0054) — and
+the same scan generated `0054`, so the check and the fix share one rule set. It
+runs in CI beside the drills.
 
 ## Account controls
 
