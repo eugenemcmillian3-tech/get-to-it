@@ -55,6 +55,9 @@ const checks = [
   ["Production build", "npm", ["run", "build"]],
   ["Secret scan", "node", ["scripts/secrets-check.mjs"]],
   ["Phase 37 knowledge harness", "npm", ["run", "test:knowledge"]],
+  ["Role guard audit", "npm", ["run", "check:role-guards"]],
+  ["Nullable guard audit", "npm", ["run", "check:nullable-guards"]],
+  ["Schema drift check", "npm", ["run", "check:schema-drift"]],
   ["Dependency audit (high)", "npm", ["audit", "--omit=dev", "--audit-level=high"]],
 ];
 
@@ -67,7 +70,18 @@ console.log("\nManual checks that remain manual:");
 console.log("  - keyboard-only pass through sign-in, a goal, a workflow and /data");
 console.log("  - mobile widths at 360 px and 414 px, no horizontal scroll");
 console.log("  - error recovery: stop the database, confirm the health check is 503");
-console.log("  - restore drill on an isolated database: npm run test:restore");
+
+// A check that ran but compared nothing is not the same as a check that passed,
+// and a green release record should not imply coverage it did not have.
+const notVerified = [];
+if (!process.env.SCHEMA_DRIFT_DATABASE_URL && !process.env.DATABASE_URL) {
+  notVerified.push("schema drift comparison: no database URL is set, so nothing was compared");
+}
+console.log(
+  notVerified.length === 0
+    ? "\nEvery automated check compared something."
+    : `\nNot verified by this run:\n${notVerified.map((line) => `  - ${line}`).join("\n")}`,
+);
 
 console.log(
   `\n${passed}/${checks.length} automated checks passed for revision ${short}${dirty ? " (dirty)" : ""}.`,
