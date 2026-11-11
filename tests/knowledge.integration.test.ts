@@ -1221,6 +1221,36 @@ describeKnowledge("phase 37 knowledge layer", () => {
     });
     expect(current.status).toBe(0);
     expect(current.stdout).toMatch(/matches the migrations/);
+
+    // A text-only difference must be attributed to the engine: the snapshot is
+    // written on one PostgreSQL major version and production may run another.
+    const skewedSnapshot = path.join(tmpdir(), `schema-snapshot-skew-${randomUUID()}.json`);
+    writeFileSync(
+      skewedSnapshot,
+      JSON.stringify(
+        {
+          ...committedSnapshot,
+          generatedWith: "PostgreSQL 11.0 on x86_64-pc-linux-gnu",
+          policies: committedSnapshot.policies.map((entry: { definition: string }, index: number) =>
+            index === 0 ? { ...entry, definition: `${entry.definition} ` } : entry,
+          ),
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    const skewed = spawnSync(process.execPath, ["scripts/schema-drift-check.mjs"], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        SCHEMA_DRIFT_DATABASE_URL: connectionString,
+        SCHEMA_DRIFT_SNAPSHOT: skewedSnapshot,
+      },
+    });
+    const skewedOutput = `${skewed.stdout}${skewed.stderr}`;
+    expect(skewed.status).toBe(0);
+    expect(skewedOutput).toMatch(/differ only in text/);
+    expect(skewedOutput).toMatch(/The engines differ \(snapshot PostgreSQL 11, live PostgreSQL \d+\)/);
   }, 180_000);
 
   it("removes a deleted account's workspace and its knowledge", async () => {
