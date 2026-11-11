@@ -528,6 +528,18 @@ role guard, so a membership held in a variable that is not named `*role` is
 still caught; `--dir` points the same check at a fixture tree, which is how the
 rule is tested without editing the real migrations.
 
+### Schema drift
+
+`npm run check:schema-drift` compares every live function body with the latest
+definition in `supabase/migrations`, ignoring whitespace. It needs a direct
+Postgres connection in `SCHEMA_DRIFT_DATABASE_URL`; without one it warns in the
+CI summary and exits 0, and with `SCHEMA_DRIFT_REQUIRED=1` it exits 1 instead.
+Record the connection string as the repository secret `SUPABASE_DB_URL`, which
+the workflow already maps to that variable; until it exists, the step reports
+"nothing was compared" rather than a pass. The check found and repaired two
+stored-body drifts left by the `pg_get_functiondef` migrations, so it is worth
+arming.
+
 `npm run check:nullable-guards` fails when a guard compares a parameter, a local
 or an inequality against a value set without a null check, such as
 `p_decision not in ('approved', 'rejected')` or `p_status <> 'completed'`. A
