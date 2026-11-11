@@ -338,6 +338,10 @@ The harness checks the rules the migrations enforce, not the interface:
 - client roles cannot write, recorded evidence cannot be deleted, and deleting an
   account removes its workspace and knowledge.
 
+CI runs this on every pull request and on every push to `main`, inside the
+`checks` job, so a migration that reopens one of these guards fails the build
+rather than waiting for someone to run the drill by hand.
+
 ## Account controls
 
 Deleting an account from **Settings** removes the `auth.users` row. Cascades do the

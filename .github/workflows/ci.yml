@@ -71,3 +71,9 @@ jobs:
 
       - name: Unit tests
         run: npm test
+
+      # Replays every migration into a throwaway Postgres and checks the Phase 37
+      # rules: verification, workspace isolation, transfer approval, retraction,
+      # retention purge and the deletion cascades. No project secret is used.
+      - name: Phase 37 knowledge harness
+        run: npm run test:knowledge
