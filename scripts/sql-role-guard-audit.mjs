@@ -262,4 +262,8 @@ if (wantsValidation || strictValidation) {
   console.log(`ℹ ${validationSites.length} guard(s) can pass when the value is null; run with --validation to list them.`);
 }
 
-console.log(`✔ ${latest.size} functions scanned; every role guard rejects a null role.`);
+console.log(
+  wantsValidation || strictValidation
+    ? `✔ ${latest.size} functions scanned; no validation guard can pass on a null value.`
+    : `✔ ${latest.size} functions scanned; every role guard rejects a null role.`,
+);
