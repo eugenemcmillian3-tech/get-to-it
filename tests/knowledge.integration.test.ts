@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { Client } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -1130,6 +1131,37 @@ describeKnowledge("phase 37 knowledge layer", () => {
       ),
     );
     expect(denied).toMatch(/invalid review decision/);
+  });
+
+  it("reports no schema drift and detects a function that differs", async () => {
+    // The drift check compares live function bodies with the migrations after
+    // 0054-0056 were applied through pg_get_functiondef, so stored text and
+    // repository text can diverge without any behaviour change.
+    const run = () =>
+      spawnSync(process.execPath, ["scripts/schema-drift-check.mjs"], {
+        encoding: "utf8",
+        env: { ...process.env, SCHEMA_DRIFT_DATABASE_URL: connectionString },
+      });
+
+    const clean = run();
+    expect(clean.stderr).toBe("");
+    expect(clean.stdout).toMatch(/no drift/);
+
+    const original = await client.query<{ def: string }>(
+      "select pg_get_functiondef('public.mission_control_recover(uuid)'::regprocedure) as def",
+    );
+    await client.query(
+      `create or replace function public.mission_control_recover(p_mission_id uuid)
+       returns jsonb language plpgsql security definer set search_path = ''
+       as $$ begin return '{"ok": false}'::jsonb; end; $$`,
+    );
+    const tampered = run();
+    expect(tampered.status).toBe(1);
+    expect(tampered.stderr).toMatch(/mission_control_recover/);
+    expect(tampered.stderr).toMatch(/differ from the migrations/);
+
+    await client.query(original.rows[0]?.def ?? "");
+    expect(run().stdout).toMatch(/no drift/);
   });
 
   it("removes a deleted account's workspace and its knowledge", async () => {

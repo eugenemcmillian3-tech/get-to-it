@@ -92,3 +92,10 @@ jobs:
       # missing parameter instead of letting the NULL reach the column.
       - name: Nullable guard audit
         run: npm run check:nullable-guards
+
+      # Compares live function bodies with the migrations when a direct database
+      # URL is configured; skips cleanly when the secret is absent.
+      - name: Schema drift check
+        run: npm run check:schema-drift
+        env:
+          SCHEMA_DRIFT_DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}
