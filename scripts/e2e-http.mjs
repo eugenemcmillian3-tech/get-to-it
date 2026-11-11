@@ -357,6 +357,94 @@ async function seed() {
     method: "POST",
     body: JSON.stringify(runs),
   });
+
+  // A second exposure of the held-out task to the same configuration must be
+  // recorded as contaminated rather than hidden.
+  const baselineVersion = versions.find((entry) => entry.baseline_kind === "single_model_baseline");
+  const heldOutTask = tasks.find((task) => task.split === "held_out");
+  const repeat = await rest("rpc/capability_eval_score_task", {
+    method: "POST",
+    body: JSON.stringify({
+      p_task_id: heldOutTask.id,
+      p_submission: {
+        elements: ["sources", "synthesis"],
+        claims: [{ text: "The result follows from the supplied material.", supported: true }],
+        permission_attempts: 0,
+        recovery: { attempted: false, succeeded: false },
+        cost_cents: 0,
+        latency_ms: 950,
+      },
+    }),
+  });
+  const [repeatRun] = await rest("capability_eval_runs", {
+    method: "POST",
+    body: JSON.stringify([
+      {
+        eval_id: created.capability,
+        version_id: baselineVersion.id,
+        task_id: heldOutTask.id,
+        user_id: userId,
+        domain: heldOutTask.domain,
+        difficulty: heldOutTask.difficulty,
+        split: heldOutTask.split,
+        trial: 2,
+        outcome: repeat.outcome,
+        verified_success: repeat.verified_success,
+        unsupported_claims: repeat.unsupported_claims ?? 0,
+        permission_violations: 0,
+        human_interventions: 0,
+        recovery_attempts: 0,
+        recovery_succeeded: null,
+        cost_cents: 0,
+        latency_ms: 950,
+        failure_category: repeat.failure_category ?? null,
+        scoring_detail: repeat.scoring_detail ?? {},
+      },
+    ]),
+  });
+  assert(repeatRun?.contaminated === true, "a repeated held-out exposure was not flagged as contaminated");
+  assert(repeatRun?.exposure_count === 2, "the second exposure was not counted");
+
+  // The answer-key table has no client policy at all.
+  await expectRefusal(
+    () => rest(`capability_eval_answer_keys?eval_id=eq.${created.capability}&select=task_id&limit=1`),
+    /permission denied/i,
+    "the signed-in owner could read answer keys",
+  );
+
+  // A versioned configuration cannot be given more autonomy than it started with.
+  await expectRefusal(
+    () =>
+      rest(`capability_eval_versions?id=eq.${baselineVersion.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ autonomy_permission: "acts_with_approval" }),
+      }),
+    /cannot expand autonomy permission/i,
+    "an evaluation widened its autonomy permission",
+  );
+  const [unchanged] = await rest(
+    `capability_eval_versions?id=eq.${baselineVersion.id}&select=autonomy_permission`,
+  );
+  assert(
+    unchanged?.autonomy_permission === "none",
+    "the autonomy permission changed despite the refusal",
+  );
+}
+
+function assert(condition, message) {
+  if (condition) return;
+  failures.push({ path: `assertion: ${message}`, ok: false });
+}
+
+async function expectRefusal(run, pattern, label) {
+  try {
+    await run();
+    failures.push({ path: `assertion: ${label}`, ok: false, message: "the call succeeded" });
+  } catch (error) {
+    if (!pattern.test(error.message)) {
+      failures.push({ path: `assertion: ${label}`, ok: false, message: error.message.slice(0, 200) });
+    }
+  }
 }
 
 async function page(path, expected = 200, contains = []) {
@@ -480,6 +568,28 @@ async function main() {
     "Orchestrated system",
     "Verified-rate difference",
     "Software building and repair",
+    "Contamination and repeated exposure",
+    "No human results were collected under a documented protocol",
+  ]);
+
+  // A recorded human baseline is shown only with its documented protocol.
+  await rest("capability_eval_human_baselines", {
+    method: "POST",
+    body: JSON.stringify({
+      eval_id: created.capability,
+      user_id: session.user.id,
+      domain: "software_build_repair",
+      protocol_document:
+        "Two reviewers scored twenty recorded attempts against the published rubric; a third reviewer resolved every disagreement before the results were recorded.",
+      collected_by: "E2E reviewer panel",
+      sample_size: 5,
+      results: { verified_rate: 0.6 },
+    }),
+  });
+  await page(`/capability-eval/${created.capability}`, 200, [
+    "participant(s)",
+    "collected by",
+    "E2E reviewer panel",
   ]);
   await page("/workflows");
   await page("/owner", 404);
