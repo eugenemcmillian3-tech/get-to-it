@@ -2004,3 +2004,39 @@ permissions, versioning, corrections, transfer rules and copy, retrieval
 authorization, invalidation, retention and source health), and the catalog
 verification above. No knowledge entry has been created in production yet, so
 the functions have not been exercised against live data.
+
+## Versioned capability evaluation (Phase 38)
+
+`/capability-eval` compares two versioned configurations — a single-model
+baseline and an orchestrated system — across eight capability domains: software
+building and repair, research synthesis, quantitative reasoning, document
+analysis, planning under constraints, tool selection and execution, recovery from
+errors, and adaptation to unfamiliar task formats.
+
+Each evaluation seeds development, validation and held-out tasks. A task records
+its domain, difficulty, split, specification, dataset version, permitted tools,
+runtime and spend limits and scoring rubric; a configuration records its model,
+orchestration, prompt and dataset versions, tools, limits, human-assistance
+allowance and autonomy permission. Acceptance material becomes immutable after
+the first run, and a configuration's permission is fixed at creation.
+
+Held-out answer keys are stored in `capability_eval_answer_keys`, which has no
+row-level policy and no client grant: even the owner cannot select it. Scoring is
+a security-definer function that compares a submission with the stored key and
+returns counts, a failure category and a scoring detail — never key content, and
+for held-out tasks never the names of missing elements. A scoring call from
+another account is refused.
+
+Runs are append-only and record verified success, partial success, unsupported
+claims, permission violations, human interventions, recovery attempts and
+success, cost, latency and exposure. A held-out task exposed more than once to
+the same configuration is flagged as contaminated, and clean held-out trials are
+counted separately. Reports show performance by domain and difficulty, compare
+the two configurations only on shared tasks with equal trials, and state that
+there is no single score and no AGI claim. Capability and permission are
+reported separately: results never raise a permission, and an evaluation cannot
+deploy anything.
+
+Human results appear only when someone records them with a documented protocol,
+a collector and at least one measured numeric result. Without that the page says
+no human comparison is available rather than estimating one.
