@@ -613,6 +613,211 @@ describeKnowledge("phase 37 knowledge layer", () => {
     ).toBe(1);
   });
 
+  it("records a correction and accepts it as a new version", async () => {
+    const created = await asB(() =>
+      client.query<{ id: string }>(
+        "select public.knowledge_create_entry($1,$2,$3,$4,$5,$6) as id",
+        [
+          workspaceB,
+          "claim",
+          "measured_observation",
+          "Correction target claim",
+          "The original wording of the claim that a correction will replace.",
+          "Testing",
+        ],
+      ),
+    );
+    const entryId = created.rows[0]?.id ?? "";
+    expect(entryId).toMatch(/^[0-9a-f-]{36}$/);
+
+    const outsider = await asC(() =>
+      failure(() =>
+        client.query("select public.knowledge_record_correction($1,$2,$3,$4)", [
+          entryId,
+          "correction",
+          "An outsider proposing a change to a claim in another workspace.",
+          "A replacement statement written by someone outside the workspace.",
+        ]),
+      ),
+    );
+    expect(outsider).toMatch(/not a member of this workspace/);
+
+    const badKind = await asB(() =>
+      failure(() =>
+        client.query("select public.knowledge_record_correction($1,$2,$3)", [
+          entryId,
+          "rewrite",
+          "An attempt with a kind the migration does not allow.",
+        ]),
+      ),
+    );
+    expect(badKind).toMatch(/choose correction or dispute/);
+
+    const shortProposal = await asB(() =>
+      failure(() =>
+        client.query("select public.knowledge_record_correction($1,$2,$3,$4)", [
+          entryId,
+          "correction",
+          "The number in this claim is wrong.",
+          "too short",
+        ]),
+      ),
+    );
+    expect(shortProposal).toMatch(/proposes the replacement wording/);
+
+    const recorded = await asB(() =>
+      client.query<{ id: string }>(
+        "select public.knowledge_record_correction($1,$2,$3,$4) as id",
+        [
+          entryId,
+          "correction",
+          "The rerun put the misses at two of six volunteers, not four.",
+          "The rerun put the misses at two of six volunteers, not four of six.",
+        ],
+      ),
+    );
+    const correctionId = recorded.rows[0]?.id ?? "";
+    expect(correctionId).toMatch(/^[0-9a-f-]{36}$/);
+
+    const outsiderDecision = await asC(() =>
+      failure(() =>
+        client.query("select public.knowledge_decide_correction($1,$2,$3)", [
+          correctionId,
+          true,
+          "an outsider deciding a correction",
+        ]),
+      ),
+    );
+    expect(outsiderDecision).toMatch(/not a member of this workspace/);
+
+    const accepted = await asB(() =>
+      client.query<{ id: string | null }>("select public.knowledge_decide_correction($1,$2,$3) as id", [
+        correctionId,
+        true,
+        "The rerun confirms the correction.",
+      ]),
+    );
+    const newVersionId = accepted.rows[0]?.id ?? "";
+    expect(newVersionId).toMatch(/^[0-9a-f-]{36}$/);
+
+    const versions = await client.query<{ id: string; status: string; statement: string }>(
+      "select id, status, statement from public.knowledge_entries where id = any($1::uuid[])",
+      [[entryId, newVersionId]],
+    );
+    const byId = new Map(versions.rows.map((row) => [row.id, row]));
+    expect(byId.get(entryId)?.status).toBe("superseded");
+    expect(byId.get(newVersionId)?.statement).toContain("two of six");
+
+    const decision = await client.query<{ status: string; decided_by: string }>(
+      "select status, decided_by from public.knowledge_corrections where id = $1",
+      [correctionId],
+    );
+    expect(decision.rows[0]?.status).toBe("accepted");
+    expect(decision.rows[0]?.decided_by).toBe(userB);
+
+    const again = await asB(() =>
+      failure(() =>
+        client.query("select public.knowledge_decide_correction($1,$2,$3)", [
+          correctionId,
+          false,
+          "trying to decide the same correction twice",
+        ]),
+      ),
+    );
+    expect(again).toMatch(/already decided/);
+  });
+
+  it("rejects a correction without touching the entry, and upholds a dispute", async () => {
+    const created = await asB(() =>
+      client.query<{ id: string }>(
+        "select public.knowledge_create_entry($1,$2,$3,$4,$5,$6) as id",
+        [
+          workspaceB,
+          "claim",
+          "measured_observation",
+          "Dispute target claim",
+          "A claim that will be disputed and then withdrawn after the review.",
+          "Testing",
+        ],
+      ),
+    );
+    const entryId = created.rows[0]?.id ?? "";
+
+    await asB(() =>
+      client.query("select public.knowledge_mark_impact($1,$2,$3,$4,$5)", [
+        entryId,
+        "recommendation",
+        null,
+        "Weekend volunteer reminder",
+        "Built on the claim that is now disputed",
+      ]),
+    );
+
+    const rejectedCorrection = await asB(() =>
+      client.query<{ id: string }>(
+        "select public.knowledge_record_correction($1,$2,$3,$4) as id",
+        [
+          entryId,
+          "correction",
+          "A rewording that the owner will reject after reading it.",
+          "A replacement statement that will not be accepted here.",
+        ],
+      ),
+    );
+    const rejectedId = rejectedCorrection.rows[0]?.id ?? "";
+    await asB(() =>
+      client.query("select public.knowledge_decide_correction($1,$2,$3)", [
+        rejectedId,
+        false,
+        "The original wording is the one that was observed.",
+      ]),
+    );
+
+    const rejected = await client.query<{ status: string }>(
+      "select status from public.knowledge_corrections where id = $1",
+      [rejectedId],
+    );
+    expect(rejected.rows[0]?.status).toBe("rejected");
+
+    const untouched = await client.query<{ status: string; statement: string }>(
+      "select status, statement from public.knowledge_entries where id = $1",
+      [entryId],
+    );
+    expect(untouched.rows[0]?.status).toBe("active");
+    expect(untouched.rows[0]?.statement).toContain("will be disputed");
+
+    const dispute = await asB(() =>
+      client.query<{ id: string }>("select public.knowledge_record_correction($1,$2,$3) as id", [
+        entryId,
+        "dispute",
+        "The observation behind this claim was recorded twice by mistake.",
+      ]),
+    );
+    const disputeId = dispute.rows[0]?.id ?? "";
+
+    const upheld = await asB(() =>
+      client.query<{ id: string | null }>("select public.knowledge_decide_correction($1,$2,$3) as id", [
+        disputeId,
+        true,
+        "The double count is confirmed, so the claim is withdrawn.",
+      ]),
+    );
+    expect(upheld.rows[0]?.id ?? null).toBeNull();
+
+    const retracted = await client.query<{ status: string; verification_status: string }>(
+      "select status, verification_status from public.knowledge_entries where id = $1",
+      [entryId],
+    );
+    expect(retracted.rows[0]?.status).toBe("retracted");
+    expect(retracted.rows[0]?.verification_status).toBe("retracted");
+
+    const impact = await client.query<{ invalidated_at: string | null }>(
+      "select invalidated_at from public.knowledge_impacts where entry_id = $1",
+      [entryId],
+    );
+    expect(impact.rows[0]?.invalidated_at).not.toBeNull();
+  });
+
   it("removes a deleted account's workspace and its knowledge", async () => {
     await client.query("delete from auth.users where id = $1", [userB]);
 
