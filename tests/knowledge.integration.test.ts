@@ -938,6 +938,86 @@ describeKnowledge("phase 37 knowledge layer", () => {
     expect(minted.rows[0]?.result.ok).toBe(true);
   });
 
+  it("refuses mission-control actions from someone outside the workspace", async () => {
+    // Regression for 0055: workspace_role() is NULL for a non-member, so
+    // `workspace_role(...) not in ('owner','admin')` fell through and any
+    // signed-in user could drive another workspace's mission jobs.
+    const missionWorkspace = randomUUID();
+    const missionId = randomUUID();
+    const jobId = randomUUID();
+    const approvalId = randomUUID();
+    await client.query(
+      "insert into public.workspaces (id, name, created_by) values ($1,'Mission probe workspace',$2)",
+      [missionWorkspace, userA],
+    );
+    await client.query(
+      "insert into public.workspace_members (workspace_id, user_id, role, status) values ($1,$2,'owner','active')",
+      [missionWorkspace, userA],
+    );
+    await client.query(
+      `insert into public.missions
+         (id, workspace_id, created_by, title, category, problem, stakeholders,
+          desired_outcome, constraints, status)
+       values ($1,$2,$3,'Mission control probe','community',
+               'A synthetic mission used to probe mission-control authorization.',
+               'Probe operators','The probe mission stays under its owner control.',
+               '', 'active')`,
+      [missionId, missionWorkspace, userA],
+    );
+    await client.query(
+      `insert into public.mission_projects (mission_id, workspace_id, project_id, label, linked_by)
+       values ($1,$2,$3,'Probe project link',$4)`,
+      [missionId, missionWorkspace, projectId, userA],
+    );
+    await client.query(
+      `insert into public.mission_agent_jobs
+         (id, mission_id, workspace_id, project_id, title, objective, role, dedupe_key, status)
+       values ($1,$2,$3,$4,'Probe job','Prove a stranger cannot cancel this job.',
+               'coordinator','probe-job','queued')`,
+      [jobId, missionId, missionWorkspace, projectId],
+    );
+    await client.query(
+      `insert into public.mission_approvals
+         (id, mission_id, workspace_id, kind, summary, scope, requested_by,
+          requested_by_kind, status)
+       values ($1,$2,$3,'deployment','Probe approval','Deploy the synthetic probe.',
+               $4,'human','pending')`,
+      [approvalId, missionId, missionWorkspace, userE],
+    );
+
+    const cancelled = await asF(() =>
+      client.query<{ result: { ok: boolean; code?: string } }>(
+        "select public.mission_control_cancel_job($1) as result",
+        [jobId],
+      ),
+    );
+    expect(cancelled.rows[0]?.result).toMatchObject({ ok: false, code: "forbidden" });
+
+    const decided = await asF(() =>
+      client.query<{ result: { ok: boolean; code?: string } }>(
+        "select public.mission_control_decide_approval($1,$2,$3) as result",
+        [approvalId, "approved", "an outsider approving a deployment"],
+      ),
+    );
+    expect(decided.rows[0]?.result).toMatchObject({ ok: false, code: "forbidden" });
+
+    const ownerCancel = await asA(() =>
+      client.query<{ result: { ok: boolean } }>(
+        "select public.mission_control_cancel_job($1) as result",
+        [jobId],
+      ),
+    );
+    expect(ownerCancel.rows[0]?.result.ok).toBe(true);
+
+    const ownerDecide = await asA(() =>
+      client.query<{ result: { ok: boolean } }>(
+        "select public.mission_control_decide_approval($1,$2,$3) as result",
+        [approvalId, "approved", "the workspace owner approving"],
+      ),
+    );
+    expect(ownerDecide.rows[0]?.result.ok).toBe(true);
+  });
+
   it("removes a deleted account's workspace and its knowledge", async () => {
     await client.query("delete from auth.users where id = $1", [userB]);
 

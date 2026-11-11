@@ -523,6 +523,11 @@ finish, cancel or recover another workspace's mission jobs and decide its
 approvals. Each guard now reads `(role is null or role not in (...))`, with the
 parentheses added so compound precedence is unchanged.
 
+The scan treats any comparison against a role value (`('owner', 'admin')`) as a
+role guard, so a membership held in a variable that is not named `*role` is
+still caught; `--dir` points the same check at a fixture tree, which is how the
+rule is tested without editing the real migrations.
+
 ### Release record
 
 Use the **Release record** GitHub issue template, or copy this table into the
