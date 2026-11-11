@@ -87,3 +87,8 @@ jobs:
       # pass when the caller has no role fails the build.
       - name: Role guard audit
         run: npm run check:role-guards
+
+      # A guard that compares a parameter against a value list must reject a
+      # missing parameter instead of letting the NULL reach the column.
+      - name: Nullable guard audit
+        run: npm run check:nullable-guards
