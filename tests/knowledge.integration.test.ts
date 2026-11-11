@@ -1429,6 +1429,57 @@ describeKnowledge("phase 37 knowledge layer", () => {
     ).toMatch(/protocol_document|check constraint|violates/i);
   });
 
+  it("refuses a run that exceeds its configuration limits", async () => {
+    const owner = randomUUID();
+    const evalId = randomUUID();
+    await client.query("insert into auth.users (id, email) values ($1, $2)", [
+      owner,
+      `cap-limits-${owner}@example.test`,
+    ]);
+
+    let taskId = "";
+    let versionId = "";
+
+    await asUser(client, owner, async () => {
+      await client.query(
+        "insert into public.capability_evals (id, user_id, name, status) values ($1, $2, $3, 'active')",
+        [evalId, owner, "Phase 38 limits"],
+      );
+      const task = await client.query<{ id: string }>(
+        `insert into public.capability_eval_tasks
+           (eval_id, user_id, domain, difficulty, split, title, task_spec, dataset_version, permitted_tools, runtime_seconds, spend_limit_cents, scoring_rubric)
+         values ($1, $2, 'software_build_repair', 'easy', 'development', $3, '{}'::jsonb, 'dataset-v1', '[]'::jsonb, 120, 50, '{}'::jsonb)
+         returning id`,
+        [evalId, owner, "Budgeted repair"],
+      );
+      taskId = task.rows[0].id;
+      const version = await client.query<{ id: string }>(
+        `insert into public.capability_eval_versions
+           (eval_id, user_id, label, baseline_kind, model_version, orchestration_version, prompt_version, dataset_version, scoring_rubric, permitted_tools, runtime_limit_seconds, spend_limit_cents, autonomy_permission)
+         values ($1, $2, 'Budgeted', 'single_model_baseline', 'm1', 'none', 'p1', 'dataset-v1', '{}'::jsonb, '[]'::jsonb, 60, 50, 'none')
+         returning id`,
+        [evalId, owner],
+      );
+      versionId = version.rows[0].id;
+    });
+
+    const insertRun = (trial: number, cost: number, latency: number) =>
+      asUser(client, owner, () =>
+        client.query(
+          `insert into public.capability_eval_runs
+             (eval_id, version_id, task_id, user_id, domain, difficulty, split, trial, outcome, verified_success, cost_cents, latency_ms, scoring_detail)
+           values ($1, $2, $3, $4, 'software_build_repair', 'easy', 'development', $5, 'verified_success', true, $6, $7, '{}'::jsonb)`,
+          [evalId, versionId, taskId, owner, trial, cost, latency],
+        ),
+      );
+
+    // Exactly at both ceilings is allowed: the limit is a ceiling, not a buffer.
+    await insertRun(1, 50, 60_000);
+
+    expect(await failure(() => insertRun(2, 51, 1_000))).toMatch(/cannot spend more/i);
+    expect(await failure(() => insertRun(3, 0, 60_001))).toMatch(/time limit/i);
+  });
+
   it("removes a deleted account's workspace and its knowledge", async () => {
     await client.query("delete from auth.users where id = $1", [userB]);
 
