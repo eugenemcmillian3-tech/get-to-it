@@ -1056,6 +1056,69 @@
       "check": ""
     },
     {
+      "key": "capability_eval_human_baselines.owners read human baselines",
+      "table": "capability_eval_human_baselines",
+      "name": "owners read human baselines",
+      "cmd": "SELECT",
+      "roles": "{authenticated}",
+      "qual": "(user_id = ( SELECT auth.uid() AS uid))",
+      "check": ""
+    },
+    {
+      "key": "capability_eval_human_baselines.owners record human baselines",
+      "table": "capability_eval_human_baselines",
+      "name": "owners record human baselines",
+      "cmd": "INSERT",
+      "roles": "{authenticated}",
+      "qual": "",
+      "check": "((user_id = ( SELECT auth.uid() AS uid)) AND (EXISTS ( SELECT 1 FROM capability_evals e WHERE ((e.id = capability_eval_human_baselines.eval_id) AND (e.user_id = ( SELECT auth.uid() AS uid))))))"
+    },
+    {
+      "key": "capability_eval_runs.owners read capability runs",
+      "table": "capability_eval_runs",
+      "name": "owners read capability runs",
+      "cmd": "SELECT",
+      "roles": "{authenticated}",
+      "qual": "(user_id = ( SELECT auth.uid() AS uid))",
+      "check": ""
+    },
+    {
+      "key": "capability_eval_runs.owners record capability runs",
+      "table": "capability_eval_runs",
+      "name": "owners record capability runs",
+      "cmd": "INSERT",
+      "roles": "{authenticated}",
+      "qual": "",
+      "check": "((user_id = ( SELECT auth.uid() AS uid)) AND (EXISTS ( SELECT 1 FROM capability_evals e WHERE ((e.id = capability_eval_runs.eval_id) AND (e.user_id = ( SELECT auth.uid() AS uid))))))"
+    },
+    {
+      "key": "capability_eval_tasks.owners manage capability tasks",
+      "table": "capability_eval_tasks",
+      "name": "owners manage capability tasks",
+      "cmd": "ALL",
+      "roles": "{authenticated}",
+      "qual": "((user_id = ( SELECT auth.uid() AS uid)) AND (EXISTS ( SELECT 1 FROM capability_evals e WHERE ((e.id = capability_eval_tasks.eval_id) AND (e.user_id = ( SELECT auth.uid() AS uid))))))",
+      "check": "((user_id = ( SELECT auth.uid() AS uid)) AND (EXISTS ( SELECT 1 FROM capability_evals e WHERE ((e.id = capability_eval_tasks.eval_id) AND (e.user_id = ( SELECT auth.uid() AS uid))))))"
+    },
+    {
+      "key": "capability_eval_versions.owners manage capability versions",
+      "table": "capability_eval_versions",
+      "name": "owners manage capability versions",
+      "cmd": "ALL",
+      "roles": "{authenticated}",
+      "qual": "((user_id = ( SELECT auth.uid() AS uid)) AND (EXISTS ( SELECT 1 FROM capability_evals e WHERE ((e.id = capability_eval_versions.eval_id) AND (e.user_id = ( SELECT auth.uid() AS uid))))))",
+      "check": "((user_id = ( SELECT auth.uid() AS uid)) AND (EXISTS ( SELECT 1 FROM capability_evals e WHERE ((e.id = capability_eval_versions.eval_id) AND (e.user_id = ( SELECT auth.uid() AS uid))))))"
+    },
+    {
+      "key": "capability_evals.owners manage capability evals",
+      "table": "capability_evals",
+      "name": "owners manage capability evals",
+      "cmd": "ALL",
+      "roles": "{authenticated}",
+      "qual": "(user_id = ( SELECT auth.uid() AS uid))",
+      "check": "(user_id = ( SELECT auth.uid() AS uid))"
+    },
+    {
       "key": "credit_ledger.people read their own credit history",
       "table": "credit_ledger",
       "name": "people read their own credit history",
@@ -8326,6 +8389,496 @@
       "definition": "FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE SET NULL"
     },
     {
+      "key": "capability_eval_answer_keys.capability_eval_answer_keys_eval_id_fkey",
+      "table": "capability_eval_answer_keys",
+      "name": "capability_eval_answer_keys_eval_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (eval_id) REFERENCES capability_evals(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "capability_eval_answer_keys.capability_eval_answer_keys_key_check",
+      "table": "capability_eval_answer_keys",
+      "name": "capability_eval_answer_keys_key_check",
+      "type": "c",
+      "definition": "CHECK ((jsonb_typeof(key) = 'object'::text))"
+    },
+    {
+      "key": "capability_eval_answer_keys.capability_eval_answer_keys_pkey",
+      "table": "capability_eval_answer_keys",
+      "name": "capability_eval_answer_keys_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (task_id)"
+    },
+    {
+      "key": "capability_eval_answer_keys.capability_eval_answer_keys_task_id_fkey",
+      "table": "capability_eval_answer_keys",
+      "name": "capability_eval_answer_keys_task_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (task_id) REFERENCES capability_eval_tasks(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "capability_eval_human_baselines.capability_eval_human_baselines_collected_by_check",
+      "table": "capability_eval_human_baselines",
+      "name": "capability_eval_human_baselines_collected_by_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(collected_by)) >= 3) AND (char_length(btrim(collected_by)) <= 160)))"
+    },
+    {
+      "key": "capability_eval_human_baselines.capability_eval_human_baselines_domain_check",
+      "table": "capability_eval_human_baselines",
+      "name": "capability_eval_human_baselines_domain_check",
+      "type": "c",
+      "definition": "CHECK ((domain = ANY (ARRAY['software_build_repair'::text, 'research_synthesis'::text, 'quantitative_reasoning'::text, 'document_analysis'::text, 'planning_under_constraints'::text, 'tool_selection_execution'::text, 'error_recovery'::text, 'unfamiliar_formats'::text])))"
+    },
+    {
+      "key": "capability_eval_human_baselines.capability_eval_human_baselines_eval_id_fkey",
+      "table": "capability_eval_human_baselines",
+      "name": "capability_eval_human_baselines_eval_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (eval_id) REFERENCES capability_evals(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "capability_eval_human_baselines.capability_eval_human_baselines_pkey",
+      "table": "capability_eval_human_baselines",
+      "name": "capability_eval_human_baselines_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "capability_eval_human_baselines.capability_eval_human_baselines_protocol_document_check",
+      "table": "capability_eval_human_baselines",
+      "name": "capability_eval_human_baselines_protocol_document_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(protocol_document)) >= 50) AND (char_length(btrim(protocol_document)) <= 5000)))"
+    },
+    {
+      "key": "capability_eval_human_baselines.capability_eval_human_baselines_results_check",
+      "table": "capability_eval_human_baselines",
+      "name": "capability_eval_human_baselines_results_check",
+      "type": "c",
+      "definition": "CHECK ((jsonb_typeof(results) = 'object'::text))"
+    },
+    {
+      "key": "capability_eval_human_baselines.capability_eval_human_baselines_sample_size_check",
+      "table": "capability_eval_human_baselines",
+      "name": "capability_eval_human_baselines_sample_size_check",
+      "type": "c",
+      "definition": "CHECK (((sample_size >= 1) AND (sample_size <= 1000)))"
+    },
+    {
+      "key": "capability_eval_human_baselines.capability_eval_human_baselines_status_check",
+      "table": "capability_eval_human_baselines",
+      "name": "capability_eval_human_baselines_status_check",
+      "type": "c",
+      "definition": "CHECK ((status = ANY (ARRAY['documented'::text, 'retracted'::text])))"
+    },
+    {
+      "key": "capability_eval_human_baselines.capability_eval_human_baselines_user_id_fkey",
+      "table": "capability_eval_human_baselines",
+      "name": "capability_eval_human_baselines_user_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "capability_eval_runs.capability_eval_runs_cost_cents_check",
+      "table": "capability_eval_runs",
+      "name": "capability_eval_runs_cost_cents_check",
+      "type": "c",
+      "definition": "CHECK ((cost_cents >= 0))"
+    },
+    {
+      "key": "capability_eval_runs.capability_eval_runs_eval_id_fkey",
+      "table": "capability_eval_runs",
+      "name": "capability_eval_runs_eval_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (eval_id) REFERENCES capability_evals(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "capability_eval_runs.capability_eval_runs_exposure_count_check",
+      "table": "capability_eval_runs",
+      "name": "capability_eval_runs_exposure_count_check",
+      "type": "c",
+      "definition": "CHECK ((exposure_count >= 1))"
+    },
+    {
+      "key": "capability_eval_runs.capability_eval_runs_failure_category_check",
+      "table": "capability_eval_runs",
+      "name": "capability_eval_runs_failure_category_check",
+      "type": "c",
+      "definition": "CHECK (((failure_category IS NULL) OR (char_length(failure_category) <= 120)))"
+    },
+    {
+      "key": "capability_eval_runs.capability_eval_runs_human_interventions_check",
+      "table": "capability_eval_runs",
+      "name": "capability_eval_runs_human_interventions_check",
+      "type": "c",
+      "definition": "CHECK ((human_interventions >= 0))"
+    },
+    {
+      "key": "capability_eval_runs.capability_eval_runs_latency_ms_check",
+      "table": "capability_eval_runs",
+      "name": "capability_eval_runs_latency_ms_check",
+      "type": "c",
+      "definition": "CHECK ((latency_ms >= 0))"
+    },
+    {
+      "key": "capability_eval_runs.capability_eval_runs_outcome_check",
+      "table": "capability_eval_runs",
+      "name": "capability_eval_runs_outcome_check",
+      "type": "c",
+      "definition": "CHECK ((outcome = ANY (ARRAY['verified_success'::text, 'partial_success'::text, 'failed'::text, 'errored'::text])))"
+    },
+    {
+      "key": "capability_eval_runs.capability_eval_runs_permission_violations_check",
+      "table": "capability_eval_runs",
+      "name": "capability_eval_runs_permission_violations_check",
+      "type": "c",
+      "definition": "CHECK ((permission_violations >= 0))"
+    },
+    {
+      "key": "capability_eval_runs.capability_eval_runs_pkey",
+      "table": "capability_eval_runs",
+      "name": "capability_eval_runs_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "capability_eval_runs.capability_eval_runs_recovery_attempts_check",
+      "table": "capability_eval_runs",
+      "name": "capability_eval_runs_recovery_attempts_check",
+      "type": "c",
+      "definition": "CHECK ((recovery_attempts >= 0))"
+    },
+    {
+      "key": "capability_eval_runs.capability_eval_runs_scoring_detail_check",
+      "table": "capability_eval_runs",
+      "name": "capability_eval_runs_scoring_detail_check",
+      "type": "c",
+      "definition": "CHECK ((jsonb_typeof(scoring_detail) = 'object'::text))"
+    },
+    {
+      "key": "capability_eval_runs.capability_eval_runs_task_id_fkey",
+      "table": "capability_eval_runs",
+      "name": "capability_eval_runs_task_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (task_id) REFERENCES capability_eval_tasks(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "capability_eval_runs.capability_eval_runs_task_id_version_id_trial_key",
+      "table": "capability_eval_runs",
+      "name": "capability_eval_runs_task_id_version_id_trial_key",
+      "type": "u",
+      "definition": "UNIQUE (task_id, version_id, trial)"
+    },
+    {
+      "key": "capability_eval_runs.capability_eval_runs_trial_check",
+      "table": "capability_eval_runs",
+      "name": "capability_eval_runs_trial_check",
+      "type": "c",
+      "definition": "CHECK (((trial >= 1) AND (trial <= 500)))"
+    },
+    {
+      "key": "capability_eval_runs.capability_eval_runs_unsupported_claims_check",
+      "table": "capability_eval_runs",
+      "name": "capability_eval_runs_unsupported_claims_check",
+      "type": "c",
+      "definition": "CHECK ((unsupported_claims >= 0))"
+    },
+    {
+      "key": "capability_eval_runs.capability_eval_runs_user_id_fkey",
+      "table": "capability_eval_runs",
+      "name": "capability_eval_runs_user_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "capability_eval_runs.capability_eval_runs_version_id_fkey",
+      "table": "capability_eval_runs",
+      "name": "capability_eval_runs_version_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (version_id) REFERENCES capability_eval_versions(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "capability_eval_tasks.capability_eval_tasks_dataset_version_check",
+      "table": "capability_eval_tasks",
+      "name": "capability_eval_tasks_dataset_version_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(dataset_version)) >= 1) AND (char_length(btrim(dataset_version)) <= 80)))"
+    },
+    {
+      "key": "capability_eval_tasks.capability_eval_tasks_difficulty_check",
+      "table": "capability_eval_tasks",
+      "name": "capability_eval_tasks_difficulty_check",
+      "type": "c",
+      "definition": "CHECK ((difficulty = ANY (ARRAY['easy'::text, 'medium'::text, 'hard'::text])))"
+    },
+    {
+      "key": "capability_eval_tasks.capability_eval_tasks_domain_check",
+      "table": "capability_eval_tasks",
+      "name": "capability_eval_tasks_domain_check",
+      "type": "c",
+      "definition": "CHECK ((domain = ANY (ARRAY['software_build_repair'::text, 'research_synthesis'::text, 'quantitative_reasoning'::text, 'document_analysis'::text, 'planning_under_constraints'::text, 'tool_selection_execution'::text, 'error_recovery'::text, 'unfamiliar_formats'::text])))"
+    },
+    {
+      "key": "capability_eval_tasks.capability_eval_tasks_eval_id_domain_difficulty_split_title_key",
+      "table": "capability_eval_tasks",
+      "name": "capability_eval_tasks_eval_id_domain_difficulty_split_title_key",
+      "type": "u",
+      "definition": "UNIQUE (eval_id, domain, difficulty, split, title)"
+    },
+    {
+      "key": "capability_eval_tasks.capability_eval_tasks_eval_id_fkey",
+      "table": "capability_eval_tasks",
+      "name": "capability_eval_tasks_eval_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (eval_id) REFERENCES capability_evals(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "capability_eval_tasks.capability_eval_tasks_permitted_tools_check",
+      "table": "capability_eval_tasks",
+      "name": "capability_eval_tasks_permitted_tools_check",
+      "type": "c",
+      "definition": "CHECK ((jsonb_typeof(permitted_tools) = 'array'::text))"
+    },
+    {
+      "key": "capability_eval_tasks.capability_eval_tasks_pkey",
+      "table": "capability_eval_tasks",
+      "name": "capability_eval_tasks_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "capability_eval_tasks.capability_eval_tasks_runtime_seconds_check",
+      "table": "capability_eval_tasks",
+      "name": "capability_eval_tasks_runtime_seconds_check",
+      "type": "c",
+      "definition": "CHECK (((runtime_seconds >= 10) AND (runtime_seconds <= 900)))"
+    },
+    {
+      "key": "capability_eval_tasks.capability_eval_tasks_scoring_rubric_check",
+      "table": "capability_eval_tasks",
+      "name": "capability_eval_tasks_scoring_rubric_check",
+      "type": "c",
+      "definition": "CHECK ((jsonb_typeof(scoring_rubric) = 'object'::text))"
+    },
+    {
+      "key": "capability_eval_tasks.capability_eval_tasks_spend_limit_cents_check",
+      "table": "capability_eval_tasks",
+      "name": "capability_eval_tasks_spend_limit_cents_check",
+      "type": "c",
+      "definition": "CHECK (((spend_limit_cents >= 0) AND (spend_limit_cents <= 100000)))"
+    },
+    {
+      "key": "capability_eval_tasks.capability_eval_tasks_split_check",
+      "table": "capability_eval_tasks",
+      "name": "capability_eval_tasks_split_check",
+      "type": "c",
+      "definition": "CHECK ((split = ANY (ARRAY['development'::text, 'validation'::text, 'held_out'::text])))"
+    },
+    {
+      "key": "capability_eval_tasks.capability_eval_tasks_task_spec_check",
+      "table": "capability_eval_tasks",
+      "name": "capability_eval_tasks_task_spec_check",
+      "type": "c",
+      "definition": "CHECK ((jsonb_typeof(task_spec) = 'object'::text))"
+    },
+    {
+      "key": "capability_eval_tasks.capability_eval_tasks_title_check",
+      "table": "capability_eval_tasks",
+      "name": "capability_eval_tasks_title_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(title)) >= 3) AND (char_length(btrim(title)) <= 160)))"
+    },
+    {
+      "key": "capability_eval_tasks.capability_eval_tasks_user_id_fkey",
+      "table": "capability_eval_tasks",
+      "name": "capability_eval_tasks_user_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "capability_eval_versions.capability_eval_versions_autonomy_permission_check",
+      "table": "capability_eval_versions",
+      "name": "capability_eval_versions_autonomy_permission_check",
+      "type": "c",
+      "definition": "CHECK ((autonomy_permission = ANY (ARRAY['none'::text, 'suggest_only'::text, 'acts_with_approval'::text])))"
+    },
+    {
+      "key": "capability_eval_versions.capability_eval_versions_baseline_kind_check",
+      "table": "capability_eval_versions",
+      "name": "capability_eval_versions_baseline_kind_check",
+      "type": "c",
+      "definition": "CHECK ((baseline_kind = ANY (ARRAY['single_model_baseline'::text, 'orchestrated_system'::text])))"
+    },
+    {
+      "key": "capability_eval_versions.capability_eval_versions_dataset_version_check",
+      "table": "capability_eval_versions",
+      "name": "capability_eval_versions_dataset_version_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(dataset_version)) >= 1) AND (char_length(btrim(dataset_version)) <= 80)))"
+    },
+    {
+      "key": "capability_eval_versions.capability_eval_versions_eval_id_baseline_kind_version_key",
+      "table": "capability_eval_versions",
+      "name": "capability_eval_versions_eval_id_baseline_kind_version_key",
+      "type": "u",
+      "definition": "UNIQUE (eval_id, baseline_kind, version)"
+    },
+    {
+      "key": "capability_eval_versions.capability_eval_versions_eval_id_fkey",
+      "table": "capability_eval_versions",
+      "name": "capability_eval_versions_eval_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (eval_id) REFERENCES capability_evals(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "capability_eval_versions.capability_eval_versions_eval_id_label_version_key",
+      "table": "capability_eval_versions",
+      "name": "capability_eval_versions_eval_id_label_version_key",
+      "type": "u",
+      "definition": "UNIQUE (eval_id, label, version)"
+    },
+    {
+      "key": "capability_eval_versions.capability_eval_versions_human_assistance_check",
+      "table": "capability_eval_versions",
+      "name": "capability_eval_versions_human_assistance_check",
+      "type": "c",
+      "definition": "CHECK ((human_assistance = ANY (ARRAY['none'::text, 'hints'::text, 'review_only'::text])))"
+    },
+    {
+      "key": "capability_eval_versions.capability_eval_versions_label_check",
+      "table": "capability_eval_versions",
+      "name": "capability_eval_versions_label_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(label)) >= 3) AND (char_length(btrim(label)) <= 120)))"
+    },
+    {
+      "key": "capability_eval_versions.capability_eval_versions_model_version_check",
+      "table": "capability_eval_versions",
+      "name": "capability_eval_versions_model_version_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(model_version)) >= 1) AND (char_length(btrim(model_version)) <= 120)))"
+    },
+    {
+      "key": "capability_eval_versions.capability_eval_versions_orchestration_version_check",
+      "table": "capability_eval_versions",
+      "name": "capability_eval_versions_orchestration_version_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(orchestration_version)) >= 1) AND (char_length(btrim(orchestration_version)) <= 120)))"
+    },
+    {
+      "key": "capability_eval_versions.capability_eval_versions_permitted_tools_check",
+      "table": "capability_eval_versions",
+      "name": "capability_eval_versions_permitted_tools_check",
+      "type": "c",
+      "definition": "CHECK ((jsonb_typeof(permitted_tools) = 'array'::text))"
+    },
+    {
+      "key": "capability_eval_versions.capability_eval_versions_pkey",
+      "table": "capability_eval_versions",
+      "name": "capability_eval_versions_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "capability_eval_versions.capability_eval_versions_prompt_version_check",
+      "table": "capability_eval_versions",
+      "name": "capability_eval_versions_prompt_version_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(prompt_version)) >= 1) AND (char_length(btrim(prompt_version)) <= 80)))"
+    },
+    {
+      "key": "capability_eval_versions.capability_eval_versions_runtime_limit_seconds_check",
+      "table": "capability_eval_versions",
+      "name": "capability_eval_versions_runtime_limit_seconds_check",
+      "type": "c",
+      "definition": "CHECK (((runtime_limit_seconds >= 10) AND (runtime_limit_seconds <= 900)))"
+    },
+    {
+      "key": "capability_eval_versions.capability_eval_versions_scoring_rubric_check",
+      "table": "capability_eval_versions",
+      "name": "capability_eval_versions_scoring_rubric_check",
+      "type": "c",
+      "definition": "CHECK ((jsonb_typeof(scoring_rubric) = 'object'::text))"
+    },
+    {
+      "key": "capability_eval_versions.capability_eval_versions_spend_limit_cents_check",
+      "table": "capability_eval_versions",
+      "name": "capability_eval_versions_spend_limit_cents_check",
+      "type": "c",
+      "definition": "CHECK (((spend_limit_cents >= 0) AND (spend_limit_cents <= 100000)))"
+    },
+    {
+      "key": "capability_eval_versions.capability_eval_versions_status_check",
+      "table": "capability_eval_versions",
+      "name": "capability_eval_versions_status_check",
+      "type": "c",
+      "definition": "CHECK ((status = ANY (ARRAY['active'::text, 'archived'::text])))"
+    },
+    {
+      "key": "capability_eval_versions.capability_eval_versions_user_id_fkey",
+      "table": "capability_eval_versions",
+      "name": "capability_eval_versions_user_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "capability_eval_versions.capability_eval_versions_version_check",
+      "table": "capability_eval_versions",
+      "name": "capability_eval_versions_version_check",
+      "type": "c",
+      "definition": "CHECK ((version >= 1))"
+    },
+    {
+      "key": "capability_evals.capability_evals_dataset_version_check",
+      "table": "capability_evals",
+      "name": "capability_evals_dataset_version_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(dataset_version)) >= 1) AND (char_length(btrim(dataset_version)) <= 80)))"
+    },
+    {
+      "key": "capability_evals.capability_evals_description_check",
+      "table": "capability_evals",
+      "name": "capability_evals_description_check",
+      "type": "c",
+      "definition": "CHECK ((char_length(description) <= 1000))"
+    },
+    {
+      "key": "capability_evals.capability_evals_linked_experiment_id_fkey",
+      "table": "capability_evals",
+      "name": "capability_evals_linked_experiment_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (linked_experiment_id) REFERENCES experiments(id) ON DELETE SET NULL"
+    },
+    {
+      "key": "capability_evals.capability_evals_name_check",
+      "table": "capability_evals",
+      "name": "capability_evals_name_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(name)) >= 3) AND (char_length(btrim(name)) <= 80)))"
+    },
+    {
+      "key": "capability_evals.capability_evals_pkey",
+      "table": "capability_evals",
+      "name": "capability_evals_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "capability_evals.capability_evals_status_check",
+      "table": "capability_evals",
+      "name": "capability_evals_status_check",
+      "type": "c",
+      "definition": "CHECK ((status = ANY (ARRAY['draft'::text, 'active'::text, 'archived'::text])))"
+    },
+    {
+      "key": "capability_evals.capability_evals_user_id_fkey",
+      "table": "capability_evals",
+      "name": "capability_evals_user_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+    },
+    {
       "key": "composio_toolkit_catalog.composio_toolkit_catalog_auth_kind_check",
       "table": "composio_toolkit_catalog",
       "name": "composio_toolkit_catalog_auth_kind_check",
@@ -15204,6 +15757,96 @@
       "table": "billing_purchases",
       "name": "billing_purchases_workspace_idx",
       "definition": "CREATE INDEX billing_purchases_workspace_idx ON public.billing_purchases USING btree (workspace_id, created_at DESC)"
+    },
+    {
+      "key": "capability_eval_answer_keys.capability_eval_answer_keys_pkey",
+      "table": "capability_eval_answer_keys",
+      "name": "capability_eval_answer_keys_pkey",
+      "definition": "CREATE UNIQUE INDEX capability_eval_answer_keys_pkey ON public.capability_eval_answer_keys USING btree (task_id)"
+    },
+    {
+      "key": "capability_eval_human_baselines.capability_eval_human_baselines_eval_idx",
+      "table": "capability_eval_human_baselines",
+      "name": "capability_eval_human_baselines_eval_idx",
+      "definition": "CREATE INDEX capability_eval_human_baselines_eval_idx ON public.capability_eval_human_baselines USING btree (eval_id, domain)"
+    },
+    {
+      "key": "capability_eval_human_baselines.capability_eval_human_baselines_pkey",
+      "table": "capability_eval_human_baselines",
+      "name": "capability_eval_human_baselines_pkey",
+      "definition": "CREATE UNIQUE INDEX capability_eval_human_baselines_pkey ON public.capability_eval_human_baselines USING btree (id)"
+    },
+    {
+      "key": "capability_eval_runs.capability_eval_runs_eval_idx",
+      "table": "capability_eval_runs",
+      "name": "capability_eval_runs_eval_idx",
+      "definition": "CREATE INDEX capability_eval_runs_eval_idx ON public.capability_eval_runs USING btree (eval_id, domain, difficulty, split, created_at DESC)"
+    },
+    {
+      "key": "capability_eval_runs.capability_eval_runs_pkey",
+      "table": "capability_eval_runs",
+      "name": "capability_eval_runs_pkey",
+      "definition": "CREATE UNIQUE INDEX capability_eval_runs_pkey ON public.capability_eval_runs USING btree (id)"
+    },
+    {
+      "key": "capability_eval_runs.capability_eval_runs_task_id_version_id_trial_key",
+      "table": "capability_eval_runs",
+      "name": "capability_eval_runs_task_id_version_id_trial_key",
+      "definition": "CREATE UNIQUE INDEX capability_eval_runs_task_id_version_id_trial_key ON public.capability_eval_runs USING btree (task_id, version_id, trial)"
+    },
+    {
+      "key": "capability_eval_tasks.capability_eval_tasks_eval_id_domain_difficulty_split_title_key",
+      "table": "capability_eval_tasks",
+      "name": "capability_eval_tasks_eval_id_domain_difficulty_split_title_key",
+      "definition": "CREATE UNIQUE INDEX capability_eval_tasks_eval_id_domain_difficulty_split_title_key ON public.capability_eval_tasks USING btree (eval_id, domain, difficulty, split, title)"
+    },
+    {
+      "key": "capability_eval_tasks.capability_eval_tasks_eval_idx",
+      "table": "capability_eval_tasks",
+      "name": "capability_eval_tasks_eval_idx",
+      "definition": "CREATE INDEX capability_eval_tasks_eval_idx ON public.capability_eval_tasks USING btree (eval_id, split, domain, difficulty)"
+    },
+    {
+      "key": "capability_eval_tasks.capability_eval_tasks_pkey",
+      "table": "capability_eval_tasks",
+      "name": "capability_eval_tasks_pkey",
+      "definition": "CREATE UNIQUE INDEX capability_eval_tasks_pkey ON public.capability_eval_tasks USING btree (id)"
+    },
+    {
+      "key": "capability_eval_versions.capability_eval_versions_eval_id_baseline_kind_version_key",
+      "table": "capability_eval_versions",
+      "name": "capability_eval_versions_eval_id_baseline_kind_version_key",
+      "definition": "CREATE UNIQUE INDEX capability_eval_versions_eval_id_baseline_kind_version_key ON public.capability_eval_versions USING btree (eval_id, baseline_kind, version)"
+    },
+    {
+      "key": "capability_eval_versions.capability_eval_versions_eval_id_label_version_key",
+      "table": "capability_eval_versions",
+      "name": "capability_eval_versions_eval_id_label_version_key",
+      "definition": "CREATE UNIQUE INDEX capability_eval_versions_eval_id_label_version_key ON public.capability_eval_versions USING btree (eval_id, label, version)"
+    },
+    {
+      "key": "capability_eval_versions.capability_eval_versions_eval_idx",
+      "table": "capability_eval_versions",
+      "name": "capability_eval_versions_eval_idx",
+      "definition": "CREATE INDEX capability_eval_versions_eval_idx ON public.capability_eval_versions USING btree (eval_id, baseline_kind, version DESC)"
+    },
+    {
+      "key": "capability_eval_versions.capability_eval_versions_pkey",
+      "table": "capability_eval_versions",
+      "name": "capability_eval_versions_pkey",
+      "definition": "CREATE UNIQUE INDEX capability_eval_versions_pkey ON public.capability_eval_versions USING btree (id)"
+    },
+    {
+      "key": "capability_evals.capability_evals_pkey",
+      "table": "capability_evals",
+      "name": "capability_evals_pkey",
+      "definition": "CREATE UNIQUE INDEX capability_evals_pkey ON public.capability_evals USING btree (id)"
+    },
+    {
+      "key": "capability_evals.capability_evals_user_idx",
+      "table": "capability_evals",
+      "name": "capability_evals_user_idx",
+      "definition": "CREATE INDEX capability_evals_user_idx ON public.capability_evals USING btree (user_id, created_at DESC)"
     },
     {
       "key": "composio_toolkit_catalog.composio_toolkit_catalog_pkey",
