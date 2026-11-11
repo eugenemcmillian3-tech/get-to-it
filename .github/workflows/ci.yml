@@ -77,3 +77,8 @@ jobs:
       # retention purge and the deletion cascades. No project secret is used.
       - name: Phase 37 knowledge harness
         run: npm run test:knowledge
+
+      # Replays every migration again, then checks export/import, cross-account
+      # isolation and account deletion. Also runs on its own embedded Postgres.
+      - name: Restore and authorization drill
+        run: npm run test:restore

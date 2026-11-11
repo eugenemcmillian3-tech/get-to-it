@@ -2,10 +2,12 @@
 /**
  * Reproducible release checks.
  *
- * Runs typecheck, lint, unit tests, a production build, a dependency audit and a
- * secret pattern scan, then prints the source revision the result belongs to.
- * The restore drill is separate (`npm run test:restore`) because it needs an
- * isolated database.
+ * Runs typecheck, lint, unit tests, a production build, a dependency audit, a
+ * secret pattern scan and the Phase 37 knowledge harness, then prints the source
+ * revision the result belongs to. The harness replays every migration into its
+ * own throwaway database, so a release record shows the schema rules were
+ * verified rather than assumed. The restore drill stays separate
+ * (`npm run test:restore`) because it is a longer drill.
  *
  * None of this is a security audit. It is a fixed list of automated checks.
  */
@@ -46,6 +48,7 @@ const checks = [
   ["Unit tests", "npm", ["test"]],
   ["Production build", "npm", ["run", "build"]],
   ["Secret scan", "node", ["scripts/secrets-check.mjs"]],
+  ["Phase 37 knowledge harness", "npm", ["run", "test:knowledge"]],
   ["Dependency audit (high)", "npm", ["audit", "--omit=dev", "--audit-level=high"]],
 ];
 
