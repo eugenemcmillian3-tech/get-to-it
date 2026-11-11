@@ -1877,6 +1877,12 @@ the ordinary create-submit-approve-plan flow always failed. The window now runs
 through `ready` and stops at execution; the approved contract, the task guard and
 the reservation ceiling are unchanged.
 
+`0050_phase36_approvals_survive_account_deletion` relaxes the three approval
+checks and the review guard so deleting an account can null `approved_by` and
+`decided_by`: before it, anyone who had approved a contract, decided a
+checkpoint or recorded a review could not be deleted at all (23514), which broke
+both account deletion and the E2E sweep.
+
 The file was executed first against a disposable PostgreSQL 18 instance with the
 Supabase-provided objects stubbed: the DDL applied and re-applied cleanly, and 56
 RLS/RPC checks passed for cross-tenant access, contract approval, budget
