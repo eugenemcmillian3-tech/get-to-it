@@ -1892,3 +1892,85 @@ grant `ALL` on new `public` tables to `authenticated`; on the hosted project tha
 left `update`, `delete` and `truncate` in place despite the narrower `grant`
 statements, so they are now revoked explicitly, as `0046` did for
 `app_projects`.
+
+## Evidence-backed knowledge layer (Phase 37)
+
+The knowledge layer sits on top of records that already exist: experiments and
+their reviews, outcome reviews, learning records, goals, mission workspaces,
+orchestration reviews and project models. It links them by id and never copies
+them into a competing store.
+
+`supabase/migrations/0051_phase37_knowledge_layer.sql` adds `knowledge_entries`,
+`knowledge_sources`, `knowledge_evidence`, `knowledge_impacts`,
+`knowledge_corrections`, `knowledge_transfers` and `knowledge_events`.
+
+An entry is either a claim or a reusable procedure, typed as a user preference,
+a project fact, a participant opinion, a measured observation, a tested
+procedure, a hypothesis or an AI suggestion. Those types are stored separately
+and none of them silently becomes another. An AI suggestion and a hypothesis can
+never be marked `supported` as written: the check constraint refuses it, and
+`knowledge_set_verification` refuses it with an explanation. Marking something
+supported also needs a person (the entry owner or a workspace owner/admin), a
+written basis of at least ten characters and at least one recorded supporting
+item or a source that still exists. No function accepts agent consensus as
+verification.
+
+Sources and evidence are appended, never edited: `knowledge_evidence` refuses
+`delete` and every `update` except the nulling of an author id when an account is
+deleted, mirroring `0050`. Verification, sentence-level corrections, new
+versions and retractions are security-definer functions. Client roles hold
+`select` only on all seven tables, so no status can be moved by a direct write;
+the same default-grant caveat as `0048` applies and the write privileges are
+revoked explicitly.
+
+Versions are immutable: superseding creates a new unverified row and marks the
+older one `superseded`, which is no longer presented as current guidance or
+returned by retrieval. Accepting a correction supersedes the entry with the
+proposed wording; accepting a dispute retracts it. Retraction also sets
+`invalidated_at` on every linked decision in `knowledge_impacts`, so the
+recommendations built on it are listed for revisiting rather than silently left
+looking sound.
+
+A transfer is a proposal in `knowledge_transfers`. It records the similarities,
+the differences, an evidence summary and an assumption that needs a new test,
+and only an owner or admin of the target workspace can approve it. On approval a
+new entry is created there with `transferred_from_id`, a `transfer` source row,
+provenance naming the source workspace, the evidence *counts* rather than the
+evidence text, and limitations that say it was verified only in the source
+workspace and is not yet tested here. Participant feedback, personal records and
+artifacts are never copied.
+
+`knowledge_retrieve` is a security-*invoker* function: row-level security still
+applies, membership is re-checked in the query, and retracted or superseded
+entries are excluded. The pages additionally ask only for records in the current
+workspace, so a link never grants access to the record it points at.
+
+**This migration is applied to the production Supabase project**
+(`qhlzjhdcnlokbsdsrqqy`), with explicit approval, on 2026-11-11. The management
+API takes inline SQL, so the committed file was applied as four tracked chunks:
+`0051_phase37_knowledge_layer` (tables, guards, source authorization and the
+create/source/evidence functions), `0051_phase37_knowledge_rest` (verification,
+versions, retraction, corrections, transfers, impacts, purge, retrieval, RLS,
+policies and grants), `0051_phase37_tighten_guard_grants` (no role may execute
+the trigger functions) and `0051_phase37_guard_body_match`, which restored the
+explanatory comments in `knowledge_entries_guard` so the stored body hashes to
+the committed file. The history therefore carries four rows for one file; every
+statement is idempotent, so re-running the file against a fresh database is still
+the intended path.
+
+Verified on the hosted project afterwards: 7 tables with RLS enabled and 7
+policies, all `select`; 30 foreign keys; 17 functions, all 17 matching this file's
+bodies byte-for-byte; `authenticated` holds only `select` on every table and
+`anon` nothing; the fifteen callable functions are executable by `authenticated`
+and none by `anon`; the two guard triggers are executable by no client role,
+which is correct because they only fire from their own tables; and
+`knowledge_retrieve` is the only function that is neither `security definer` nor
+a trigger. All seven tables were empty at the end of verification.
+
+Checks run for this phase: `tsc --noEmit`, `eslint` on the new files, the full
+`vitest run` (930 passing) including the new pure-rule suite in
+`tests/knowledge.test.ts` (validity, promotion refusal, verification
+permissions, versioning, corrections, transfer rules and copy, retrieval
+authorization, invalidation, retention and source health), and the catalog
+verification above. No knowledge entry has been created in production yet, so
+the functions have not been exercised against live data.

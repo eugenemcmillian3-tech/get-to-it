@@ -138,6 +138,9 @@ export default async function WorkspacePage({
           >
             Orchestration
           </Link>
+          <Link href={`/workspace/${workspaceId}/knowledge`} className={secondaryButton}>
+            Knowledge
+          </Link>
         </p>
 
         <section aria-labelledby="progress-heading" className="mt-8">
