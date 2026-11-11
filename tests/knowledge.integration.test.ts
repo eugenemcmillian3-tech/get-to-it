@@ -1,5 +1,7 @@
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { Client } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -1196,7 +1198,30 @@ describeKnowledge("phase 37 knowledge layer", () => {
     expect(structural.stderr).toMatch(/drift_probe/);
     await client.query("drop policy drift_probe on public.workspaces");
     expect(run().stdout).toMatch(/no drift/);
-  });
+
+    // A stale snapshot must fail a release rather than silently shifting the
+    // baseline the drift check compares against.
+    const committedSnapshot = JSON.parse(readFileSync("supabase/schema.snapshot.json", "utf8"));
+    const stalePath = path.join(tmpdir(), `schema-snapshot-${randomUUID()}.json`);
+    writeFileSync(
+      stalePath,
+      JSON.stringify({ ...committedSnapshot, policies: committedSnapshot.policies.slice(1) }, null, 2) + "\n",
+    );
+    const stale = spawnSync(
+      process.execPath,
+      ["scripts/schema-snapshot.mjs", "--check", "--snapshot", stalePath],
+      { encoding: "utf8", env: { ...process.env, SCHEMA_SNAPSHOT_PORT: "55444" } },
+    );
+    expect(stale.status).toBe(1);
+    expect(stale.stderr).toMatch(/stale/);
+
+    const current = spawnSync(process.execPath, ["scripts/schema-snapshot.mjs", "--check"], {
+      encoding: "utf8",
+      env: { ...process.env, SCHEMA_SNAPSHOT_PORT: "55444" },
+    });
+    expect(current.status).toBe(0);
+    expect(current.stdout).toMatch(/matches the migrations/);
+  }, 180_000);
 
   it("removes a deleted account's workspace and its knowledge", async () => {
     await client.query("delete from auth.users where id = $1", [userB]);

@@ -43,6 +43,11 @@ console.log(`revision: ${short}${dirty ? " (dirty worktree)" : ""}`);
 console.log("These are automated checks, not a security audit.");
 
 const checks = [
+  [
+    "Schema snapshot is current",
+    "node",
+    ["scripts/schema-snapshot.mjs", "--check"],
+  ],
   ["Typecheck", "npm", ["run", "typecheck"]],
   ["Lint", "npm", ["run", "lint"]],
   ["Unit tests", "npm", ["test"]],
