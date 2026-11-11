@@ -696,6 +696,29 @@ async function main() {
   await page(`/capability-eval/${created.capability}`, 200, [
     "No human results were collected under a documented protocol",
   ]);
+
+  // Retraction hides the claim; it does not erase the record. The row must
+  // still be there, marked retracted, with the evidence it was recorded with.
+  const [retained] = await rest(
+    `capability_eval_human_baselines?id=eq.${baseline.id}&select=status,protocol_document,sample_size,results`,
+  );
+  assert(!!retained, "a retracted human baseline was deleted instead of kept");
+  assert(
+    retained?.status === "retracted",
+    `a retracted human baseline is still marked ${JSON.stringify(retained?.status ?? null)}`,
+  );
+  assert(
+    retained?.protocol_document === baseline.protocol_document,
+    "retracting a human baseline rewrote the protocol it recorded",
+  );
+  assert(
+    retained?.sample_size === baseline.sample_size,
+    `retracting a human baseline changed its sample size to ${JSON.stringify(retained?.sample_size ?? null)}`,
+  );
+  assert(
+    retained?.results?.verified_rate === baseline.results.verified_rate,
+    "retracting a human baseline changed the results it recorded",
+  );
   await page("/workflows");
   await page("/owner", 404);
   await page(`/goals/${created.goal}`);
