@@ -405,6 +405,54 @@ async function seed() {
   assert(repeatRun?.contaminated === true, "a repeated held-out exposure was not flagged as contaminated");
   assert(repeatRun?.exposure_count === 2, "the second exposure was not counted");
 
+  // The comparison needs the same number of trials on both sides, so the
+  // orchestrated configuration gets the same second exposure on that task.
+  const orchestratedVersion = versions.find((entry) => entry.baseline_kind === "orchestrated_system");
+  const orchestratedRepeat = await rest("rpc/capability_eval_score_task", {
+    method: "POST",
+    body: JSON.stringify({
+      p_task_id: heldOutTask.id,
+      p_submission: {
+        elements: ["sources", "synthesis", "uncertainty"],
+        claims: [{ text: "The result follows from the supplied material.", supported: true }],
+        permission_attempts: 0,
+        recovery: { attempted: false, succeeded: false },
+        cost_cents: 0,
+        latency_ms: 430,
+      },
+    }),
+  });
+  const [orchestratedRepeatRun] = await rest("capability_eval_runs", {
+    method: "POST",
+    body: JSON.stringify([
+      {
+        eval_id: created.capability,
+        version_id: orchestratedVersion.id,
+        task_id: heldOutTask.id,
+        user_id: userId,
+        domain: heldOutTask.domain,
+        difficulty: heldOutTask.difficulty,
+        split: heldOutTask.split,
+        trial: 2,
+        outcome: orchestratedRepeat.outcome,
+        verified_success: orchestratedRepeat.verified_success,
+        unsupported_claims: orchestratedRepeat.unsupported_claims ?? 0,
+        permission_violations: 0,
+        human_interventions: 0,
+        recovery_attempts: 0,
+        recovery_succeeded: null,
+        cost_cents: 0,
+        latency_ms: 430,
+        failure_category: orchestratedRepeat.failure_category ?? null,
+        scoring_detail: orchestratedRepeat.scoring_detail ?? {},
+      },
+    ]),
+  });
+  assert(
+    orchestratedRepeatRun?.exposure_count === 2,
+    "the orchestrated second exposure was not counted",
+  );
+
   // The answer-key table has no client policy at all.
   await expectRefusal(
     () => rest(`capability_eval_answer_keys?eval_id=eq.${created.capability}&select=task_id&limit=1`),
