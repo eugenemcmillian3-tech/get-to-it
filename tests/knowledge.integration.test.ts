@@ -1,0 +1,632 @@
+import { randomUUID } from "node:crypto";
+import { Client } from "pg";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  asAnon,
+  asUser,
+  assertIsolatedDatabase,
+  bootstrapSupabase,
+  replayMigrations,
+} from "./support/phase37-db";
+
+/**
+ * Phase 37 regression harness, on an isolated database.
+ *
+ * The runner (`npm run test:knowledge`) starts an embedded Postgres, replays
+ * every migration into it, and sets KNOWLEDGE_TEST_DATABASE_URL. This file
+ * refuses to run without that variable, so a plain `npm test` skips it and it
+ * can never be pointed at the hosted project.
+ *
+ * Every check is written against the rules the migration claims to enforce:
+ * what a person may verify, what crosses a workspace boundary, who may approve
+ * a transfer, and what a retraction or a deletion does to linked rows.
+ */
+const connectionString = process.env.KNOWLEDGE_TEST_DATABASE_URL;
+const describeKnowledge = connectionString ? describe : describe.skip;
+
+describeKnowledge("phase 37 knowledge layer", () => {
+  let client: Client;
+  const userA = randomUUID();
+  const userB = randomUUID();
+  const userC = randomUUID();
+  const workspaceA = randomUUID();
+  const workspaceB = randomUUID();
+  const experimentId = randomUUID();
+
+  let claimId = "";
+  let evidenceId = "";
+  let hypothesisId = "";
+  let suggestionId = "";
+  let firstVersionId = "";
+  let secondVersionId = "";
+  let transferId = "";
+  let copyId = "";
+
+  const asA = <T>(run: () => Promise<T>) => asUser(client, userA, run);
+  const asB = <T>(run: () => Promise<T>) => asUser(client, userB, run);
+  const asC = <T>(run: () => Promise<T>) => asUser(client, userC, run);
+
+  async function failure(run: () => Promise<unknown>): Promise<string> {
+    try {
+      await run();
+    } catch (error) {
+      return (error as Error).message;
+    }
+    throw new Error("expected the statement to fail, but it succeeded");
+  }
+
+  async function count(sql: string, values: unknown[] = []): Promise<number> {
+    const result = await client.query<{ count: string }>(sql, values);
+    return Number(result.rows[0]?.count ?? 0);
+  }
+
+  async function createEntry(values: {
+    workspaceId: string;
+    kind: string;
+    claimType: string;
+    title: string;
+    statement: string;
+    domain?: string;
+  }): Promise<string> {
+    const result = await asA(() =>
+      client.query<{ id: string }>(
+        "select public.knowledge_create_entry($1,$2,$3,$4,$5,$6) as id",
+        [
+          values.workspaceId,
+          values.kind,
+          values.claimType,
+          values.title,
+          values.statement,
+          values.domain ?? "Volunteer onboarding",
+        ],
+      ),
+    );
+    return result.rows[0]?.id ?? "";
+  }
+
+  beforeAll(async () => {
+    client = new Client({ connectionString });
+    await client.connect();
+    await assertIsolatedDatabase(client);
+    await bootstrapSupabase(client);
+    await replayMigrations(client);
+
+    for (const userId of [userA, userB, userC]) {
+      await client.query("insert into auth.users (id, email) values ($1,$2)", [
+        userId,
+        `phase37-${userId.slice(0, 8)}@example.test`,
+      ]);
+    }
+
+    for (const [workspaceId, owner, name] of [
+      [workspaceA, userA, "Shift finder pilot"],
+      [workspaceB, userB, "Weekend programme"],
+    ] as const) {
+      await client.query("insert into public.workspaces (id, name, created_by) values ($1,$2,$3)", [
+        workspaceId,
+        name,
+        owner,
+      ]);
+      await client.query(
+        "insert into public.workspace_members (workspace_id, user_id, role, status) values ($1,$2,'owner','active')",
+        [workspaceId, owner],
+      );
+    }
+
+    await client.query(
+      `insert into public.experiments
+         (id, workspace_id, created_by, question, hypothesis, target_users,
+          proposed_prototype, success_criteria, failure_criteria, time_limit_minutes,
+          privacy_requirements, consent_requirements, stop_conditions, review_at)
+       values ($1,$2,$3,
+               'Do volunteers forget a confirmed shift when no reminder is sent?',
+               'Most volunteers miss the shift without a reminder.',
+               'Volunteers who signed up once',
+               'A three-page synthetic shift finder',
+               'Four of six miss the shift',
+               'Nobody misses the shift',
+               120,
+               'Synthetic records only, no personal data',
+               'Not applicable, synthetic data',
+               'Stop after one synthetic run',
+               current_date + 14)`,
+      [experimentId, workspaceA, userA],
+    );
+  }, 180_000);
+
+  afterAll(async () => {
+    if (client) await client.end();
+  });
+
+  it("replays every migration and leaves the seven knowledge tables read-only for clients", async () => {
+    expect(
+      await count(
+        `select count(*)::text as count from pg_class c
+           join pg_namespace n on n.oid = c.relnamespace
+          where n.nspname = 'public' and c.relkind = 'r' and c.relname like 'knowledge_%'`,
+      ),
+    ).toBe(7);
+
+    expect(
+      await count(
+        `select count(*)::text as count from pg_class c
+           join pg_namespace n on n.oid = c.relnamespace
+          where n.nspname = 'public' and c.relname like 'knowledge_%' and c.relrowsecurity`,
+      ),
+    ).toBe(7);
+
+    expect(
+      await count(
+        "select count(*)::text as count from pg_policies where schemaname = 'public' and tablename like 'knowledge_%'",
+      ),
+    ).toBe(7);
+
+    const grants = await client.query<{ privilege_type: string }>(
+      `select privilege_type from information_schema.role_table_grants
+        where grantee = 'authenticated' and table_schema = 'public' and table_name like 'knowledge_%'`,
+    );
+    expect([...new Set(grants.rows.map((row) => row.privilege_type))]).toEqual(["SELECT"]);
+  });
+
+  it("keeps knowledge unavailable to anonymous callers", async () => {
+    const denied = await asAnon(client, () =>
+      failure(() =>
+        client.query("select * from public.knowledge_retrieve($1,'','')", [workspaceA]),
+      ),
+    );
+    expect(denied).toMatch(/permission denied/);
+
+    const tableDenied = await asAnon(client, () =>
+      failure(() => client.query("select 1 from public.knowledge_entries limit 1")),
+    );
+    expect(tableDenied).toMatch(/permission denied/);
+  });
+
+  it("records a claim from the experiment, with evidence, and verifies it", async () => {
+    claimId = await createEntry({
+      workspaceId: workspaceA,
+      kind: "claim",
+      claimType: "measured_observation",
+      title: "Volunteers forget a confirmed shift",
+      statement:
+        "Four of six volunteers in the synthetic pilot missed a shift they had already confirmed.",
+    });
+    expect(claimId).toMatch(/^[0-9a-f-]{36}$/);
+
+    const source = await asA(() =>
+      client.query<{ id: string }>("select public.knowledge_add_source($1,$2,$3,$4) as id", [
+        claimId,
+        "experiment",
+        experimentId,
+        "Synthetic pilot",
+      ]),
+    );
+    expect(source.rows[0]?.id).toBeTruthy();
+
+    const evidence = await asA(() =>
+      client.query<{ id: string }>(
+        "select public.knowledge_add_evidence($1,$2,$3,$4,$5,$6) as id",
+        [
+          claimId,
+          "supports",
+          "measured_observation",
+          "Four of six confirmed volunteers did not attend the synthetic shift.",
+          "experiment",
+          experimentId,
+        ],
+      ),
+    );
+    evidenceId = evidence.rows[0]?.id ?? "";
+    expect(evidenceId).toBeTruthy();
+
+    const shortNote = await asA(() =>
+      failure(() =>
+        client.query("select public.knowledge_set_verification($1,$2,$3)", [
+          claimId,
+          "supported",
+          "too short",
+        ]),
+      ),
+    );
+    expect(shortNote).toMatch(/write the basis/);
+
+    const outsider = await asB(() =>
+      failure(() =>
+        client.query("select public.knowledge_set_verification($1,$2,$3)", [
+          claimId,
+          "supported",
+          "an outsider trying to verify this entry",
+        ]),
+      ),
+    );
+    expect(outsider).toMatch(/not a member of this workspace/);
+
+    await asA(() =>
+      client.query("select public.knowledge_set_verification($1,$2,$3)", [
+        claimId,
+        "supported",
+        "Six synthetic records, one observed run, no reminder sent.",
+      ]),
+    );
+
+    const verified = await client.query<{ verification_status: string; verified_by: string }>(
+      "select verification_status, verified_by from public.knowledge_entries where id = $1",
+      [claimId],
+    );
+    expect(verified.rows[0]?.verification_status).toBe("supported");
+    expect(verified.rows[0]?.verified_by).toBe(userA);
+  });
+
+  it("never promotes an AI suggestion or a hypothesis to supported", async () => {
+    hypothesisId = await createEntry({
+      workspaceId: workspaceA,
+      kind: "claim",
+      claimType: "hypothesis",
+      title: "Reminders would fix the missed shifts",
+      statement: "A reminder one day before the shift would stop volunteers missing it.",
+    });
+    suggestionId = await createEntry({
+      workspaceId: workspaceA,
+      kind: "claim",
+      claimType: "ai_suggestion",
+      title: "Maybe shift reminders should be shorter",
+      statement: "An assistant suggested shortening the reminder to one line of text.",
+    });
+
+    const hypothesis = await asA(() =>
+      failure(() =>
+        client.query("select public.knowledge_set_verification($1,$2,$3)", [
+          hypothesisId,
+          "supported",
+          "The hypothesis sounds right to me and to the model.",
+        ]),
+      ),
+    );
+    expect(hypothesis).toMatch(/hypothesis is not supported by being restated/);
+
+    const suggestion = await asA(() =>
+      failure(() =>
+        client.query("select public.knowledge_set_verification($1,$2,$3)", [
+          suggestionId,
+          "supported",
+          "The assistant wrote this and it looks convincing.",
+        ]),
+      ),
+    );
+    expect(suggestion).toMatch(/AI suggestion is never promoted/);
+
+    expect(
+      await count(
+        "select count(*)::text as count from public.knowledge_entries where claim_type <> 'measured_observation' and verification_status = 'supported'",
+      ),
+    ).toBe(0);
+  });
+
+  it("keeps one workspace's entries and retrieval invisible to the other", async () => {
+    const foreign = await asB(() =>
+      client.query<{ count: string }>(
+        "select count(*)::text as count from public.knowledge_entries where workspace_id = $1",
+        [workspaceA],
+      ),
+    );
+    expect(Number(foreign.rows[0]?.count ?? 0)).toBe(0);
+
+    const foreignRetrieval = await asB(() =>
+      client.query("select * from public.knowledge_retrieve($1,'','')", [workspaceA]),
+    );
+    expect(foreignRetrieval.rowCount).toBe(0);
+
+    const own = await asA(() =>
+      client.query<{ title: string }>("select title from public.knowledge_retrieve($1,'','')", [
+        workspaceA,
+      ]),
+    );
+    expect(own.rows.map((row) => row.title)).toContain("Volunteers forget a confirmed shift");
+  });
+
+  it("records the recommendation the claim was built on", async () => {
+    const impact = await asA(() =>
+      client.query<{ id: string }>("select public.knowledge_mark_impact($1,$2,$3,$4,$5) as id", [
+        claimId,
+        "recommendation",
+        null,
+        "Reminder copy in the shift finder",
+        "Proposed reminder wording",
+      ]),
+    );
+    expect(impact.rows[0]?.id).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it("shows a transfer proposal to both workspaces and to nobody else", async () => {
+    const proposed = await asA(() =>
+      client.query<{ id: string }>(
+        "select public.knowledge_propose_transfer($1,$2,$3,$4,$5,$6) as id",
+        [
+          claimId,
+          workspaceB,
+          "Both projects run single-session volunteer shifts with the same coordinator.",
+          "The second programme runs weekend shifts and sends a printed schedule instead of an email.",
+          "One synthetic run, four of six missed, no reminder sent.",
+          "A reminder still helps when shifts happen only at weekends.",
+        ],
+      ),
+    );
+    transferId = proposed.rows[0]?.id ?? "";
+    expect(transferId).toMatch(/^[0-9a-f-]{36}$/);
+
+    for (const [label, as] of [
+      ["source workspace", asA],
+      ["target workspace", asB],
+    ] as const) {
+      const visible = await as(() =>
+        client.query<{ count: string }>(
+          "select count(*)::text as count from public.knowledge_transfers where id = $1",
+          [transferId],
+        ),
+      );
+      expect(Number(visible.rows[0]?.count ?? 0), label).toBe(1);
+    }
+
+    const outsider = await asC(() =>
+      client.query<{ count: string }>(
+        "select count(*)::text as count from public.knowledge_transfers where id = $1",
+        [transferId],
+      ),
+    );
+    expect(Number(outsider.rows[0]?.count ?? 0)).toBe(0);
+  });
+
+  it("refuses a transfer decision from anyone without a role in the target workspace", async () => {
+    // Regression for 0052: `v_role not in ('owner','admin')` is NULL, not false,
+    // for a non-member, so the guard used to fall through and approve.
+    const selfApproval = await asA(() =>
+      failure(() =>
+        client.query("select public.knowledge_decide_transfer($1,$2,$3)", [
+          transferId,
+          true,
+          "approving my own transfer",
+        ]),
+      ),
+    );
+    expect(selfApproval).toMatch(/only an owner or admin of the target workspace/);
+
+    const stillProposed = await client.query<{ status: string }>(
+      "select status from public.knowledge_transfers where id = $1",
+      [transferId],
+    );
+    expect(stillProposed.rows[0]?.status).toBe("proposed");
+
+    const approved = await asB(() =>
+      client.query<{ id: string }>("select public.knowledge_decide_transfer($1,$2,$3) as id", [
+        transferId,
+        true,
+        "Applies here too, worth testing.",
+      ]),
+    );
+    copyId = approved.rows[0]?.id ?? "";
+    expect(copyId).toMatch(/^[0-9a-f-]{36}$/);
+
+    const copy = await client.query<{
+      workspace_id: string;
+      provenance: string;
+      limitations: string;
+      transferred_from_id: string;
+    }>(
+      "select workspace_id, provenance, limitations, transferred_from_id from public.knowledge_entries where id = $1",
+      [copyId],
+    );
+    const row = copy.rows[0];
+    expect(row?.workspace_id).toBe(workspaceB);
+    expect(row?.transferred_from_id).toBe(claimId);
+    expect(row?.provenance).toContain("Shift finder pilot");
+    expect(row?.limitations).toContain("Shift finder pilot");
+    expect(row?.limitations).toContain("Assumption to test");
+
+    expect(
+      await count("select count(*)::text as count from public.knowledge_evidence where entry_id = $1", [
+        copyId,
+      ]),
+    ).toBe(0);
+
+    expect(
+      await count(
+        "select count(*)::text as count from public.knowledge_sources where entry_id = $1 and source_kind = 'transfer'",
+        [copyId],
+      ),
+    ).toBe(1);
+  });
+
+  it("refuses a retention purge from someone with no role in the workspace", async () => {
+    const purge = await asA(() =>
+      failure(() => client.query("select public.knowledge_purge_expired($1)", [workspaceB])),
+    );
+    expect(purge).toMatch(/only an owner or admin can purge/);
+  });
+
+  it("supersedes an entry and records the version links", async () => {
+    firstVersionId = await createEntry({
+      workspaceId: workspaceA,
+      kind: "claim",
+      claimType: "measured_observation",
+      title: "Reminder timing after the rerun",
+      statement:
+        "A reminder one day before the shift cut the misses in the second synthetic run.",
+    });
+
+    const superseded = await asA(() =>
+      client.query<{ id: string }>(
+        "select public.knowledge_supersede_entry($1,$2,$3,$4,$5) as id",
+        [
+          firstVersionId,
+          "Reminder timing after the rerun, revised",
+          "A reminder one day before the shift cut the misses to one of six in the second synthetic run.",
+          "Two synthetic runs",
+          "The rerun reproduced the result with a smaller effect.",
+        ],
+      ),
+    );
+    secondVersionId = superseded.rows[0]?.id ?? "";
+    expect(secondVersionId).toMatch(/^[0-9a-f-]{36}$/);
+
+    const versions = await client.query<{
+      id: string;
+      status: string;
+      supersedes_id: string | null;
+      superseded_by_id: string | null;
+    }>(
+      "select id, status, supersedes_id, superseded_by_id from public.knowledge_entries where id = any($1::uuid[])",
+      [[firstVersionId, secondVersionId]],
+    );
+    const byId = new Map(versions.rows.map((version) => [version.id, version]));
+    expect(byId.get(firstVersionId)?.status).toBe("superseded");
+    expect(byId.get(firstVersionId)?.superseded_by_id).toBe(secondVersionId);
+    expect(byId.get(secondVersionId)?.supersedes_id).toBe(firstVersionId);
+  });
+
+  it("retracts the claim and marks the linked recommendation invalid", async () => {
+    const retracted = await asA(() =>
+      client.query<{ invalidated: number }>(
+        "select public.knowledge_retract_entry($1,$2) as invalidated",
+        [
+          claimId,
+          "The synthetic pilot was rerun and two of six attended, so the claim does not hold.",
+        ],
+      ),
+    );
+    expect(Number(retracted.rows[0]?.invalidated)).toBe(1);
+
+    const impact = await client.query<{
+      invalidated_at: string | null;
+      invalidated_reason: string | null;
+    }>("select invalidated_at, invalidated_reason from public.knowledge_impacts where entry_id = $1", [
+      claimId,
+    ]);
+    expect(impact.rows[0]?.invalidated_at).not.toBeNull();
+    expect(impact.rows[0]?.invalidated_reason).toContain("does not hold");
+
+    const retrieval = await asA(() =>
+      client.query<{ id: string }>("select id from public.knowledge_retrieve($1,'','')", [workspaceA]),
+    );
+    expect(retrieval.rows.map((row) => row.id)).not.toContain(claimId);
+
+    const copyStillStands = await asB(() =>
+      client.query<{ verification_status: string; status: string }>(
+        "select verification_status, status from public.knowledge_entries where id = $1",
+        [copyId],
+      ),
+    );
+    expect(copyStillStands.rows[0]?.verification_status).not.toBe("retracted");
+    expect(copyStillStands.rows[0]?.status).toBe("active");
+  });
+
+  it("purges linked entries past retention and clears the cascade links", async () => {
+    await client.query(
+      "update public.knowledge_entries set delete_after = current_date - 1 where id = any($1::uuid[])",
+      [[firstVersionId, secondVersionId]],
+    );
+
+    const purged = await asA(() =>
+      client.query<{ purged: number }>("select public.knowledge_purge_expired($1) as purged", [
+        workspaceA,
+      ]),
+    );
+    expect(Number(purged.rows[0]?.purged)).toBe(2);
+
+    expect(
+      await count(
+        "select count(*)::text as count from public.knowledge_entries where id = any($1::uuid[])",
+        [[firstVersionId, secondVersionId]],
+      ),
+    ).toBe(0);
+
+    // A transferred copy points back at the source entry. Deleting the source
+    // workspace must clear that link instead of raising (regression for 0053).
+    await client.query("delete from public.workspaces where id = $1", [workspaceA]);
+
+    const surviving = await client.query<{ transferred_from_id: string | null }>(
+      "select transferred_from_id from public.knowledge_entries where id = $1",
+      [copyId],
+    );
+    expect(surviving.rows[0]?.transferred_from_id).toBeNull();
+  });
+
+  it("refuses client writes and protects recorded evidence", async () => {
+    // Its own entry and evidence, because the purge test above deleted the
+    // workspace that held the earlier fixtures.
+    const probe = await asB(() =>
+      client.query<{ id: string }>(
+        "select public.knowledge_create_entry($1,$2,$3,$4,$5,$6) as id",
+        [
+          workspaceB,
+          "claim",
+          "measured_observation",
+          "Evidence guard probe",
+          "A synthetic statement long enough for the evidence guard check.",
+          "Testing",
+        ],
+      ),
+    );
+    const probeEntryId = probe.rows[0]?.id ?? "";
+    expect(probeEntryId).toMatch(/^[0-9a-f-]{36}$/);
+
+    const probeEvidence = await asB(() =>
+      client.query<{ id: string }>("select public.knowledge_add_evidence($1,$2,$3,$4) as id", [
+        probeEntryId,
+        "supports",
+        "measured_observation",
+        "A synthetic supporting observation recorded for the guard check.",
+      ]),
+    );
+    const probeEvidenceId = probeEvidence.rows[0]?.id ?? "";
+    expect(probeEvidenceId).toMatch(/^[0-9a-f-]{36}$/);
+
+    const insert = await asB(() =>
+      failure(() =>
+        client.query(
+          `insert into public.knowledge_entries
+             (workspace_id, created_by, owner_id, kind, claim_type, title, statement, domain)
+           values ($1,$2,$2,'claim','project_fact','Written around the rules','A statement that skipped every function.','Testing')`,
+          [workspaceB, userB],
+        ),
+      ),
+    );
+    expect(insert).toMatch(/permission denied|row-level security/);
+
+    // The client role holds SELECT only, so it cannot delete evidence at all.
+    const deniedDelete = await asB(() =>
+      failure(() =>
+        client.query("delete from public.knowledge_evidence where id = $1", [probeEvidenceId]),
+      ),
+    );
+    expect(deniedDelete).toMatch(/permission denied/);
+
+    // Even with the privilege, the trigger refuses to erase a recorded item.
+    const guard = await failure(() =>
+      client.query("delete from public.knowledge_evidence where id = $1", [probeEvidenceId]),
+    );
+    expect(guard).toMatch(/recorded evidence cannot be deleted/);
+
+    expect(
+      await count("select count(*)::text as count from public.knowledge_evidence where id = $1", [
+        probeEvidenceId,
+      ]),
+    ).toBe(1);
+  });
+
+  it("removes a deleted account's workspace and its knowledge", async () => {
+    await client.query("delete from auth.users where id = $1", [userB]);
+
+    expect(
+      await count(
+        "select count(*)::text as count from public.knowledge_entries where workspace_id = $1",
+        [workspaceB],
+      ),
+    ).toBe(0);
+    expect(
+      await count(
+        "select count(*)::text as count from public.knowledge_transfers where target_workspace_id = $1",
+        [workspaceB],
+      ),
+    ).toBe(0);
+  });
+});
