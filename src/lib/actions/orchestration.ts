@@ -472,6 +472,18 @@ export async function generatePlanAction(
   const orchestration = await orchestrationIn(session, workspaceId, orchestrationId);
   if (!orchestration) return fail(NOT_AVAILABLE);
 
+  // Planning is allowed until execution starts. The policy widened in 0049
+  // matches these statuses; refuse here so the reason is explicit.
+  const planWindow =
+    orchestration.status === "draft" ||
+    orchestration.status === "awaiting_approval" ||
+    orchestration.status === "ready";
+  if (!planWindow) {
+    return fail(
+      "A plan can only be drafted before execution starts. Stop or revise this run first.",
+    );
+  }
+
   const { data: existing } = await session.supabase
     .from("orchestration_tasks")
     .select("id")
