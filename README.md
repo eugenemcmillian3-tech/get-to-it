@@ -1967,6 +1967,16 @@ which is correct because they only fire from their own tables; and
 `knowledge_retrieve` is the only function that is neither `security definer` nor
 a trigger. All seven tables were empty at the end of verification.
 
+`0052_phase37_role_null_guards` follows it, applied to the same project.
+`v_role not in ('owner', 'admin')` is `NULL` — not false — when the caller is not a
+member at all, so the guard never fired: a non-member could approve a transfer
+into a workspace they did not belong to, and could purge entries past retention
+in any workspace. Both functions now test the null role explicitly, and
+`knowledge_set_verification` rejects a null status instead of silently resetting
+to unverified. Found by driving the flow with two accounts; proven live
+afterwards — the requester gets 400, the target owner's approval succeeds, and a
+retraction marks the linked recommendation invalid.
+
 Checks run for this phase: `tsc --noEmit`, `eslint` on the new files, the full
 `vitest run` (930 passing) including the new pure-rule suite in
 `tests/knowledge.test.ts` (validity, promotion refusal, verification
