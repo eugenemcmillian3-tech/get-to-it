@@ -918,6 +918,26 @@ describeKnowledge("phase 37 knowledge layer", () => {
     expect(link).toMatch(/workspace owner or admin required/);
   });
 
+  it("refuses a share link for a project the caller does not belong to", async () => {
+    // Regression for 0055: app_project_role() returns NULL for a non-member, so
+    // `app_project_role(...) not in ('owner','maintainer')` fell through and a
+    // stranger could mint a share link for any project.
+    const denied = await asF(() =>
+      failure(() =>
+        client.query("select public.create_app_share_link($1,$2,$3)", [projectId, "a".repeat(64), 24]),
+      ),
+    );
+    expect(denied).toMatch(/maintainer access required/);
+
+    const minted = await asD(() =>
+      client.query<{ result: { ok: boolean } }>(
+        "select public.create_app_share_link($1,$2,$3) as result",
+        [projectId, "b".repeat(64), 24],
+      ),
+    );
+    expect(minted.rows[0]?.result.ok).toBe(true);
+  });
+
   it("removes a deleted account's workspace and its knowledge", async () => {
     await client.query("delete from auth.users where id = $1", [userB]);
 
