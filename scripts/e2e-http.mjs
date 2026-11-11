@@ -429,6 +429,43 @@ async function seed() {
     unchanged?.autonomy_permission === "none",
     "the autonomy permission changed despite the refusal",
   );
+
+  // The recorded spend and time ceilings bind the evidence, not just the label.
+  const budgetedRun = {
+    eval_id: created.capability,
+    version_id: baselineVersion.id,
+    task_id: tasks[0].id,
+    user_id: userId,
+    domain: tasks[0].domain,
+    difficulty: tasks[0].difficulty,
+    split: tasks[0].split,
+    outcome: "verified_success",
+    verified_success: true,
+    unsupported_claims: 0,
+    permission_violations: 0,
+    human_interventions: 0,
+    recovery_attempts: 0,
+    recovery_succeeded: null,
+    scoring_detail: {},
+  };
+  await expectRefusal(
+    () =>
+      rest("capability_eval_runs", {
+        method: "POST",
+        body: JSON.stringify([{ ...budgetedRun, trial: 3, cost_cents: 1, latency_ms: 10 }]),
+      }),
+    /cannot spend more/i,
+    "a run recorded more spend than its configuration allows",
+  );
+  await expectRefusal(
+    () =>
+      rest("capability_eval_runs", {
+        method: "POST",
+        body: JSON.stringify([{ ...budgetedRun, trial: 4, cost_cents: 0, latency_ms: 400_000 }]),
+      }),
+    /time limit/i,
+    "a run recorded more latency than its configuration allows",
+  );
 }
 
 function assert(condition, message) {
