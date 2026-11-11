@@ -187,8 +187,9 @@ path. Run it only against the dedicated E2E project.
 Two workflows cover pushes to `main`, pull requests and a weekly E2E check:
 
 - `.github/workflows/ci.yml` runs typecheck, lint, unit tests, a dependency
-  audit at high severity and the secret scan. It needs no secrets and also runs
-  for fork pull requests.
+  audit at high severity, the secret scan, the role and nullable guard audits
+  and the schema drift check. It needs no secrets and also runs for fork pull
+  requests; the drift check compares only when its credential is present.
 - `.github/workflows/e2e.yml` runs the authenticated crawl, the browser
   functional smoke test, and the team-seat browser regression. Its Monday 06:17
   UTC schedule runs the AI draft/review/checkpoint path. A manual dispatch can
@@ -200,6 +201,16 @@ Branch protection requires a pull request and the `checks` status for `main`.
 Administrators are subject to the rule, so a direct push or admin merge cannot
 bypass it. `authenticated-e2e` remains advisory because it skips fork pull
 requests.
+
+The schema drift check is armed in either of two ways: `SUPABASE_DB_URL` for a
+direct connection, or `SUPABASE_MANAGEMENT_API` together with
+`SUPABASE_PROJECT_REF` for a host that cannot open a database connection. A
+direct connection that fails authentication falls back to the API and says so.
+With no credential it prints that it compared nothing, and
+`SCHEMA_DRIFT_REQUIRED=1` turns that into a failure. Functions are compared by
+behaviour, so explanatory comments and whitespace do not count as drift;
+`SCHEMA_DRIFT_STRICT_DEFS=1` also fails on a text-only change in a policy,
+constraint or index definition.
 
 ### Repository security
 

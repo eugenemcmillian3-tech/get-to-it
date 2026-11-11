@@ -13,8 +13,12 @@
  * different PostgreSQL major version, and deparsed definitions can be formatted
  * differently by the engine alone.
  *
- * Without a database URL the check says it compared nothing; SCHEMA_DRIFT_REQUIRED=1
- * turns that into a failure.
+ * The check arms itself in two ways: a direct connection (SCHEMA_DRIFT_DATABASE_URL
+ * or DATABASE_URL), or the Supabase Management API (SUPABASE_MANAGEMENT_API plus
+ * SCHEMA_DRIFT_PROJECT_REF/SUPABASE_PROJECT_REF) for hosts that cannot open a
+ * database connection. A direct connection that fails auth falls back to the API
+ * when it is configured, and says so. With neither, the check reports that it
+ * compared nothing; SCHEMA_DRIFT_REQUIRED=1 turns that into a failure.
  */
 
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
@@ -28,18 +32,60 @@ const DEFAULT_SNAPSHOT = process.env.SCHEMA_DRIFT_SNAPSHOT
 const MIGRATIONS = path.join(process.cwd(), "supabase/migrations");
 const DEFINITION =
   /create or replace function (public\.[a-z_0-9]+)\s*\(([\s\S]*?)\)\s*returns[\s\S]*?\$\$([\s\S]*?)\$\$;/g;
-const normalize = (text) => text.replace(/\s+/g, "");
+const normalizeWhitespace = (text) => text.replace(/\s+/g, "");
+
+// A comment is part of prosrc but not part of behaviour, so a body that differs
+// only in comments is not drift. Quote-aware, because a `--` inside a string
+// literal is data rather than a comment.
+const stripComments = (sql) => {
+  let out = "";
+  let inString = false;
+  for (let i = 0; i < sql.length; i += 1) {
+    const character = sql[i];
+    if (inString) {
+      out += character;
+      if (character === "'") {
+        if (sql[i + 1] === "'") {
+          out += "'";
+          i += 1;
+        } else {
+          inString = false;
+        }
+      }
+      continue;
+    }
+    if (character === "'") {
+      inString = true;
+      out += character;
+      continue;
+    }
+    if (character === "-" && sql[i + 1] === "-") {
+      while (i < sql.length && sql[i] !== "\n") i += 1;
+      out += "\n";
+      continue;
+    }
+    out += character;
+  }
+  return out;
+};
+
+const normalize = (text) => normalizeWhitespace(stripComments(text));
 const printCatalog = process.argv.includes("--print-catalog");
 const connectionString = process.env.SCHEMA_DRIFT_DATABASE_URL ?? process.env.DATABASE_URL;
+const apiToken = process.env.SUPABASE_MANAGEMENT_API ?? "";
+const projectRef =
+  process.env.SCHEMA_DRIFT_PROJECT_REF ?? process.env.SUPABASE_PROJECT_REF ?? "";
+const apiArmed = apiToken !== "" && projectRef !== "";
 const required = process.env.SCHEMA_DRIFT_REQUIRED === "1";
 const strictDefs = process.env.SCHEMA_DRIFT_STRICT_DEFS === "1";
 
-if (!connectionString) {
-  const message = "SCHEMA_DRIFT_DATABASE_URL is not set, so nothing was compared.";
+if (!connectionString && !apiArmed) {
+  const message =
+    "no database URL and no Management API credentials are set, so nothing was compared.";
   if (process.env.GITHUB_ACTIONS === "true") {
-    console.log(`::warning title=Schema drift check::${message} Add a database URL secret to arm it.`);
+    console.log(`::warning title=Schema drift check::${message} Add a database URL or the API secrets to arm it.`);
   } else {
-    console.log(`ℹ ${message} Add a database URL to compare.`);
+    console.log(`ℹ ${message} Add a database URL or the API secrets to compare.`);
   }
   process.exit(required ? 1 : 0);
 }
@@ -48,12 +94,68 @@ const expectedFunctions = new Map();
 for (const file of readdirSync(MIGRATIONS).filter((name) => name.endsWith(".sql")).sort()) {
   const sql = readFileSync(path.join(MIGRATIONS, file), "utf8");
   for (const match of sql.matchAll(DEFINITION)) {
-    expectedFunctions.set(match[1].replace("public.", ""), { file, body: normalize(match[3]) });
+    expectedFunctions.set(match[1].replace("public.", ""), {
+      file,
+      body: normalize(match[3]),
+      withoutComments: normalizeWhitespace(match[3]),
+    });
   }
 }
 
-const client = new pg.Client({ connectionString });
-await client.connect();
+async function openDirectClient(url) {
+  const direct = new pg.Client({ connectionString: url });
+  await direct.connect();
+  return {
+    query: (sql) => direct.query(sql),
+    close: () => direct.end(),
+  };
+}
+
+// The Management API runs one statement and returns its rows, which is all the
+// catalog queries need. It also works from a host that cannot reach the database
+// port, where a direct connection times out or is refused.
+function openApiClient(token, ref) {
+  const endpoint = `https://api.supabase.com/v1/projects/${ref}/database/query`;
+  return {
+    query: async (sql) => {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ query: sql }),
+      });
+      const body = await response.text();
+      if (!response.ok) {
+        throw new Error(`Management API ${response.status}: ${body.slice(0, 300)}`);
+      }
+      let rows = [];
+      try {
+        rows = JSON.parse(body);
+      } catch {
+        throw new Error(`Management API returned a non-JSON body: ${body.slice(0, 200)}`);
+      }
+      return { rows: Array.isArray(rows) ? rows : [] };
+    },
+    close: async () => {},
+  };
+}
+
+let client;
+let transport = "direct";
+if (connectionString) {
+  try {
+    client = await openDirectClient(connectionString);
+  } catch (error) {
+    if (!apiArmed) throw error;
+    console.error(
+      `ℹ the direct connection failed (${(error).message}); comparing through the Management API instead.`,
+    );
+    client = openApiClient(apiToken, projectRef);
+    transport = "management-api";
+  }
+} else {
+  client = openApiClient(apiToken, projectRef);
+  transport = "management-api";
+}
 
 let catalog;
 let functionRows;
@@ -68,7 +170,7 @@ try {
       where n.nspname = 'public' and p.prokind = 'f'`,
   ));
 } finally {
-  await client.end();
+  await client.close();
 }
 
 if (printCatalog) {
@@ -79,11 +181,14 @@ if (printCatalog) {
 }
 
 const live = new Map(functionRows.map((row) => [row.proname, normalize(row.prosrc)]));
+const liveRaw = new Map(functionRows.map((row) => [row.proname, normalizeWhitespace(row.prosrc)]));
 const missingFunctions = [];
 const driftedFunctions = [];
+const commentOnly = [];
 for (const [name, definition] of expectedFunctions) {
   if (!live.has(name)) missingFunctions.push(name);
   else if (live.get(name) !== definition.body) driftedFunctions.push({ name, file: definition.file });
+  else if (liveRaw.get(name) !== definition.withoutComments) commentOnly.push(name);
 }
 
 let catalogDiff = [];
@@ -130,7 +235,11 @@ if (!failed) {
   console.log(
     `✔ no drift: ${expectedFunctions.size} functions match the migrations; `
     + `${catalog.policies.length} policies, ${catalog.constraints.length} constraints and `
-    + `${catalog.indexes.length} indexes match the snapshot${snapshotNote}.`,
+    + `${catalog.indexes.length} indexes match the snapshot${snapshotNote}`
+    + ` (live read over ${transport})`
+    + (commentOnly.length > 0
+      ? `; ${commentOnly.length} function(s) differ only in comments, which do not change behaviour.`
+      : "."),
   );
   if (changedDefinitions.length > 0) {
     console.log(

@@ -74,8 +74,15 @@ console.log("  - error recovery: stop the database, confirm the health check is 
 // A check that ran but compared nothing is not the same as a check that passed,
 // and a green release record should not imply coverage it did not have.
 const notVerified = [];
-if (!process.env.SCHEMA_DRIFT_DATABASE_URL && !process.env.DATABASE_URL) {
-  notVerified.push("schema drift comparison: no database URL is set, so nothing was compared");
+const driftArmed = Boolean(
+  (process.env.SCHEMA_DRIFT_DATABASE_URL ?? process.env.DATABASE_URL)
+  || ((process.env.SUPABASE_MANAGEMENT_API ?? "")
+    && (process.env.SCHEMA_DRIFT_PROJECT_REF ?? process.env.SUPABASE_PROJECT_REF ?? "")),
+);
+if (!driftArmed) {
+  notVerified.push(
+    "schema drift comparison: no database URL or Management API credentials are set, so nothing was compared",
+  );
 }
 console.log(
   notVerified.length === 0
