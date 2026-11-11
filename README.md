@@ -1977,6 +1977,13 @@ to unverified. Found by driving the flow with two accounts; proven live
 afterwards — the requester gets 400, the target owner's approval succeeds, and a
 retraction marks the linked recommendation invalid.
 
+`0053_phase37_link_cascade_guard` fixes the identity guard's last hole: the
+version links (`supersedes_id`, `superseded_by_id`, `transferred_from_id`) are
+`ON DELETE SET NULL`, and the cascade's clearing update was refused, so retention
+purge and workspace deletion failed for any superseded or transferred entry.
+Clearing a link and filling an empty one are allowed now; rewiring an existing
+link is not.
+
 Checks run for this phase: `tsc --noEmit`, `eslint` on the new files, the full
 `vitest run` (930 passing) including the new pure-rule suite in
 `tests/knowledge.test.ts` (validity, promotion refusal, verification
