@@ -1251,6 +1251,36 @@ describeKnowledge("phase 37 knowledge layer", () => {
     expect(skewed.status).toBe(0);
     expect(skewedOutput).toMatch(/differ only in text/);
     expect(skewedOutput).toMatch(/The engines differ \(snapshot PostgreSQL 11, live PostgreSQL \d+\)/);
+
+    // With matching engines, formatting is no longer an explanation, so the same
+    // text-only difference has to fail instead of warning.
+    const { rows: [liveEngine] } = await client.query("select version() as version");
+    const matchedSnapshot = path.join(tmpdir(), `schema-snapshot-matched-${randomUUID()}.json`);
+    writeFileSync(
+      matchedSnapshot,
+      JSON.stringify(
+        {
+          ...committedSnapshot,
+          generatedWith: liveEngine.version,
+          policies: committedSnapshot.policies.map((entry: { definition: string }, index: number) =>
+            index === 0 ? { ...entry, definition: `${entry.definition} and true` } : entry,
+          ),
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    const matched = spawnSync(process.execPath, ["scripts/schema-drift-check.mjs"], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        SCHEMA_DRIFT_DATABASE_URL: connectionString,
+        SCHEMA_DRIFT_SNAPSHOT: matchedSnapshot,
+      },
+    });
+    const matchedOutput = `${matched.stdout}${matched.stderr}`;
+    expect(matched.status).toBe(1);
+    expect(matchedOutput).toMatch(/real definition changes/);
   }, 180_000);
 
   it("removes a deleted account's workspace and its knowledge", async () => {

@@ -48,6 +48,7 @@ const checks = [
     "node",
     ["scripts/schema-snapshot.mjs", "--check"],
   ],
+  ["Restore drill", "npm", ["run", "test:restore"]],
   ["Typecheck", "npm", ["run", "typecheck"]],
   ["Lint", "npm", ["run", "lint"]],
   ["Unit tests", "npm", ["test"]],

@@ -118,10 +118,13 @@ const engineDetail = snapshotMajor === null || liveMajor === null
 
 const structural = catalogDiff.filter((entry) => entry.kind !== "changed");
 const changedDefinitions = catalogDiff.filter((entry) => entry.kind === "changed");
+// Matching engines remove formatting as an explanation, so a text-only
+// difference is a real change and must not be filed away as noise.
+const enginesMatch = snapshotMajor !== null && liveMajor !== null && snapshotMajor === liveMajor;
 const failed = missingFunctions.length > 0
   || driftedFunctions.length > 0
   || structural.length > 0
-  || (strictDefs && changedDefinitions.length > 0);
+  || ((strictDefs || enginesMatch) && changedDefinitions.length > 0);
 
 if (!failed) {
   console.log(
@@ -152,12 +155,12 @@ if (structural.length > 0) {
   for (const entry of structural.slice(0, 20)) console.error(`    ${entry.kind} ${entry.section}: ${entry.key}`);
 }
 if (changedDefinitions.length > 0) {
-  const label = strictDefs ? "✖" : "ℹ";
+  const label = strictDefs || enginesMatch ? "✖" : "ℹ";
   console.error(
     `${label} ${changedDefinitions.length} definition(s) differ in text${snapshotNote}${engineDetail}:`,
   );
   for (const entry of changedDefinitions.slice(0, 20)) console.error(`    ${entry.section}: ${entry.key}`);
-  if (!strictDefs) console.error("    Set SCHEMA_DRIFT_STRICT_DEFS=1 to treat these as drift.");
+  if (!strictDefs && !enginesMatch) console.error("    Set SCHEMA_DRIFT_STRICT_DEFS=1 to treat these as drift.");
 }
 console.error("Re-apply the owning migration, or regenerate the snapshot with `npm run schema:snapshot`.");
 process.exit(1);
