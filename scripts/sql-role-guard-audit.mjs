@@ -110,25 +110,31 @@ function rejectsNull(body, condition, operand, index) {
 /** Guard sites where a null role would fall straight through. */
 function analyse({ body }) {
   const findings = [];
-  for (const statement of body.matchAll(/\bif\b([\s\S]*?)\bthen\b/g)) {
+  const validation = [];
+  for (const statement of body.matchAll(/(?<!end )\bif\b([\s\S]*?)\bthen\b/g)) {
     const condition = statement[1];
     if (!/not in\s*\(/i.test(condition)) continue;
     const conditionStart = statement.index + statement[0].indexOf(condition);
     for (const site of condition.matchAll(/not in\s*\(/gi)) {
       const { operand, start } = operandBefore(condition, site.index);
       if (!operand) continue;
-      const values = condition.slice(site.index, valueListEnd(condition, site.index));
-      if (!isRoleGuard(operand, values)) continue;
       if (rejectsNull(body, condition, operand, conditionStart + start)) continue;
-      findings.push({ operand, index: conditionStart + start, condition: condition.trim().replace(/\s+/g, " ") });
+      const values = condition.slice(site.index, valueListEnd(condition, site.index));
+      const entry = {
+        operand,
+        index: conditionStart + start,
+        condition: condition.trim().replace(/\s+/g, " "),
+      };
+      if (isRoleGuard(operand, values)) findings.push(entry);
+      else if (/^p_[a-z_]+$/.test(operand)) validation.push(entry);
     }
   }
-  return findings;
+  return { findings, validation };
 }
 
 /** Wraps each nullable guard as `(x is null or x not in (...))`, parens included. */
 function patch(definition) {
-  const findings = analyse(definition);
+  const { findings, validation } = analyse(definition);
   let full = definition.full;
   const bodyStart = full.indexOf(definition.body);
   for (const finding of [...findings].sort((a, b) => b.index - a.index)) {
@@ -142,15 +148,17 @@ function patch(definition) {
   // `app_project_role(...) <> 'owner'` has the same NULL problem.
   const inequality = /if\s+(public\.app_project_role\([^)]*\))\s*<>\s*'owner'\s+then/g;
   full = full.replace(inequality, "if $1 is distinct from 'owner' then");
-  return { full, findings };
+  return { full, findings, validation };
 }
 
 const emitIndex = process.argv.indexOf("--emit");
 const emitTo = emitIndex === -1 ? null : process.argv[emitIndex + 1];
 const latest = collect();
 const changed = [];
+const validationSites = [];
 for (const [name, definition] of [...latest].sort(([a], [b]) => a.localeCompare(b))) {
-  const { full, findings } = patch(definition);
+  const { full, findings, validation } = patch(definition);
+  for (const site of validation) validationSites.push({ ...site, func: name, file: definition.file });
   if (full !== definition.full) changed.push({ name, file: definition.file, findings, full });
 }
 
@@ -188,6 +196,21 @@ if (changed.length > 0) {
   }
   console.error("Add `is null or`, or check the role for null before it.");
   process.exit(1);
+}
+
+const validationFlag = process.argv.includes("--validation");
+if (validationFlag) {
+  console.log(`${validationSites.length} parameter validation guard(s) accept a null parameter:`);
+  for (const site of validationSites) {
+    console.log(`  ${site.file} :: ${site.func}`);
+    console.log(`      ${site.condition}`);
+  }
+  console.log("A null there skips the check rather than granting access; decide per guard whether the");
+  console.log("column constraint already covers it.");
+} else if (validationSites.length > 0) {
+  console.log(
+    `ℹ ${validationSites.length} validation guard(s) accept a null parameter; run with --validation to list them.`,
+  );
 }
 
 console.log(`✔ ${latest.size} functions scanned; every role guard rejects a null role.`);

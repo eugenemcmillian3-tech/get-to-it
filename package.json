@@ -24,7 +24,8 @@
     "check:routes": "node scripts/route-audit.mjs",
     "check:role-guards": "node scripts/sql-role-guard-audit.mjs",
     "check:vercel-aliases": "node --env-file-if-exists=.env.local scripts/vercel-alias-inventory.mjs",
-    "release:check": "node scripts/release-check.mjs"
+    "release:check": "node scripts/release-check.mjs",
+    "check:nullable-guards": "node scripts/sql-role-guard-audit.mjs --validation"
   },
   "dependencies": {
     "@composio/core": "0.28.0",
