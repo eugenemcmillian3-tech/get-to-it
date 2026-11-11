@@ -32,7 +32,7 @@ const SERVICE_KEY = process.env.E2E_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SER
 
 const results = [];
 const failures = [];
-const created = { goal: null, task: null, project: null };
+const created = { goal: null, task: null, project: null, capability: null };
 
 let session = null;
 let testUser = null;
@@ -193,9 +193,173 @@ async function seed() {
     }),
   });
   created.project = project.id;
+
+  // Phase 38: one evaluation with two versioned configurations, a development
+  // task and a held-out task, keys seeded by the definer function, and one
+  // scored run per side. The answer key is never read by this script: the
+  // scoring function returns counts, so both sides can be compared on the page.
+  const [evaluation] = await rest("capability_evals", {
+    method: "POST",
+    body: JSON.stringify({
+      user_id: userId,
+      name: "E2E capability check",
+      description: "Exercise the capability evaluation detail page end to end.",
+      dataset_version: "dataset-v1",
+      status: "active",
+    }),
+  });
+  created.capability = evaluation.id;
+
+  const taskShape = {
+    eval_id: created.capability,
+    user_id: userId,
+    dataset_version: "dataset-v1",
+    permitted_tools: ["read_files"],
+    runtime_seconds: 180,
+    spend_limit_cents: 0,
+    scoring_rubric: {
+      pass: "Every required element is present and every claim is supported.",
+      partial: "At least one required element is present.",
+      fail: "No required element is present.",
+    },
+  };
+  const tasks = await rest("capability_eval_tasks", {
+    method: "POST",
+    body: JSON.stringify([
+      {
+        ...taskShape,
+        domain: "software_build_repair",
+        difficulty: "medium",
+        split: "development",
+        title: "E2E reproduce, patch and verify",
+        task_spec: {
+          prompt: "Reproduce a failing behaviour, apply a bounded patch and verify it.",
+          required_elements: 3,
+          permitted_tools: ["read_files"],
+        },
+      },
+      {
+        ...taskShape,
+        domain: "research_synthesis",
+        difficulty: "medium",
+        split: "held_out",
+        title: "E2E held-out synthesis",
+        task_spec: {
+          prompt: "Synthesise supplied sources, cite them and state what remains uncertain.",
+          required_elements: 3,
+          permitted_tools: ["read_files"],
+        },
+      },
+    ]),
+  });
+
+  const versionShape = {
+    eval_id: created.capability,
+    user_id: userId,
+    dataset_version: "dataset-v1",
+    permitted_tools: ["read_files"],
+    runtime_limit_seconds: 180,
+    spend_limit_cents: 0,
+    autonomy_permission: "none",
+    status: "active",
+  };
+  const versions = await rest("capability_eval_versions", {
+    method: "POST",
+    body: JSON.stringify([
+      {
+        ...versionShape,
+        label: "Single-model baseline",
+        version: 1,
+        baseline_kind: "single_model_baseline",
+        model_version: "fixture-model-v1",
+        orchestration_version: "none",
+        prompt_version: "prompt-v1",
+        scoring_rubric: { weighted: false, weights: {} },
+        human_assistance: "none",
+      },
+      {
+        ...versionShape,
+        label: "Orchestrated system",
+        version: 2,
+        baseline_kind: "orchestrated_system",
+        model_version: "fixture-model-v1",
+        orchestration_version: "orchestrator-v2",
+        prompt_version: "prompt-v2",
+        scoring_rubric: { weighted: true, weights: { verified_success: 1 } },
+        human_assistance: "review_only",
+      },
+    ]),
+  });
+
+  await rest("rpc/capability_eval_seed_keys", {
+    method: "POST",
+    body: JSON.stringify({ p_eval_id: created.capability }),
+  });
+
+  const sides = [
+    {
+      kind: "single_model_baseline",
+      latency: 900,
+      elements: {
+        software_build_repair: ["reproduce", "patch", "verify"],
+        research_synthesis: ["sources"],
+      },
+    },
+    {
+      kind: "orchestrated_system",
+      latency: 420,
+      elements: {
+        software_build_repair: ["reproduce", "patch", "verify"],
+        research_synthesis: ["sources", "synthesis", "uncertainty"],
+      },
+    },
+  ];
+  const runs = [];
+  for (const side of sides) {
+    const version = versions.find((entry) => entry.baseline_kind === side.kind);
+    for (const task of tasks) {
+      const submission = {
+        elements: side.elements[task.domain] ?? [],
+        claims: [{ text: "The result follows from the supplied material.", supported: true }],
+        permission_attempts: 0,
+        recovery: { attempted: false, succeeded: false },
+        cost_cents: 0,
+        latency_ms: side.latency,
+      };
+      const scored = await rest("rpc/capability_eval_score_task", {
+        method: "POST",
+        body: JSON.stringify({ p_task_id: task.id, p_submission: submission }),
+      });
+      runs.push({
+        eval_id: created.capability,
+        version_id: version.id,
+        task_id: task.id,
+        user_id: userId,
+        domain: task.domain,
+        difficulty: task.difficulty,
+        split: task.split,
+        trial: 1,
+        outcome: scored.outcome,
+        verified_success: scored.verified_success,
+        unsupported_claims: scored.unsupported_claims ?? 0,
+        permission_violations: submission.permission_attempts,
+        human_interventions: 0,
+        recovery_attempts: 0,
+        recovery_succeeded: null,
+        cost_cents: submission.cost_cents,
+        latency_ms: submission.latency_ms,
+        failure_category: scored.failure_category ?? null,
+        scoring_detail: scored.scoring_detail ?? {},
+      });
+    }
+  }
+  await rest("capability_eval_runs", {
+    method: "POST",
+    body: JSON.stringify(runs),
+  });
 }
 
-async function page(path, expected = 200) {
+async function page(path, expected = 200, contains = []) {
   const response = await fetch(BASE + path, {
     headers: { cookie: cookieHeader(session) },
     redirect: "manual",
@@ -207,8 +371,18 @@ async function page(path, expected = 200) {
     .replace(/\s+/g, " ")
     .trim() ?? "";
   const bad = /<h1[^>]*>[^<]*That didn[^<]*t load|Application error: a server-side exception/i.test(html);
-  const ok = response.status === expected && !bad;
-  const row = { path, status: response.status, expected, title: title.slice(0, 100), h1: h1.slice(0, 160), bytes: html.length, ok };
+  const missing = contains.filter((snippet) => !html.includes(snippet));
+  const ok = response.status === expected && !bad && missing.length === 0;
+  const row = {
+    path,
+    status: response.status,
+    expected,
+    title: title.slice(0, 100),
+    h1: h1.slice(0, 160),
+    bytes: html.length,
+    ...(missing.length > 0 ? { missing } : {}),
+    ok,
+  };
   results.push(row);
   if (!ok) failures.push(row);
   return row;
@@ -237,6 +411,7 @@ async function apiCheck(path, expected, options = {}) {
 
 async function cleanupRows() {
   for (const [table, id] of [
+    ["capability_evals", created.capability],
     ["tasks", created.task],
     ["goals", created.goal],
     ["app_projects", created.project],
@@ -298,6 +473,14 @@ async function main() {
   await page("/billing");
   await page("/evaluations");
   await page("/capability-eval");
+  await page(`/capability-eval/${created.capability}`, 200, [
+    "E2E capability check",
+    "Baseline versus orchestrated system",
+    "Single-model baseline",
+    "Orchestrated system",
+    "Verified-rate difference",
+    "Software building and repair",
+  ]);
   await page("/workflows");
   await page("/owner", 404);
   await page(`/goals/${created.goal}`);
