@@ -1018,6 +1018,89 @@ describeKnowledge("phase 37 knowledge layer", () => {
     expect(ownerDecide.rows[0]?.result.ok).toBe(true);
   });
 
+  it("refuses the remaining mission-control actions from an outsider", async () => {
+    // The other four 0055 guards: claim, finish, cancel the mission, recover.
+    const missionWorkspace = randomUUID();
+    const missionId = randomUUID();
+    const jobId = randomUUID();
+    await client.query(
+      "insert into public.workspaces (id, name, created_by) values ($1,'Mission ladder workspace',$2)",
+      [missionWorkspace, userA],
+    );
+    await client.query(
+      "insert into public.workspace_members (workspace_id, user_id, role, status) values ($1,$2,'owner','active')",
+      [missionWorkspace, userA],
+    );
+    await client.query(
+      `insert into public.missions
+         (id, workspace_id, created_by, title, category, problem, stakeholders,
+          desired_outcome, constraints, status)
+       values ($1,$2,$3,'Mission ladder probe','community',
+               'A synthetic mission used to probe every mission-control guard.',
+               'Probe operators','Each guard refuses a caller from outside.',
+               '', 'active')`,
+      [missionId, missionWorkspace, userA],
+    );
+    await client.query(
+      `insert into public.mission_projects (mission_id, workspace_id, project_id, label, linked_by)
+       values ($1,$2,$3,'Ladder project link',$4)`,
+      [missionId, missionWorkspace, projectId, userA],
+    );
+    await client.query(
+      `insert into public.mission_agent_jobs
+         (id, mission_id, workspace_id, project_id, title, objective, role, dedupe_key, status)
+       values ($1,$2,$3,$4,'Ladder job','Prove every mission-control guard refuses an outsider.',
+               'coordinator','ladder-job','queued')`,
+      [jobId, missionId, missionWorkspace, projectId],
+    );
+
+    const denials: Array<[string, string, unknown[]]> = [
+      ["claim", "select public.mission_control_claim_job($1) as result", [jobId]],
+      ["finish", "select public.mission_control_finish_job($1,$2,$3) as result", [jobId, "completed", "outsider"]],
+      ["cancel mission", "select public.mission_control_cancel_mission($1) as result", [missionId]],
+      ["recover", "select public.mission_control_recover($1) as result", [missionId]],
+    ];
+    for (const [label, sql, args] of denials) {
+      const denied = await asF(() => client.query<{ result: { ok: boolean; code?: string } }>(sql, args));
+      expect({ label, result: denied.rows[0]?.result }).toMatchObject({
+        label,
+        result: { ok: false, code: "forbidden" },
+      });
+    }
+
+    const claimed = await asA(() =>
+      client.query<{ result: { ok: boolean } }>(
+        "select public.mission_control_claim_job($1) as result",
+        [jobId],
+      ),
+    );
+    expect(claimed.rows[0]?.result.ok).toBe(true);
+
+    const finished = await asA(() =>
+      client.query<{ result: { ok: boolean } }>(
+        "select public.mission_control_finish_job($1,$2,$3) as result",
+        [jobId, "completed", "the owner finishing the job"],
+      ),
+    );
+    expect(finished.rows[0]?.result.ok).toBe(true);
+
+    const cancelledMission = await asA(() =>
+      client.query<{ result: { ok: boolean } }>(
+        "select public.mission_control_cancel_mission($1) as result",
+        [missionId],
+      ),
+    );
+    expect(cancelledMission.rows[0]?.result.ok).toBe(true);
+
+    const recovered = await asA(() =>
+      client.query<{ result: { ok: boolean } }>(
+        "select public.mission_control_recover($1) as result",
+        [missionId],
+      ),
+    );
+    expect(recovered.rows[0]?.result.ok).toBe(true);
+  });
+
   it("removes a deleted account's workspace and its knowledge", async () => {
     await client.query("delete from auth.users where id = $1", [userB]);
 
