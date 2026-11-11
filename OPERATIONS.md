@@ -528,11 +528,13 @@ role guard, so a membership held in a variable that is not named `*role` is
 still caught; `--dir` points the same check at a fixture tree, which is how the
 rule is tested without editing the real migrations.
 
-`npm run check:nullable-guards` lists the guards that compare a parameter against
-a value set without a null check, such as `p_decision not in ('approved',
-'rejected')`. A null there skips a validation rather than granting access, so it
-is reported and does not fail the build; each one needs a decision about whether
-a column constraint already covers it.
+`npm run check:nullable-guards` fails when a guard compares a parameter, a local
+or an inequality against a value set without a null check, such as
+`p_decision not in ('approved', 'rejected')` or `p_status <> 'completed'`. A
+null there skips a validation rather than granting access, but the null then
+reaches the statement that follows, so `0056_nullable_validation_guards` makes
+each one reject a missing value explicitly instead of relying on a column
+constraint to catch it.
 
 ### Release record
 

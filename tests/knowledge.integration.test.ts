@@ -1101,6 +1101,37 @@ describeKnowledge("phase 37 knowledge layer", () => {
     expect(recovered.rows[0]?.result.ok).toBe(true);
   });
 
+  it("refuses a review decision that is missing rather than invalid", async () => {
+    // Regression for 0056: `p_decision not in ('approve','request_changes')` is
+    // NULL for a missing decision, so the check was skipped and the NULL reached
+    // the insert, where only a column constraint stopped it.
+    const freshChangeset = randomUUID();
+    await client.query(
+      `insert into public.app_changesets
+         (id, project_id, author_id, title, base_version, base_digest, base_files, files, status)
+       values ($1,$2,$3,'Decision probe',0,$4,$5::jsonb,$6::jsonb,'in_review')`,
+      [
+        freshChangeset,
+        projectId,
+        userE,
+        "b".repeat(32),
+        JSON.stringify([{ path: "app/page.tsx", content: "export default function Page() { return null; }" }]),
+        JSON.stringify([{ path: "app/page.tsx", content: "export default function Page() { return null; }" }]),
+      ],
+    );
+
+    const denied = await asD(() =>
+      failure(() =>
+        client.query("select public.review_app_changeset($1,$2,$3)", [
+          freshChangeset,
+          null,
+          "a missing decision",
+        ]),
+      ),
+    );
+    expect(denied).toMatch(/invalid review decision/);
+  });
+
   it("removes a deleted account's workspace and its knowledge", async () => {
     await client.query("delete from auth.users where id = $1", [userB]);
 
