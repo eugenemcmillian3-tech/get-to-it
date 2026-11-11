@@ -98,4 +98,8 @@ jobs:
       - name: Schema drift check
         run: npm run check:schema-drift
         env:
+          # Either a direct URL or the Management API with a project ref arms
+          # this check; with neither it reports that it compared nothing.
           SCHEMA_DRIFT_DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SUPABASE_MANAGEMENT_API: ${{ secrets.SUPABASE_MANAGEMENT_API }}
+          SCHEMA_DRIFT_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
