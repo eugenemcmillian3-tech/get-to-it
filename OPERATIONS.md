@@ -556,7 +556,8 @@ shipping a stale baseline.
 
 When a definition differs only in text, the drift report names both engines. A
 major-version difference (snapshot 18, production 17) means formatting alone can
-explain it; matching versions mean the change is real. Set
+explain it and the difference warns; matching versions mean the change is real and
+the check fails, because formatting is no longer an explanation. Set
 `SCHEMA_DRIFT_SNAPSHOT` to compare against an alternative snapshot file.
 
 `npm run check:nullable-guards` fails when a guard compares a parameter, a local
