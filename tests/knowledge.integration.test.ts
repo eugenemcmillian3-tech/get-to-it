@@ -1528,6 +1528,24 @@ describeKnowledge("phase 37 knowledge layer", () => {
     );
     expect(retracted.rowCount).toBe(1);
 
+    // Retraction hides the claim; the record and its evidence stay.
+    const retained = await asUser(client, owner, () =>
+      client.query<{
+        status: string;
+        protocol_document: string;
+        sample_size: number;
+        results: { verified_rate: number };
+      }>(
+        "select status, protocol_document, sample_size, results from public.capability_eval_human_baselines where id = $1",
+        [baselineId],
+      ),
+    );
+    expect(retained.rows).toHaveLength(1);
+    expect(retained.rows[0].status).toBe("retracted");
+    expect(retained.rows[0].sample_size).toBe(5);
+    expect(retained.rows[0].results.verified_rate).toBe(0.6);
+    expect(retained.rows[0].protocol_document).toContain("published rubric");
+
     // Even a role that can write the table cannot rewrite the evidence.
     expect(
       await failure(() =>
