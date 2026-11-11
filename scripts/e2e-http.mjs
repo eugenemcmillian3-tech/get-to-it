@@ -297,6 +297,7 @@ async function main() {
   await page("/credits");
   await page("/billing");
   await page("/evaluations");
+  await page("/capability-eval");
   await page("/workflows");
   await page("/owner", 404);
   await page(`/goals/${created.goal}`);
