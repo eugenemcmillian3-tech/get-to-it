@@ -554,6 +554,11 @@ definition differently.
 fails when the committed snapshot no longer matches the migrations instead of
 shipping a stale baseline.
 
+When a definition differs only in text, the drift report names both engines. A
+major-version difference (snapshot 18, production 17) means formatting alone can
+explain it; matching versions mean the change is real. Set
+`SCHEMA_DRIFT_SNAPSHOT` to compare against an alternative snapshot file.
+
 `npm run check:nullable-guards` fails when a guard compares a parameter, a local
 or an inequality against a value set without a null check, such as
 `p_decision not in ('approved', 'rejected')` or `p_status <> 'completed'`. A

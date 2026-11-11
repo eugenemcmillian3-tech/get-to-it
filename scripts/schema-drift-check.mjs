@@ -22,7 +22,9 @@ import path from "node:path";
 import pg from "pg";
 import { collectCatalog, diffCatalog } from "./schema-catalog.mjs";
 
-const DEFAULT_SNAPSHOT = path.join(process.cwd(), "supabase/schema.snapshot.json");
+const DEFAULT_SNAPSHOT = process.env.SCHEMA_DRIFT_SNAPSHOT
+  ? path.resolve(process.env.SCHEMA_DRIFT_SNAPSHOT)
+  : path.join(process.cwd(), "supabase/schema.snapshot.json");
 const MIGRATIONS = path.join(process.cwd(), "supabase/migrations");
 const DEFINITION =
   /create or replace function (public\.[a-z_0-9]+)\s*\(([\s\S]*?)\)\s*returns[\s\S]*?\$\$([\s\S]*?)\$\$;/g;
@@ -55,7 +57,9 @@ await client.connect();
 
 let catalog;
 let functionRows;
+let liveVersion = "";
 try {
+  ({ rows: [{ version: liveVersion }] } = await client.query("select version() as version"));
   catalog = await collectCatalog(client);
   ({ rows: functionRows } = await client.query(
     `select p.proname, p.prosrc
@@ -84,14 +88,33 @@ for (const [name, definition] of expectedFunctions) {
 
 let catalogDiff = [];
 let snapshotNote = "";
+let snapshotEngine = "";
 try {
   const snapshot = JSON.parse(readFileSync(DEFAULT_SNAPSHOT, "utf8"));
   catalogDiff = diffCatalog(snapshot, catalog);
-  if (snapshot.generatedWith) snapshotNote = ` (snapshot engine: ${snapshot.generatedWith.split(" on ")[0]})`;
+  snapshotEngine = snapshot.generatedWith ?? "";
+  if (snapshotEngine) snapshotNote = ` (snapshot engine: ${snapshotEngine.split(" on ")[0]})`;
 } catch (error) {
   console.error(`✖ could not read ${DEFAULT_SNAPSHOT}: ${(error).message}`);
   process.exit(1);
 }
+
+// The snapshot is generated on the embedded engine while production may run a
+// different major version, and a deparsed definition can be formatted
+// differently by the engine alone. Saying which case applies is the difference
+// between noise a reader learns to ignore and a change they should look at.
+const majorOf = (text) => {
+  const match = /PostgreSQL (\d+)/.exec(text ?? "");
+  return match ? Number(match[1]) : null;
+};
+const snapshotMajor = majorOf(snapshotEngine);
+const liveMajor = majorOf(liveVersion);
+const engineSkew = snapshotMajor !== null && liveMajor !== null && snapshotMajor !== liveMajor;
+const engineDetail = snapshotMajor === null || liveMajor === null
+  ? ""
+  : engineSkew
+    ? ` The engines differ (snapshot PostgreSQL ${snapshotMajor}, live PostgreSQL ${liveMajor}), so formatting alone can explain these.`
+    : ` Both sides report PostgreSQL ${liveMajor}, so these are real definition changes rather than formatting.`;
 
 const structural = catalogDiff.filter((entry) => entry.kind !== "changed");
 const changedDefinitions = catalogDiff.filter((entry) => entry.kind === "changed");
@@ -109,7 +132,8 @@ if (!failed) {
   if (changedDefinitions.length > 0) {
     console.log(
       `ℹ ${changedDefinitions.length} definition(s) differ only in text; `
-      + "set SCHEMA_DRIFT_STRICT_DEFS=1 to fail on those as well.",
+      + "set SCHEMA_DRIFT_STRICT_DEFS=1 to fail on those as well."
+      + engineDetail,
     );
   }
   process.exit(0);
@@ -130,7 +154,7 @@ if (structural.length > 0) {
 if (changedDefinitions.length > 0) {
   const label = strictDefs ? "✖" : "ℹ";
   console.error(
-    `${label} ${changedDefinitions.length} definition(s) differ in text${snapshotNote}:`,
+    `${label} ${changedDefinitions.length} definition(s) differ in text${snapshotNote}${engineDetail}:`,
   );
   for (const entry of changedDefinitions.slice(0, 20)) console.error(`    ${entry.section}: ${entry.key}`);
   if (!strictDefs) console.error("    Set SCHEMA_DRIFT_STRICT_DEFS=1 to treat these as drift.");
