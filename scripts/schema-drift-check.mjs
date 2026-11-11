@@ -19,9 +19,16 @@ import path from "node:path";
 import pg from "pg";
 
 const connectionString = process.env.SCHEMA_DRIFT_DATABASE_URL ?? process.env.DATABASE_URL;
+const required = process.env.SCHEMA_DRIFT_REQUIRED === "1";
 if (!connectionString) {
-  console.log("ℹ SCHEMA_DRIFT_DATABASE_URL is not set; skipping the schema drift check.");
-  process.exit(0);
+  const message = "SCHEMA_DRIFT_DATABASE_URL is not set, so nothing was compared.";
+  if (process.env.GITHUB_ACTIONS === "true") {
+    // Surfaces in the run summary instead of passing silently.
+    console.log(`::warning title=Schema drift check::${message} Add a database URL secret to arm it.`);
+  } else {
+    console.log(`ℹ ${message} Add a database URL to compare.`);
+  }
+  process.exit(required ? 1 : 0);
 }
 
 const MIGRATIONS = path.join(process.cwd(), "supabase/migrations");

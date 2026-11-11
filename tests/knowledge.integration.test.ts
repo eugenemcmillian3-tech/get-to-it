@@ -1147,6 +1147,14 @@ describeKnowledge("phase 37 knowledge layer", () => {
     expect(clean.stderr).toBe("");
     expect(clean.stdout).toMatch(/no drift/);
 
+    // A check that cannot run must not look like a check that passed.
+    const unarmed = spawnSync(process.execPath, ["scripts/schema-drift-check.mjs"], {
+      encoding: "utf8",
+      env: { ...process.env, SCHEMA_DRIFT_DATABASE_URL: "", DATABASE_URL: "", SCHEMA_DRIFT_REQUIRED: "1" },
+    });
+    expect(unarmed.status).toBe(1);
+    expect(unarmed.stdout).toMatch(/nothing was compared/);
+
     const original = await client.query<{ def: string }>(
       "select pg_get_functiondef('public.mission_control_recover(uuid)'::regprocedure) as def",
     );
