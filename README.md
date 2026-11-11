@@ -1870,6 +1870,13 @@ holding nothing. Nothing was deployed: the orchestration routes start working
 only once this branch is merged and built, and no prototype was generated,
 published or measured, and no external action was performed.
 
+`0049_phase36_plan_window` follows it: `0048` allowed a plan to be inserted only
+while an orchestration was `draft` or `awaiting_approval`, but the page offers
+"Draft the bounded plan" as soon as a contract is approved, which is `ready`, so
+the ordinary create-submit-approve-plan flow always failed. The window now runs
+through `ready` and stops at execution; the approved contract, the task guard and
+the reservation ceiling are unchanged.
+
 The file was executed first against a disposable PostgreSQL 18 instance with the
 Supabase-provided objects stubbed: the DDL applied and re-applied cleanly, and 56
 RLS/RPC checks passed for cross-tenant access, contract approval, budget
