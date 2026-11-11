@@ -658,7 +658,7 @@ async function main() {
   ]);
 
   // A recorded human baseline is shown only with its documented protocol.
-  await rest("capability_eval_human_baselines", {
+  const [baseline] = await rest("capability_eval_human_baselines", {
     method: "POST",
     body: JSON.stringify({
       eval_id: created.capability,
@@ -675,6 +675,26 @@ async function main() {
     "participant(s)",
     "collected by",
     "E2E reviewer panel",
+  ]);
+
+  // The recorded protocol is not editable; only the status may change.
+  await expectRefusal(
+    () =>
+      rest(`capability_eval_human_baselines?id=eq.${baseline.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ protocol_document: "rewritten" }),
+      }),
+    /permission denied|immutable/i,
+    "a recorded human baseline was edited",
+  );
+
+  await rest(`capability_eval_human_baselines?id=eq.${baseline.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status: "retracted" }),
+  });
+  // A retracted baseline is not shown as if it still stood.
+  await page(`/capability-eval/${created.capability}`, 200, [
+    "No human results were collected under a documented protocol",
   ]);
   await page("/workflows");
   await page("/owner", 404);

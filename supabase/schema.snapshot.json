@@ -1074,6 +1074,15 @@
       "check": "((user_id = ( SELECT auth.uid() AS uid)) AND (EXISTS ( SELECT 1 FROM capability_evals e WHERE ((e.id = capability_eval_human_baselines.eval_id) AND (e.user_id = ( SELECT auth.uid() AS uid))))))"
     },
     {
+      "key": "capability_eval_human_baselines.owners retract human baselines",
+      "table": "capability_eval_human_baselines",
+      "name": "owners retract human baselines",
+      "cmd": "UPDATE",
+      "roles": "{authenticated}",
+      "qual": "(user_id = ( SELECT auth.uid() AS uid))",
+      "check": "(user_id = ( SELECT auth.uid() AS uid))"
+    },
+    {
       "key": "capability_eval_runs.owners read capability runs",
       "table": "capability_eval_runs",
       "name": "owners read capability runs",

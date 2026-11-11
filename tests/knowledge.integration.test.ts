@@ -1480,6 +1480,65 @@ describeKnowledge("phase 37 knowledge layer", () => {
     expect(await failure(() => insertRun(3, 0, 60_001))).toMatch(/time limit/i);
   });
 
+  it("lets a recorded human baseline be retracted but never edited", async () => {
+    const owner = randomUUID();
+    const evalId = randomUUID();
+    await client.query("insert into auth.users (id, email) values ($1, $2)", [
+      owner,
+      `cap-baseline-${owner}@example.test`,
+    ]);
+
+    let baselineId = "";
+    await asUser(client, owner, async () => {
+      await client.query(
+        "insert into public.capability_evals (id, user_id, name, status) values ($1, $2, $3, 'active')",
+        [evalId, owner, "Phase 38 baseline"],
+      );
+      const baseline = await client.query<{ id: string }>(
+        `insert into public.capability_eval_human_baselines
+           (eval_id, user_id, domain, protocol_document, collected_by, sample_size, results)
+         values ($1, $2, 'software_build_repair', $3, 'E2E panel', 5, '{"verified_rate": 0.6}'::jsonb)
+         returning id`,
+        [
+          evalId,
+          owner,
+          "Two reviewers scored twenty recorded attempts against the published rubric before any results were recorded.",
+        ],
+      );
+      baselineId = baseline.rows[0].id;
+    });
+
+    // The recorded protocol cannot be rewritten, by grant or by trigger.
+    expect(
+      await failure(() =>
+        asUser(client, owner, () =>
+          client.query(
+            "update public.capability_eval_human_baselines set protocol_document = 'rewritten' where id = $1",
+            [baselineId],
+          ),
+        ),
+      ),
+    ).toMatch(/permission denied|immutable/i);
+
+    const retracted = await asUser(client, owner, () =>
+      client.query(
+        "update public.capability_eval_human_baselines set status = 'retracted' where id = $1",
+        [baselineId],
+      ),
+    );
+    expect(retracted.rowCount).toBe(1);
+
+    // Even a role that can write the table cannot rewrite the evidence.
+    expect(
+      await failure(() =>
+        client.query(
+          "update public.capability_eval_human_baselines set sample_size = 9 where id = $1",
+          [baselineId],
+        ),
+      ),
+    ).toMatch(/immutable/i);
+  });
+
   it("removes a deleted account's workspace and its knowledge", async () => {
     await client.query("delete from auth.users where id = $1", [userB]);
 
