@@ -7,10 +7,11 @@
  * against, so it must be regenerated whenever a migration changes one of those
  * objects. `npm run test:knowledge` fails when the committed snapshot is stale.
  *
- * Usage: npm run schema:snapshot
+ * Usage: npm run schema:snapshot            # write the snapshot
+ *        npm run schema:snapshot -- --check  # fail if the committed snapshot is stale
  */
 
-import { rm, writeFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import EmbeddedPostgres from "embedded-postgres";
 import pg from "pg";
@@ -19,7 +20,11 @@ import { collectCatalog } from "./schema-catalog.mjs";
 const DATA_DIR = path.join(process.cwd(), ".schema-snapshot-data");
 const PORT = Number(process.env.SCHEMA_SNAPSHOT_PORT ?? 55441);
 const DATABASE = "knowledge_test";
-const OUTPUT = path.join(process.cwd(), "supabase/schema.snapshot.json");
+const snapshotFlag = process.argv.indexOf("--snapshot");
+const OUTPUT = snapshotFlag === -1
+  ? path.join(process.cwd(), "supabase/schema.snapshot.json")
+  : path.resolve(process.argv[snapshotFlag + 1]);
+const checkOnly = process.argv.includes("--check");
 
 async function bootstrap(client) {
   await client.query(`
@@ -106,6 +111,30 @@ async function main() {
         generatedWith: version,
         ...catalog,
       };
+
+      if (checkOnly) {
+        // A stale snapshot would make the drift check compare against the wrong
+        // expectations, so a release must not ship with one.
+        let committed = null;
+        try {
+          committed = JSON.parse(await readFile(OUTPUT, "utf8"));
+        } catch {
+          console.error(`✖ ${OUTPUT} is missing or unreadable; run npm run schema:snapshot.`);
+          process.exitCode = 1;
+          return;
+        }
+        const same = ["policies", "constraints", "indexes"].every(
+          (section) => JSON.stringify(committed[section]) === JSON.stringify(payload[section]),
+        );
+        if (same) {
+          console.log(`✔ ${OUTPUT} matches the migrations (${catalog.policies.length} policies, ${catalog.constraints.length} constraints, ${catalog.indexes.length} indexes).`);
+        } else {
+          console.error(`✖ ${OUTPUT} is stale; run npm run schema:snapshot and commit the result.`);
+          process.exitCode = 1;
+        }
+        return;
+      }
+
       await writeFile(OUTPUT, JSON.stringify(payload, null, 2) + "\n");
       console.log(
         `wrote ${OUTPUT}: ${catalog.policies.length} policies, ${catalog.constraints.length} constraints, ${catalog.indexes.length} indexes`,

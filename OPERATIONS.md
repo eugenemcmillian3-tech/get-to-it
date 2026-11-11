@@ -550,6 +550,10 @@ definition that differs only in text is reported rather than failed unless
 embedded engine and a different PostgreSQL major version can format a deparsed
 definition differently.
 
+`npm run release:check` includes `schema-snapshot.mjs --check`, so a release
+fails when the committed snapshot no longer matches the migrations instead of
+shipping a stale baseline.
+
 `npm run check:nullable-guards` fails when a guard compares a parameter, a local
 or an inequality against a value set without a null check, such as
 `p_decision not in ('approved', 'rejected')` or `p_status <> 'completed'`. A
