@@ -309,6 +309,35 @@ cannot be pointed at the live project by accident. It needs the `embedded-postgr
 development dependency; if it cannot start in a restricted environment, the drill
 is reported as not run rather than assumed to pass.
 
+### Phase 37 knowledge harness
+
+```bash
+npm run test:knowledge
+```
+
+`scripts/knowledge-harness.mjs` starts its own embedded Postgres in
+`.knowledge-data/`, creates a database named `knowledge_test`, replays every
+migration, and runs `tests/knowledge.integration.test.ts`. It reads no project
+URL or service key, and the test refuses to run unless `current_database()`
+contains `knowledge_test` on a local host, so it cannot reach the hosted project.
+
+The harness checks the rules the migrations enforce, not the interface:
+
+- the seven knowledge tables exist with RLS on and clients hold `SELECT` only;
+- verification needs a written basis and refuses AI suggestions and hypotheses;
+- one workspace's entries, evidence and retrieval stay invisible to another;
+- a transfer proposal is visible to both workspaces only, and only an owner or
+  admin of the target may approve it, including the NULL-role case that 0052
+  fixed, where a non-member's approval used to succeed;
+- a non-member cannot purge another workspace's entries;
+- superseding records both version links, and a retraction marks the linked
+  recommendation invalid and drops the entry out of retrieval while the approved
+  copy in the other workspace keeps standing;
+- retention purge deletes linked versions, and deleting a workspace clears the
+  `transferred_from` link instead of raising (the case 0053 fixed);
+- client roles cannot write, recorded evidence cannot be deleted, and deleting an
+  account removes its workspace and knowledge.
+
 ## Account controls
 
 Deleting an account from **Settings** removes the `auth.users` row. Cascades do the

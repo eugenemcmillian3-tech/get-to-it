@@ -21,8 +21,9 @@ next-env.d.ts
 npm-debug.log*
 /coverage
 
-# Isolated restore drill data
+# Isolated restore drill and Phase 37 harness data
 .restore-data/
+.knowledge-data/
 .vercel
 .env*
 

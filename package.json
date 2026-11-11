@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:restore": "node scripts/restore-check.mjs",
+    "test:knowledge": "node scripts/knowledge-harness.mjs",
     "test:e2e": "node scripts/e2e-http.mjs",
     "test:functional": "node scripts/e2e-functional.mjs",
     "test:seats": "node scripts/e2e-team-seats.mjs",
