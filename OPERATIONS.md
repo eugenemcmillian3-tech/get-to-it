@@ -540,6 +540,16 @@ the workflow already maps to that variable; until it exists, the step reports
 stored-body drifts left by the `pg_get_functiondef` migrations, so it is worth
 arming.
 
+The same check compares row-level security policies, constraints and indexes
+against `supabase/schema.snapshot.json`. Regenerate that file with
+`npm run schema:snapshot` whenever a migration adds, drops or alters one of those
+objects; `npm run test:knowledge` fails if the committed snapshot no longer
+matches a fresh replay. An object present on only one side always fails. A
+definition that differs only in text is reported rather than failed unless
+`SCHEMA_DRIFT_STRICT_DEFS=1` is set, because the snapshot is generated on the
+embedded engine and a different PostgreSQL major version can format a deparsed
+definition differently.
+
 `npm run check:nullable-guards` fails when a guard compares a parameter, a local
 or an inequality against a value set without a null check, such as
 `p_decision not in ('approved', 'rejected')` or `p_status <> 'completed'`. A

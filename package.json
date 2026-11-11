@@ -26,7 +26,8 @@
     "check:vercel-aliases": "node --env-file-if-exists=.env.local scripts/vercel-alias-inventory.mjs",
     "release:check": "node scripts/release-check.mjs",
     "check:nullable-guards": "node scripts/sql-role-guard-audit.mjs --validation --strict-validation",
-    "check:schema-drift": "node scripts/schema-drift-check.mjs"
+    "check:schema-drift": "node scripts/schema-drift-check.mjs",
+    "schema:snapshot": "node scripts/schema-snapshot.mjs"
   },
   "dependencies": {
     "@composio/core": "0.28.0",

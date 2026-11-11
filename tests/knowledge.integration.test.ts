@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { Client } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -1169,6 +1170,31 @@ describeKnowledge("phase 37 knowledge layer", () => {
     expect(tampered.stderr).toMatch(/differ from the migrations/);
 
     await client.query(original.rows[0]?.def ?? "");
+    expect(run().stdout).toMatch(/no drift/);
+
+    // The committed snapshot must describe the migrations exactly, or a clean
+    // drift result would be measured against stale expectations.
+    const catalogRun = spawnSync(process.execPath, ["scripts/schema-drift-check.mjs", "--print-catalog"], {
+      encoding: "utf8",
+      maxBuffer: 40 * 1024 * 1024,
+      env: { ...process.env, SCHEMA_DRIFT_DATABASE_URL: connectionString },
+    });
+    const live = JSON.parse(catalogRun.stdout);
+    const committed = JSON.parse(readFileSync("supabase/schema.snapshot.json", "utf8"));
+    expect(live).toEqual({
+      policies: committed.policies,
+      constraints: committed.constraints,
+      indexes: committed.indexes,
+    });
+
+    // An object the migrations do not create is structural drift.
+    await client.query(
+      "create policy drift_probe on public.workspaces as restrictive for select to anon using (false)",
+    );
+    const structural = run();
+    expect(structural.status).toBe(1);
+    expect(structural.stderr).toMatch(/drift_probe/);
+    await client.query("drop policy drift_probe on public.workspaces");
     expect(run().stdout).toMatch(/no drift/);
   });
 
