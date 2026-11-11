@@ -29,9 +29,14 @@ describeKnowledge("phase 37 knowledge layer", () => {
   const userA = randomUUID();
   const userB = randomUUID();
   const userC = randomUUID();
+  const userD = randomUUID();
+  const userE = randomUUID();
+  const userF = randomUUID();
   const workspaceA = randomUUID();
   const workspaceB = randomUUID();
   const experimentId = randomUUID();
+  const projectId = randomUUID();
+  const changesetId = randomUUID();
 
   let claimId = "";
   let evidenceId = "";
@@ -45,6 +50,8 @@ describeKnowledge("phase 37 knowledge layer", () => {
   const asA = <T>(run: () => Promise<T>) => asUser(client, userA, run);
   const asB = <T>(run: () => Promise<T>) => asUser(client, userB, run);
   const asC = <T>(run: () => Promise<T>) => asUser(client, userC, run);
+  const asD = <T>(run: () => Promise<T>) => asUser(client, userD, run);
+  const asF = <T>(run: () => Promise<T>) => asUser(client, userF, run);
 
   async function failure(run: () => Promise<unknown>): Promise<string> {
     try {
@@ -91,7 +98,7 @@ describeKnowledge("phase 37 knowledge layer", () => {
     await bootstrapSupabase(client);
     await replayMigrations(client);
 
-    for (const userId of [userA, userB, userC]) {
+    for (const userId of [userA, userB, userC, userD, userE, userF]) {
       await client.query("insert into auth.users (id, email) values ($1,$2)", [
         userId,
         `phase37-${userId.slice(0, 8)}@example.test`,
@@ -112,6 +119,35 @@ describeKnowledge("phase 37 knowledge layer", () => {
         [workspaceId, owner],
       );
     }
+
+    // Phase 28 build room fixtures: a project owned by D, a changeset authored by
+    // E, and F who has no role in the project at all.
+    await client.query(
+      `insert into public.app_projects
+         (id, user_id, name, purpose, target_users, workflows, required_pages, entities,
+          auth_requirements, integrations, definition_of_done)
+       values ($1,$2,'Build room probe','A synthetic project used to probe project roles.',
+               'Probe operators','Record one probe','/ | Home','','none','',
+               'A probe record exists')`,
+      [projectId, userD],
+    );
+    await client.query(
+      "insert into public.app_project_members (project_id, user_id, role, status) values ($1,$2,'owner','active')",
+      [projectId, userD],
+    );
+    await client.query(
+      `insert into public.app_changesets
+         (id, project_id, author_id, title, base_version, base_digest, base_files, files, status)
+       values ($1,$2,$3,'Probe changeset',0,$4,$5::jsonb,$6::jsonb,'in_review')`,
+      [
+        changesetId,
+        projectId,
+        userE,
+        "a".repeat(32),
+        JSON.stringify([{ path: "app/page.tsx", content: "export default function Page() { return null; }" }]),
+        JSON.stringify([{ path: "app/page.tsx", content: "export default function Page() { return null; }" }]),
+      ],
+    );
 
     await client.query(
       `insert into public.experiments
@@ -816,6 +852,70 @@ describeKnowledge("phase 37 knowledge layer", () => {
       [entryId],
     );
     expect(impact.rows[0]?.invalidated_at).not.toBeNull();
+  });
+
+  it("refuses build-room actions from someone with no project role", async () => {
+    // Regression for 0054: app_project_role() is NULL for a non-member, so the
+    // guard `v_role not in (...)` used to fall through and permit the caller.
+    const task = await asF(() =>
+      failure(() =>
+        client.query("select public.create_app_build_task($1,$2,$3,$4,$5,$6)", [
+          projectId,
+          "Task from a stranger",
+          "A build task created without any role in this project.",
+          "human",
+          null,
+          null,
+        ]),
+      ),
+    );
+    expect(task).toMatch(/contributor access required/);
+
+    const owned = await asD(() =>
+      client.query<{ id: string }>(
+        "select public.create_app_build_task($1,$2,$3,$4,$5,$6) as id",
+        [
+          projectId,
+          "Task from the owner",
+          "A build task created by someone with a real project role.",
+          "human",
+          null,
+          null,
+        ],
+      ),
+    );
+    expect(owned.rows[0]?.id).toMatch(/^[0-9a-f-]{36}$/);
+
+    const review = await asF(() =>
+      failure(() =>
+        client.query("select public.review_app_changeset($1,$2,$3)", [
+          changesetId,
+          "approve",
+          "an outsider approving a changeset",
+        ]),
+      ),
+    );
+    expect(review).toMatch(/reviewer access required/);
+
+    await asD(() =>
+      client.query("select public.review_app_changeset($1,$2,$3)", [
+        changesetId,
+        "approve",
+        "The project owner reviewed the probe changeset.",
+      ]),
+    );
+    const decided = await client.query<{ status: string }>(
+      "select status from public.app_changesets where id = $1",
+      [changesetId],
+    );
+    expect(decided.rows[0]?.status).toBe("approved");
+
+    const link = await asD(() =>
+      failure(() =>
+        client.query("select public.link_app_workspace($1,$2)", [projectId, workspaceB]),
+      ),
+    );
+    expect(link).toMatch(/workspace owner or admin required/);
   });
 
   it("removes a deleted account's workspace and its knowledge", async () => {

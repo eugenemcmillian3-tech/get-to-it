@@ -22,6 +22,7 @@
     "owner:grant": "node scripts/grant-owner.mjs",
     "check:secrets": "node scripts/secrets-check.mjs",
     "check:routes": "node scripts/route-audit.mjs",
+    "check:role-guards": "node scripts/sql-role-guard-audit.mjs",
     "check:vercel-aliases": "node --env-file-if-exists=.env.local scripts/vercel-alias-inventory.mjs",
     "release:check": "node scripts/release-check.mjs"
   },

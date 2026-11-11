@@ -82,3 +82,8 @@ jobs:
       # isolation and account deletion. Also runs on its own embedded Postgres.
       - name: Restore and authorization drill
         run: npm run test:restore
+
+      # Static check over the latest function definitions: a role guard that can
+      # pass when the caller has no role fails the build.
+      - name: Role guard audit
+        run: npm run check:role-guards
