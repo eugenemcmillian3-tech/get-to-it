@@ -103,3 +103,6 @@ jobs:
           SCHEMA_DRIFT_DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}
           SUPABASE_MANAGEMENT_API: ${{ secrets.SUPABASE_MANAGEMENT_API }}
           SCHEMA_DRIFT_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          # Required: without a credential this step fails instead of
+          # reporting that it compared nothing.
+          SCHEMA_DRIFT_REQUIRED: "1"

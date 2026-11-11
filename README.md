@@ -206,8 +206,10 @@ The schema drift check is armed in either of two ways: `SUPABASE_DB_URL` for a
 direct connection, or `SUPABASE_MANAGEMENT_API` together with
 `SUPABASE_PROJECT_REF` for a host that cannot open a database connection. A
 direct connection that fails authentication falls back to the API and says so.
-With no credential it prints that it compared nothing, and
-`SCHEMA_DRIFT_REQUIRED=1` turns that into a failure. Functions are compared by
+CI sets `SCHEMA_DRIFT_REQUIRED=1`, so a run with neither credential fails
+instead of reporting that it compared nothing: add `SUPABASE_MANAGEMENT_API`
+and `SUPABASE_PROJECT_REF` as repository secrets (or `SUPABASE_DB_URL` for a
+direct connection), and keep them current. Functions are compared by
 behaviour, so explanatory comments and whitespace do not count as drift;
 `SCHEMA_DRIFT_STRICT_DEFS=1` also fails on a text-only change in a policy,
 constraint or index definition.
