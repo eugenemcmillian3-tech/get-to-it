@@ -507,6 +507,22 @@ has a scheduled smoke test; it is not a full deliverability or reputation audit.
 The secret scan is a pattern check on tracked files; it is not a security audit,
 and passing it does not mean the deployment is secure.
 
+
+### Role lookups and compound guards
+
+The audit also resolves the two shapes the first pass could not see: a role
+lookup call (`public.workspace_role(...)`, `public.app_project_role(...)`, which
+returns NULL for a caller who is not a member) and a compound condition
+(`if kind = 'agent' and v_role not in (...)`). A NULL role in either makes the
+whole condition NULL, so the guard never runs.
+
+`0055_phase28_null_role_lookup_guards` fixes the eleven sites that remained. A
+stranger could create a changeset or a share link in any project, submit or
+cancel a changeset they did not author, and any signed-in user could claim,
+finish, cancel or recover another workspace's mission jobs and decide its
+approvals. Each guard now reads `(role is null or role not in (...))`, with the
+parentheses added so compound precedence is unchanged.
+
 ### Release record
 
 Use the **Release record** GitHub issue template, or copy this table into the

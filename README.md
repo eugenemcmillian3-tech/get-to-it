@@ -1990,6 +1990,13 @@ merge or rebase a changeset, and link a project into a workspace they were not a
 member of. The build-room guards now reject a null role, and
 `npm run check:role-guards` fails CI if any function reintroduces the pattern.
 
+`0055_phase28_null_role_lookup_guards` closes the two shapes the first audit pass
+could not see: a role lookup (`workspace_role(...)`, `app_project_role(...)`,
+which is NULL for a caller who is not a member) and a compound condition whose
+role half is NULL. It covers eleven guards, including a stranger creating a
+changeset or share link in any project and any signed-in user cancelling another
+workspace's mission job.
+
 Checks run for this phase: `tsc --noEmit`, `eslint` on the new files, the full
 `vitest run` (930 passing) including the new pure-rule suite in
 `tests/knowledge.test.ts` (validity, promotion refusal, verification
