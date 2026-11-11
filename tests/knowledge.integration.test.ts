@@ -1153,7 +1153,17 @@ describeKnowledge("phase 37 knowledge layer", () => {
     // A check that cannot run must not look like a check that passed.
     const unarmed = spawnSync(process.execPath, ["scripts/schema-drift-check.mjs"], {
       encoding: "utf8",
-      env: { ...process.env, SCHEMA_DRIFT_DATABASE_URL: "", DATABASE_URL: "", SCHEMA_DRIFT_REQUIRED: "1" },
+      env: {
+        ...process.env,
+        SCHEMA_DRIFT_DATABASE_URL: "",
+        DATABASE_URL: "",
+        // A configured Management API credential arms the check too, so an
+        // "unarmed" run has to clear it alongside the direct URL.
+        SUPABASE_MANAGEMENT_API: "",
+        SCHEMA_DRIFT_PROJECT_REF: "",
+        SUPABASE_PROJECT_REF: "",
+        SCHEMA_DRIFT_REQUIRED: "1",
+      },
     });
     expect(unarmed.status).toBe(1);
     expect(unarmed.stdout).toMatch(/nothing was compared/);

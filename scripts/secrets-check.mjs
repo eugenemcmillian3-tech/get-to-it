@@ -30,7 +30,13 @@ const ALLOW = [
   /^scripts\/secrets-check\.mjs$/,
 ];
 
-const files = execFileSync("git", ["ls-files", "-z"], { encoding: "utf8" })
+// Scoped to this repository: a checkout owned by another user, as in a shared
+// sandbox, otherwise makes git refuse to list files at all.
+const files = execFileSync(
+  "git",
+  ["-c", `safe.directory=${process.cwd()}`, "ls-files", "-z"],
+  { encoding: "utf8" },
+)
   .split("\0")
   .filter(Boolean)
   .filter((file) => !ALLOW.some((pattern) => pattern.test(file)));
