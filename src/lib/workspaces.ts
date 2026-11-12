@@ -325,6 +325,7 @@ export const DEFAULT_NOTIFICATION_PREFS: WorkspaceNotificationPrefs = {
   notify_assignments: true,
   notify_comments: true,
   notify_membership: true,
+  notify_incidents: true,
 };
 
 export function normalizeNotificationPrefs(
@@ -334,6 +335,7 @@ export function normalizeNotificationPrefs(
     notify_assignments: row?.notify_assignments ?? true,
     notify_comments: row?.notify_comments ?? true,
     notify_membership: row?.notify_membership ?? true,
+    notify_incidents: row?.notify_incidents ?? true,
   };
 }
 
@@ -446,6 +448,7 @@ export const notificationPrefsSchema = z.object({
   assignments: z.boolean(),
   comments: z.boolean(),
   membership: z.boolean(),
+  incidents: z.boolean(),
 });
 
 export function normalizedAssignee(value: string): string | null {

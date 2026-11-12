@@ -314,7 +314,12 @@ export function NotificationPrefsForm({
   prefs,
 }: {
   workspaceId: string;
-  prefs: { notify_assignments: boolean; notify_comments: boolean; notify_membership: boolean };
+  prefs: {
+    notify_assignments: boolean;
+    notify_comments: boolean;
+    notify_membership: boolean;
+    notify_incidents: boolean;
+  };
 }) {
   const [state, formAction] = useActionState(setNotificationPrefsAction, idleFormState);
 
@@ -334,6 +339,12 @@ export function NotificationPrefsForm({
           defaultChecked={prefs.notify_comments}
           title="Comments"
           description="When someone comments on a task you are assigned or created."
+        />
+        <PrefToggle
+          id="notify_incidents"
+          defaultChecked={prefs.notify_incidents}
+          title="Stale incidents"
+          description="When a promoted deployment has an incident open for more than a day."
         />
         <PrefToggle
           id="notify_membership"

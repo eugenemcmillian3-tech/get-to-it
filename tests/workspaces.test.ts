@@ -397,6 +397,7 @@ describe("notification preferences", () => {
       notify_assignments: true,
       notify_comments: false,
       notify_membership: true,
+      notify_incidents: true,
     });
   });
 
@@ -406,6 +407,7 @@ describe("notification preferences", () => {
         assignments: false,
         comments: false,
         membership: false,
+        incidents: false,
       }).success,
     ).toBe(true);
   });

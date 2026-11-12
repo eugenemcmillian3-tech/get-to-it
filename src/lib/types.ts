@@ -506,7 +506,8 @@ export type WorkspaceNotificationKind =
   | "assigned"
   | "comment"
   | "role_changed"
-  | "member_joined";
+  | "member_joined"
+  | "incident_stale";
 
 export type WorkspaceNotification = {
   id: string;
@@ -514,6 +515,7 @@ export type WorkspaceNotification = {
   kind: WorkspaceNotificationKind;
   goal_id: string | null;
   task_id: string | null;
+  incident_id?: string | null;
   summary: string;
   read_at: string | null;
   created_at: string;
@@ -523,6 +525,7 @@ export type WorkspaceNotificationPrefs = {
   notify_assignments: boolean;
   notify_comments: boolean;
   notify_membership: boolean;
+  notify_incidents: boolean;
 };
 
 export type WorkspaceEventKind =
