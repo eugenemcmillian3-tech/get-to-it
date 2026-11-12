@@ -3384,4 +3384,75 @@ describeKnowledge("improvement proposals", () => {
     );
     expect(outsider.rows[0].result).toMatchObject({ ok: false, code: "no-workspace" });
   });
+
+  it("carries open incidents until they are resolved or dismissed", async () => {
+    type Liveness = {
+      result: {
+        ok: boolean;
+        deployments: {
+          candidate_id: string;
+          open_incident_count: number | null;
+          open_incident_title: string | null;
+          open_incident_severity: string | null;
+        }[];
+      };
+    };
+    const read = () =>
+      asUser(client, reviewer, () =>
+        client.query<Liveness>("select public.improvement_promotion_liveness($1) as result", [
+          workspaceId,
+        ]),
+      );
+    const forCandidate = (rows: Liveness[]) =>
+      rows[0].result.deployments.find((row) => row.candidate_id === ids.better);
+
+    const release = await client.query<{ id: string }>(
+      `insert into public.app_releases (project_id, user_id, version, deployment_id, source_digest)
+       values ($1,$2,901,$3,$4) returning id`,
+      [projectId, owner, deploymentIds.approved, "e".repeat(64)],
+    );
+    const incident = (title: string, severity: string, status: string) =>
+      client.query(
+        `insert into public.app_release_incidents
+           (project_id, release_id, deployment_id, user_id, title, trigger, severity, status, evidence)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,'[{"kind":"log","detail":"observed in the first hour"}]'::jsonb)`,
+        [
+          projectId,
+          release.rows[0].id,
+          deploymentIds.approved,
+          owner,
+          title,
+          "The release check observed the failure.",
+          severity,
+          status,
+        ],
+      );
+
+    await incident("Sends are slow but succeeding", "medium", "diagnosed");
+    await incident("Sends are failing outright", "critical", "evidence_collected");
+
+    const both = forCandidate((await read()).rows);
+    expect(both).toMatchObject({
+      open_incident_count: 2,
+      open_incident_title: "Sends are failing outright",
+      open_incident_severity: "critical",
+    });
+
+    await client.query(
+      "update public.app_release_incidents set status = 'resolved', resolved_at = now() where title = $1",
+      ["Sends are failing outright"],
+    );
+    expect(forCandidate((await read()).rows)).toMatchObject({
+      open_incident_count: 1,
+      open_incident_title: "Sends are slow but succeeding",
+      open_incident_severity: "medium",
+    });
+
+    await client.query(
+      "update public.app_release_incidents set status = 'dismissed' where title = $1",
+      ["Sends are slow but succeeding"],
+    );
+    const quiet = forCandidate((await read()).rows);
+    expect(quiet).toMatchObject({ open_incident_count: 0, open_incident_title: null });
+  });
 });

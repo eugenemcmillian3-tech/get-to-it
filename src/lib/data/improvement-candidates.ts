@@ -219,6 +219,15 @@ export type PromotionAuditRow = {
     created_at: string;
   } | null;
   state: PromotionState;
+  openIncidents: PromotionOpenIncident | null;
+};
+
+export type PromotionOpenIncident = {
+  count: number;
+  title: string;
+  severity: "low" | "medium" | "high" | "critical";
+  status: string;
+  opened_at: string;
 };
 
 export type PromotionAudit = {
@@ -319,6 +328,11 @@ export async function listPromotionAudit(
     rollback_resolved_at: string | null;
     later_target: string | null;
     later_created_at: string | null;
+    open_incident_count: number | null;
+    open_incident_title: string | null;
+    open_incident_severity: string | null;
+    open_incident_status: string | null;
+    open_incident_opened_at: string | null;
   };
   const evidenceRows =
     ((liveness.data ?? {}) as { deployments?: LivenessRow[] }).deployments ?? [];
@@ -341,6 +355,20 @@ export async function listPromotionAudit(
               recovery_kind:
                 evidence.rollback_kind === "code_rollback" ? "code_rollback" : "config_rollback",
               resolved_at: evidence.rollback_resolved_at,
+            }
+          : null;
+      const openIncidents: PromotionOpenIncident | null =
+        evidence &&
+        (evidence.open_incident_count ?? 0) > 0 &&
+        evidence.open_incident_title &&
+        evidence.open_incident_severity &&
+        evidence.open_incident_opened_at
+          ? {
+              count: evidence.open_incident_count ?? 1,
+              title: evidence.open_incident_title,
+              severity: evidence.open_incident_severity as PromotionOpenIncident["severity"],
+              status: evidence.open_incident_status ?? "open",
+              opened_at: evidence.open_incident_opened_at,
             }
           : null;
       const laterDeployment: PromotionLaterDeployment | null =
@@ -391,6 +419,7 @@ export async function listPromotionAudit(
           rollback,
           laterDeployment,
         }),
+        openIncidents,
       };
     }),
   };
