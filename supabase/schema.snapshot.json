@@ -2478,6 +2478,15 @@
       "check": ""
     },
     {
+      "key": "research_sources.members update research sources",
+      "table": "research_sources",
+      "name": "members update research sources",
+      "cmd": "UPDATE",
+      "roles": "{authenticated}",
+      "qual": "(workspace_role(workspace_id) IS NOT NULL)",
+      "check": "(workspace_role(workspace_id) IS NOT NULL)"
+    },
+    {
       "key": "review_stages.people create their own review stages",
       "table": "review_stages",
       "name": "people create their own review stages",

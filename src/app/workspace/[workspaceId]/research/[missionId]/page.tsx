@@ -280,6 +280,10 @@ export default async function ResearchMissionPage({
           )}
 
           <p className="mt-3 text-xs text-muted">{RESEARCH_NOTES.noProposalAsDiscovery}</p>
+          <p className="mt-1 text-xs text-muted">
+            A research task cannot be marked verified in the orchestration queue until
+            the evidence it covers is recorded here.
+          </p>
         </section>
 
         <MissionControlForms
