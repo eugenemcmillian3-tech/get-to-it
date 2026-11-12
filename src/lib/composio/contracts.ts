@@ -346,6 +346,75 @@ export function isComposioToolkit(value: string): value is ComposioToolkit {
   return COMPOSIO_TOOLKIT_SLUGS.includes(value);
 }
 
+/**
+ * The OAuth scopes this build will ever ask for, per toolkit.
+ *
+ * Composio's managed app for a toolkit requests whatever that toolkit
+ * advertises, and GitHub's default set includes `workflow`, `codespace`,
+ * `project`, `gist`, `notifications` and `user` — far more than creating an
+ * issue needs, and `workflow` covers exactly what the connector refuses to do.
+ * A connect flow that names an auth config outside this list is refused, so a
+ * normal connection cannot quietly acquire those permissions.
+ *
+ * Adding a toolkit here is an explicit decision, not a default.
+ */
+export const COMPOSIO_TOOLKIT_SCOPES: Readonly<Record<string, readonly string[]>> = {
+  github: ["repo"],
+};
+
+/** Scopes this build never asks any connector for. */
+export const COMPOSIO_DISALLOWED_SCOPES = [
+  "workflow",
+  "codespace",
+  "project",
+  "gist",
+  "notifications",
+  "user",
+  "delete_repo",
+  "admin:org",
+] as const;
+
+export function composioRequiredScopes(toolkit: string): readonly string[] | null {
+  return COMPOSIO_TOOLKIT_SCOPES[toolkit] ?? null;
+}
+
+/** Provider scope fields arrive as a comma-separated string or an array. */
+export function normalizeComposioScopes(value: unknown): readonly string[] {
+  const raw = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(",")
+      : [];
+  const cleaned = raw
+    .filter((scope): scope is string => typeof scope === "string")
+    .map((scope) => scope.trim().toLowerCase())
+    .filter((scope) => scope.length > 0);
+  return [...new Set(cleaned)].sort();
+}
+
+/**
+ * Null when a requested scope set is exactly what this build allows for the
+ * toolkit, otherwise a short reason a person can act on.
+ */
+export function composioScopeProblem(
+  toolkit: string,
+  scopes: unknown,
+): string | null {
+  const required = composioRequiredScopes(toolkit);
+  if (!required) return null;
+
+  const asked = normalizeComposioScopes(scopes);
+  const missing = required.filter((scope) => !asked.includes(scope));
+  if (missing.length > 0) {
+    return `does not request ${missing.join(", ")}`;
+  }
+  const extra = asked.filter((scope) => !required.includes(scope));
+  if (extra.length > 0) {
+    return `also requests ${extra.join(", ")}`;
+  }
+  return null;
+}
+
 export function composioToolkit(slug: string) {
   return COMPOSIO_TOOLKITS.find((toolkit) => toolkit.slug === slug) ?? null;
 }
@@ -709,4 +778,4 @@ export const COMPOSIO_SETUP_MESSAGE =
   "Composio is not configured. Add a server-only COMPOSIO_API_KEY and APP_ORIGIN, then restart the app. No connection can be started without them.";
 
 export const COMPOSIO_SECURITY_NOTE =
-  "Connecting an account grants GET TO IT the provider scopes you approve, but it does not authorize any action. Every tool call is proposed with exact arguments and needs your approval for those exact arguments. Disconnecting can revoke the provider authorization or only remove it locally.";
+  "Connecting an account asks only for the scopes this build allows — GitHub is limited to repo, and an authorization that would ask for more is refused rather than granted — and it does not authorize any action. Every tool call is proposed with exact arguments and needs your approval for those exact arguments. Disconnecting can revoke the provider authorization or only remove it locally.";

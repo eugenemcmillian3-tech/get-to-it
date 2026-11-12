@@ -2117,6 +2117,17 @@ final, and every step is appended to `github_issue_events` (drafted, approved,
 send_started, sent, failed, cancelled). A unique index on the record and
 fingerprint refuses the same write twice.
 
+The connection itself is least privilege. Composio's managed GitHub app asks for
+`repo`, `user`, `gist`, `notifications`, `project`, `workflow` and `codespace`,
+and `workflow` covers exactly what this connector refuses to do. Every toolkit
+with a connect flow therefore states its allowed scopes
+(`COMPOSIO_TOOLKIT_SCOPES`; GitHub is `repo` alone), and `beginConnection`
+authorizes against an auth config whose requested scopes match that list — it
+reuses a matching managed config or creates one, then reads the config back and
+refuses to continue if the provider would ask for anything else. A toolkit
+without a stated policy is linked the old way, so adding one is a deliberate
+act. The connections page says the same thing in the note above the buttons.
+
 Pushes to a branch, merges, repository deletion, workflow-file changes, secrets,
 deployment and unapproved background issue creation are refused, not merely
 undocumented: `excludedActionProblem` rejects those action names and the schema

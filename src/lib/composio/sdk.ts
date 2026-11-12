@@ -49,12 +49,35 @@ export type ComposioConnectedAccountLike = {
   name?: unknown;
 };
 
+export type ComposioAuthConfigLike = {
+  id?: unknown;
+  isComposioManaged?: unknown;
+  credentials?: { scopes?: unknown } | null;
+};
+
 export type ComposioClientLike = {
   create(userId: string, config: Record<string, unknown>): Promise<ComposioSessionLike>;
   use(sessionId: string): Promise<ComposioSessionLike>;
   connectedAccounts: {
     get(id: string): Promise<ComposioConnectedAccountLike>;
     revoke(id: string): Promise<unknown>;
+    /** The explicit-config link. Returns the hosted authorization URL. */
+    link(
+      userId: string,
+      authConfigId: string,
+      options?: { callbackUrl?: string },
+    ): Promise<{ redirectUrl?: string }>;
+  };
+  authConfigs: {
+    list(query?: {
+      toolkit?: string;
+      limit?: number;
+    }): Promise<{ items?: ComposioAuthConfigLike[] }>;
+    get(id: string): Promise<ComposioAuthConfigLike>;
+    create(
+      toolkit: string,
+      options: Record<string, unknown>,
+    ): Promise<{ id?: unknown }>;
   };
   tools: {
     getRawComposioTools(options: {
