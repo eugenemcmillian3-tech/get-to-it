@@ -138,6 +138,9 @@ export default async function WorkspacePage({
           <Link href={`/workspace/${workspaceId}/connectors`} className={secondaryButton}>
             Connectors
           </Link>
+          <Link href={`/workspace/${workspaceId}/improvements`} className={secondaryButton}>
+            Improvements
+          </Link>
           <Link
             href={`/workspace/${workspaceId}/orchestrations`}
             className={secondaryButton}

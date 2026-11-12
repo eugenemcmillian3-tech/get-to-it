@@ -2175,3 +2175,43 @@ Changing a topic or purpose, archiving a channel, inviting or removing people,
 uploading files, pinning, reacting, starting calls, scheduling messages and
 deleting messages are refused, not merely undocumented. Nothing here calls a
 model, and the connection is limited to the three scopes above.
+
+## Improvement proposals (Phase 40)
+
+`/workspace/{workspaceId}/improvements` is where a change to the product's own
+behaviour is argued for, measured and reviewed. A proposal is one record with
+all nine fields a reviewer needs: the problem, its evidence, the proposed change,
+the expected benefit, the possible regressions, the affected components, the
+evaluation plan, the cost impact, the security implications and the rollback.
+Seven kinds are accepted: prompt revisions, model-routing adjustments,
+tool-selection policies, reusable procedures, workflow changes, application-code
+patches and new evaluation cases.
+
+Candidates are named, not free-form: a proposal picks a policy the app already
+carries (`shipped`, `channel-lookup`, `widened-toolset`) and runs it in its own
+branch or sandbox against authorized test data. Nothing here touches production
+credentials, pushes, deploys or spends.
+
+Running the evaluation freezes the criteria — the plan, the expected benefit and
+the suite digest are hashed together and a trigger refuses any later change, so a
+candidate cannot make itself look better by moving the bar. The suite itself is
+authored data: twelve cases over the connector tool policy, each with the outcome
+a person expects and a flag for the refusals that must not move. Both the
+baseline and the candidate run over exactly those cases, and the digest is stored
+with the candidate.
+
+The verdict is arithmetic, not judgement. Postgres re-derives it from the numbers
+and refuses a disagreement: worse if fewer cases pass, any security finding
+appears, a guarded refusal changes or the cost rises above 25%; better only when
+more cases pass with none of those; equal otherwise. Evaluations are append-only.
+
+A different person then reviews the exact change, the run, the remaining risks,
+the cost and the rollback. The author cannot approve their own proposal, approval
+needs a clean result and a written note, and promotion is recorded against an
+existing deployment approval — this phase never deploys anything itself.
+
+Refused, by name and on the record: granting permissions, removing an approval
+gate, increasing spending authority, changing a billing price, disabling audit
+logging, altering held-out answers, rewriting success criteria after results,
+deploying its own change and modifying production data without approval. An
+attempt is kept in `improvement_boundary_blocks` so the refusal is visible.
