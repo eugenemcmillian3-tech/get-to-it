@@ -655,6 +655,8 @@ async function main() {
     "Software building and repair",
     "Contamination and repeated exposure",
     "No human results were collected under a documented protocol",
+    "Machine-checkable live trial",
+    "Add a machine-checkable task set",
   ]);
 
   // A recorded human baseline is shown only with its documented protocol.

@@ -131,7 +131,13 @@ export type CapabilityTaskDraft = {
   difficulty: CapabilityDifficulty;
   split: CapabilitySplit;
   title: string;
-  task_spec: { prompt: string; required_elements: number; permitted_tools: string[] };
+  task_spec: {
+    prompt: string;
+    required_elements: number;
+    permitted_tools: string[];
+    /** Set on machine-checkable tasks graded by an exact answer. */
+    mode?: string;
+  };
   dataset_version: string;
   permitted_tools: string[];
   runtime_seconds: number;
