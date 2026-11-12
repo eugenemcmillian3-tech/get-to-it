@@ -2218,6 +2218,45 @@ describeKnowledge("phase 39 research missions", () => {
     );
     expect(Number(spend.rows[0].total)).toBeLessThanOrEqual(200 * 100_000);
 
+    // Verification reads the mission's records instead of trusting the task.
+    async function verifyTask(taskKey: string): Promise<string> {
+      try {
+        await client.query(
+          "update public.orchestration_tasks set status = 'verified' where orchestration_id = $1 and task_key = $2",
+          [draftOrchestration, taskKey],
+        );
+        return "";
+      } catch (error) {
+        return (error as Error).message;
+      }
+    }
+
+    expect(await verifyTask("research-investigate")).toContain("no source has been recorded");
+    expect(await verifyTask("research-verify")).toContain("no source has been re-checked");
+    expect(await verifyTask("research-method")).toContain("no finding");
+
+    await asUser(client, owner, () =>
+      client.query(
+        `insert into public.research_sources
+           (mission_id, workspace_id, created_by, stance, statement_kind, source_tier,
+            source_kind, title, locator, excerpt, verified)
+         values ($1,$2,$3,'supports','observation','primary','dataset',
+                 'Synthetic source','Synthetic export row 2','Completion held flat.',false)`,
+        [plannedMission, workspaceId, owner],
+      ),
+    );
+
+    // A source exists but nobody has re-checked it, so verification still waits.
+    expect(await verifyTask("research-investigate")).toBe("");
+    expect(await verifyTask("research-verify")).toContain("no source has been re-checked");
+
+    await asUser(client, owner, () =>
+      client.query("update public.research_sources set verified = true where mission_id = $1", [
+        plannedMission,
+      ]),
+    );
+    expect(await verifyTask("research-verify")).toBe("");
+
     // The cancelled orchestration can no longer be planned: the queue refuses it.
     let message = "";
     try {
