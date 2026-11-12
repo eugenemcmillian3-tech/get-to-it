@@ -15914,6 +15914,13 @@
       "definition": "PRIMARY KEY (id)"
     },
     {
+      "key": "workspace_notifications.workspace_notifications_reminder_stage_check",
+      "table": "workspace_notifications",
+      "name": "workspace_notifications_reminder_stage_check",
+      "type": "c",
+      "definition": "CHECK (((reminder_stage IS NULL) OR (reminder_stage = ANY (ARRAY['first'::text, 'reminder'::text, 'escalation'::text]))))"
+    },
+    {
       "key": "workspace_notifications.workspace_notifications_summary_check",
       "table": "workspace_notifications",
       "name": "workspace_notifications_summary_check",
