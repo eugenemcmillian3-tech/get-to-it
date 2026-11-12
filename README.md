@@ -2053,3 +2053,38 @@ deploy anything.
 Human results appear only when someone records them with a documented protocol,
 a collector and at least one measured numeric result. Without that the page says
 no human comparison is available rather than estimating one.
+
+## Research missions (Phase 39)
+
+`/workspace/{workspaceId}/research` records a bounded research contract before
+any work starts: the question, what is in and out of scope, existing evidence,
+at least two competing hypotheses, the source quality that will be accepted, a
+read-only tool allowlist, deliverables, task/agent/retry/spend/time ceilings,
+stop conditions and human review checkpoints. Outreach and publishing tools are
+refused, in the form and again in the database.
+
+Sources carry provenance, a stance of supports or contradicts, and the kind of
+statement they are: quotation, observation, inference or proposal. Findings are
+kept apart the same way, so a proposal is never presented as a finding and
+nothing is labelled a discovery before verification.
+
+Two rules are enforced rather than described. A conclusion cannot be verified by
+the same specialist function that produced it, because six role labels do not by
+themselves create an independent reviewer. And a discovery is refused unless a
+verified supporting source of the required quality exists and no verified source
+contradicts it. The brief re-checks the evidence when it renders, so a finding
+whose support has gone, or which is now contradicted, is shown as unsupported
+with the reason.
+
+Missions dispatch through the existing Phase 36 queue: ordinary orchestration
+tasks ordered so sources are collected and re-checked before synthesis, each
+inheriting the contract's tool allowlist, retry limit and share of the spend
+ceiling. Planning is refused once execution has started, on a second research
+plan, and for a cancelled mission. A research task cannot be marked verified
+until the mission holds the evidence it was meant to produce, and cancelling a
+mission cancels the orchestration behind it.
+
+The proposed next experiment becomes an ordinary draft Phase 35 record with its
+own review, consent and approval. Nothing publishes a brief, contacts a
+participant or runs a separate unrestricted agent runtime, and no research task
+is executed by an autonomous worker in this build.
