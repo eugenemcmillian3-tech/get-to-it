@@ -14,11 +14,27 @@ describe("composio scope policy", () => {
     expect(COMPOSIO_TOOLKIT_SCOPES.github).toEqual(["repo"]);
   });
 
+  it("asks Slack for the three scopes its first workflow needs", () => {
+    expect(composioRequiredScopes("slack")).toEqual([
+      "channels:read",
+      "groups:read",
+      "chat:write",
+    ]);
+  });
+
+  it("asks Notion for nothing, because it has no scopes to narrow", () => {
+    expect(composioRequiredScopes("notion")).toEqual([]);
+    expect(composioScopeProblem("notion", [])).toBeNull();
+    expect(composioScopeProblem("notion", undefined)).toBeNull();
+  });
+
   it("leaves toolkits without a stated policy alone", () => {
     const withoutPolicy = COMPOSIO_TOOLKITS.map((toolkit) => toolkit.slug).filter(
       (slug) => !composioRequiredScopes(slug),
     );
-    expect(withoutPolicy).not.toContain("github");
+    for (const slug of ["github", "slack", "notion"]) {
+      expect(withoutPolicy).not.toContain(slug);
+    }
     for (const slug of withoutPolicy) {
       expect(composioScopeProblem(slug, ["anything"])).toBeNull();
     }
@@ -66,5 +82,28 @@ describe("composio scope policy", () => {
   it("rejects a set that is missing the scope the workflow needs", () => {
     expect(composioScopeProblem("github", [])).toBe("does not request repo");
     expect(composioScopeProblem("github", ["read:org"])).toBe("does not request repo");
+  });
+
+  it("rejects Slack's write scopes that no workflow uses", () => {
+    const needed = ["channels:read", "groups:read", "chat:write"];
+    expect(composioScopeProblem("slack", needed)).toBeNull();
+    expect(composioScopeProblem("slack", [...needed, "files:write"])).toBe(
+      "also requests files:write",
+    );
+    expect(composioScopeProblem("slack", [...needed, "pins:write", "calls:write"])).toBe(
+      "also requests calls:write, pins:write",
+    );
+    expect(composioScopeProblem("slack", ["chat:write"])).toBe(
+      "does not request channels:read, groups:read",
+    );
+  });
+
+  it("refuses any scope on Notion, which exposes none", () => {
+    expect(composioScopeProblem("notion", "read_content")).toBe(
+      "also requests read_content",
+    );
+    expect(composioScopeProblem("notion", ["insert_content"])).toBe(
+      "also requests insert_content",
+    );
   });
 });
