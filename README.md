@@ -2119,12 +2119,17 @@ fingerprint refuses the same write twice.
 
 The connection itself is least privilege. Composio's managed GitHub app asks for
 `repo`, `user`, `gist`, `notifications`, `project`, `workflow` and `codespace`,
-and `workflow` covers exactly what this connector refuses to do. Every toolkit
-with a connect flow therefore states its allowed scopes
-(`COMPOSIO_TOOLKIT_SCOPES`; GitHub is `repo` alone), and `beginConnection`
-authorizes against an auth config whose requested scopes match that list — it
+and `workflow` covers exactly what this connector refuses to do; Slack's asks for
+write access to files, pins, calls, reactions and more. Every toolkit with a
+connect flow therefore states its allowed scopes in `COMPOSIO_TOOLKIT_SCOPES`:
+GitHub gets `repo` alone, Slack gets `channels:read`, `groups:read` and
+`chat:write` — enough to list the channels a person may choose and post one
+approved message — and Notion gets none, because its OAuth consent reaches only
+the pages a person selects and it has no scope parameter. `beginConnection`
+authorizes against an auth config whose requested scopes match that list: it
 reuses a matching managed config or creates one, then reads the config back and
-refuses to continue if the provider would ask for anything else. A toolkit
+refuses to continue if the provider would ask for anything else. An empty list is
+still a policy: a config that carries any scope at all is refused. A toolkit
 without a stated policy is linked the old way, so adding one is a deliberate
 act. The connections page says the same thing in the note above the buttons.
 

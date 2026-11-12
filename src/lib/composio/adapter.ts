@@ -209,7 +209,8 @@ async function resolveScopedAuthConfig(
   const created = await client.authConfigs.create(toolkit, {
     type: "use_composio_managed_auth",
     name: `GET TO IT ${toolkit} (least privilege)`,
-    credentials: { scopes: required.join(",") },
+    // An empty policy means the provider has no scope parameter to narrow.
+    ...(required.length > 0 ? { credentials: { scopes: required.join(",") } } : {}),
   });
   const createdId = typeof created?.id === "string" ? created.id : "";
   if (!createdId) {
@@ -222,9 +223,10 @@ async function resolveScopedAuthConfig(
   const detail = await client.authConfigs.get(createdId);
   const problem = composioScopeProblem(toolkit, detail?.credentials?.scopes);
   if (problem) {
+    const allowed = required.length > 0 ? required.join(", ") : "no scopes";
     throw new ComposioOperationError(
       "scope_mismatch",
-      `That connection ${problem}, and this build only asks for ${required.join(", ")}.`,
+      `That connection ${problem}, and this build only asks for ${allowed}.`,
     );
   }
 

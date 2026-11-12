@@ -350,16 +350,26 @@ export function isComposioToolkit(value: string): value is ComposioToolkit {
  * The OAuth scopes this build will ever ask for, per toolkit.
  *
  * Composio's managed app for a toolkit requests whatever that toolkit
- * advertises, and GitHub's default set includes `workflow`, `codespace`,
- * `project`, `gist`, `notifications` and `user` — far more than creating an
- * issue needs, and `workflow` covers exactly what the connector refuses to do.
- * A connect flow that names an auth config outside this list is refused, so a
- * normal connection cannot quietly acquire those permissions.
+ * advertises. GitHub's default set includes `workflow`, `codespace`, `project`,
+ * `gist`, `notifications` and `user`, and `workflow` covers exactly what the
+ * Phase 9 connector refuses to do; Slack's is a long list including write
+ * access to files, pins and calls. A connect flow that names an auth config
+ * outside this list is refused, so a normal connection cannot quietly acquire
+ * those permissions.
+ *
+ * An empty list means the provider has no scopes to narrow: Notion's OAuth
+ * consent grants access only to the pages a person selects, and it exposes no
+ * scope parameter, so the policy is "ask for nothing".
  *
  * Adding a toolkit here is an explicit decision, not a default.
  */
 export const COMPOSIO_TOOLKIT_SCOPES: Readonly<Record<string, readonly string[]>> = {
+  // Create one issue in a repository the user names, in their own account.
   github: ["repo"],
+  // List the channels a person may choose from, then post one approved message.
+  slack: ["channels:read", "groups:read", "chat:write"],
+  // No scopes exist to narrow; the connection reaches only shared pages.
+  notion: [],
 };
 
 /** Scopes this build never asks any connector for. */
@@ -404,6 +414,9 @@ export function composioScopeProblem(
   if (!required) return null;
 
   const asked = normalizeComposioScopes(scopes);
+  if (required.length === 0) {
+    return asked.length === 0 ? null : `also requests ${asked.join(", ")}`;
+  }
   const missing = required.filter((scope) => !asked.includes(scope));
   if (missing.length > 0) {
     return `does not request ${missing.join(", ")}`;
@@ -778,4 +791,4 @@ export const COMPOSIO_SETUP_MESSAGE =
   "Composio is not configured. Add a server-only COMPOSIO_API_KEY and APP_ORIGIN, then restart the app. No connection can be started without them.";
 
 export const COMPOSIO_SECURITY_NOTE =
-  "Connecting an account asks only for the scopes this build allows — GitHub is limited to repo, and an authorization that would ask for more is refused rather than granted — and it does not authorize any action. Every tool call is proposed with exact arguments and needs your approval for those exact arguments. Disconnecting can revoke the provider authorization or only remove it locally.";
+  "Connecting an account asks only for the scopes this build allows — GitHub is limited to repo, Slack to chat:write, channels:read and groups:read, Notion to none — and an authorization that would ask for more is refused rather than granted. It does not authorize any action. Every tool call is proposed with exact arguments and needs your approval for those exact arguments. Disconnecting can revoke the provider authorization or only remove it locally.";
