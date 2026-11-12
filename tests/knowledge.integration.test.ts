@@ -3311,4 +3311,77 @@ describeKnowledge("improvement proposals", () => {
       "promoted",
     ]);
   });
+
+  it("shows the deployment to a member who cannot read it directly", async () => {
+    type Liveness = {
+      result: {
+        ok: boolean;
+        code?: string;
+        deployments: {
+          candidate_id: string;
+          deployment_id: string;
+          status: string;
+          rollback_title: string | null;
+          rollback_kind: string | null;
+        }[];
+      };
+    };
+
+    const asReviewer = await asUser(client, reviewer, () =>
+      client.query<Liveness>("select public.improvement_promotion_liveness($1) as result", [
+        workspaceId,
+      ]),
+    );
+    const promoted = asReviewer.rows[0].result.deployments.find((row) => row.candidate_id === ids.better);
+    expect(promoted).toMatchObject({ deployment_id: deploymentIds.approved });
+
+    // The reviewer is a member but not the deployer: the deployment row itself is invisible.
+    const direct = await asUser(client, reviewer, () =>
+      client.query("select id from public.app_deployments where id = $1", [
+        deploymentIds.approved,
+      ]),
+    );
+    expect(direct.rows).toHaveLength(0);
+
+    const release = await client.query<{ id: string }>(
+      `insert into public.app_releases (project_id, user_id, version, deployment_id, source_digest)
+       values ($1,$2,900,$3,$4) returning id`,
+      [projectId, owner, deploymentIds.approved, "d".repeat(64)],
+    );
+    await client.query(
+      `insert into public.app_release_incidents
+         (project_id, release_id, deployment_id, user_id, title, trigger, severity, status,
+          evidence, recovery_kind, recovery_plan, resolved_at)
+       values ($1,$2,$3,$4,$5,$6,'high','resolved',
+               '[{"kind":"log","detail":"3 failed sends in ten minutes"}]'::jsonb,
+               'code_rollback', '{"action":"Remove the rule and redeploy"}'::jsonb, now())`,
+      [
+        projectId,
+        release.rows[0].id,
+        deploymentIds.approved,
+        owner,
+        "Send failures doubled after the rule shipped",
+        "Error rate tripped the release check.",
+      ],
+    );
+
+    const afterRollback = await asUser(client, reviewer, () =>
+      client.query<Liveness>("select public.improvement_promotion_liveness($1) as result", [
+        workspaceId,
+      ]),
+    );
+    expect(
+      afterRollback.rows[0].result.deployments.find((row) => row.candidate_id === ids.better),
+    ).toMatchObject({
+      rollback_title: "Send failures doubled after the rule shipped",
+      rollback_kind: "code_rollback",
+    });
+
+    const outsider = await asUser(client, randomUUID(), () =>
+      client.query<Liveness>("select public.improvement_promotion_liveness($1) as result", [
+        workspaceId,
+      ]),
+    );
+    expect(outsider.rows[0].result).toMatchObject({ ok: false, code: "no-workspace" });
+  });
 });
