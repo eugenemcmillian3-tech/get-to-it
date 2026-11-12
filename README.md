@@ -2226,6 +2226,15 @@ the change, the person who approved the promotion, the review note and the
 rollback plan — so the question "what did we ship, on whose decision, and how do
 we undo it" is answered in one place.
 
+Each row also says whether the change is still live, derived only from evidence:
+a resolved `code_rollback` or `config_rollback` incident against that deployment
+means **Rolled back** (the incident and its date are shown), a successful
+deployment to the same project and target after it means **Superseded**, a
+succeeded deployment with neither means **Live**, a deployment still in the
+pipeline means **Not deployed yet**, a failed one means **Deployment failed**, and
+a promotion whose deployment row is gone says the state cannot be confirmed
+instead of guessing.
+
 Refused, by name and on the record: granting permissions, removing an approval
 gate, increasing spending authority, changing a billing price, disabling audit
 logging, altering held-out answers, rewriting success criteria after results,
