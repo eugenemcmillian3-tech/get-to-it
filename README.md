@@ -2233,7 +2233,9 @@ deployment to the same project and target after it means **Superseded**, a
 succeeded deployment with neither means **Live**, a deployment still in the
 pipeline means **Not deployed yet**, a failed one means **Deployment failed**, and
 a promotion whose deployment row is gone says the state cannot be confirmed
-instead of guessing.
+instead of guessing. A promotion that is live can still be shaky, so an incident
+opened against its deployment is shown next to the status — count, most severe
+severity, title, state and when it opened — until it is resolved or dismissed.
 
 Refused, by name and on the record: granting permissions, removing an approval
 gate, increasing spending authority, changing a billing price, disabling audit

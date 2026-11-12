@@ -63,7 +63,9 @@ export default async function PromotionAuditPage({
           it. A promotion never deploys anything itself; the deployment column is where the change
           actually ships. Status now is derived from evidence only: a resolved rollback incident on
           that deployment means rolled back, a later successful deployment to the same target means
-          superseded, and a succeeded deployment with neither is live.
+          superseded, and a succeeded deployment with neither is live. An incident opened against
+          the deployment is shown next to that status until it is resolved or dismissed, because a
+          live rollout can still be shaky.
         </p>
 
         <section aria-labelledby="promotions-heading" className="mt-8">
@@ -90,6 +92,7 @@ export default async function PromotionAuditPage({
                         {row.verdict ? VERDICT_LABELS[row.verdict as Verdict] : "no verdict"}
                       </span>
                       <span className={chipClass}>{row.state.label}</span>
+                      {row.openIncidents ? <span className={chipClass}>Open incident</span> : null}
                     </div>
                   </div>
 
@@ -100,6 +103,18 @@ export default async function PromotionAuditPage({
                         {row.state.label}: {row.state.detail}
                       </dd>
                     </div>
+
+                    {row.openIncidents ? (
+                      <div>
+                        <dt className="font-semibold">Open incidents</dt>
+                        <dd className="text-muted">
+                          {row.openIncidents.count} open · most severe{" "}
+                          {row.openIncidents.severity} · {row.openIncidents.title} (
+                          {row.openIncidents.status.replaceAll("_", " ")}, opened{" "}
+                          {when(row.openIncidents.opened_at)})
+                        </dd>
+                      </div>
+                    ) : null}
 
                     <div>
                       <dt className="font-semibold">Deployment</dt>
