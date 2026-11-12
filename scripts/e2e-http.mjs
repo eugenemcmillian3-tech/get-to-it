@@ -32,7 +32,14 @@ const SERVICE_KEY = process.env.E2E_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SER
 
 const results = [];
 const failures = [];
-const created = { goal: null, task: null, project: null, capability: null };
+const created = {
+  goal: null,
+  task: null,
+  project: null,
+  capability: null,
+  workspace: null,
+  researchMission: null,
+};
 
 let session = null;
 let testUser = null;
@@ -516,6 +523,142 @@ async function seed() {
   );
 }
 
+/**
+ * Phase 39: one research mission with sourced evidence, so the list and brief
+ * pages render real rows instead of an empty state.
+ */
+async function seedResearch() {
+  const userId = session.user.id;
+  // Workspaces are created through the definer RPC, which also makes the
+  // creator the owner; direct inserts are not granted to clients.
+  const workspaceResult = await rest("rpc/create_workspace", {
+    method: "POST",
+    body: JSON.stringify({ p_name: "E2E research workspace", p_description: "Synthetic" }),
+  });
+  assert(workspaceResult?.ok === true, "the research workspace is created");
+  const workspace = { id: workspaceResult.workspace_id };
+  created.workspace = workspace.id;
+
+  const [mission] = await rest("research_missions", {
+    method: "POST",
+    body: JSON.stringify({
+      workspace_id: workspace.id,
+      created_by: userId,
+      question: "Does a 320 px viewport change whether people finish the weekly review?",
+      scope: "Synthetic data only, one review flow, no participants.",
+      existing_evidence: "Internal notes claim narrow screens cause abandonment.",
+      required_source_tier: "reputable_secondary",
+      allowed_tools: ["read_workspace_records", "read_web_page", "draft_document"],
+      deliverables: ["Sourced research brief", "Proposed bounded experiment"],
+      task_budget: 4,
+      agent_budget: 3,
+      retry_budget: 1,
+      spend_ceiling_cents: 200,
+      time_ceiling_minutes: 120,
+      stop_conditions: ["Stop when the spend ceiling is reached."],
+      checkpoints: ["A person reviews the sources before synthesis."],
+      status: "ready",
+    }),
+  });
+  created.researchMission = mission.id;
+
+  const hypotheses = await rest("research_hypotheses", {
+    method: "POST",
+    body: JSON.stringify([
+      {
+        mission_id: mission.id,
+        workspace_id: workspace.id,
+        created_by: userId,
+        statement: "Narrow viewports cause abandonment.",
+        role: "leading",
+      },
+      {
+        mission_id: mission.id,
+        workspace_id: workspace.id,
+        created_by: userId,
+        statement: "Required field count causes abandonment.",
+        role: "competing",
+      },
+    ]),
+  });
+
+  await rest("research_sources", {
+    method: "POST",
+    body: JSON.stringify([
+      {
+        mission_id: mission.id,
+        workspace_id: workspace.id,
+        created_by: userId,
+        hypothesis_id: hypotheses[0].id,
+        stance: "supports",
+        statement_kind: "quotation",
+        source_tier: "primary",
+        source_kind: "literature",
+        title: "Usability study on minimum supported width",
+        locator: "Synthetic dataset, study 14, section 3",
+        excerpt: "Participants on a 320 px viewport completed 41 percent fewer steps.",
+        verified: true,
+      },
+      {
+        mission_id: mission.id,
+        workspace_id: workspace.id,
+        created_by: userId,
+        hypothesis_id: hypotheses[0].id,
+        stance: "contradicts",
+        statement_kind: "observation",
+        source_tier: "reputable_secondary",
+        source_kind: "dataset",
+        title: "Internal review completion by viewport",
+        locator: "Synthetic analytics export, rows 1-240",
+        excerpt: "Completion at 320 px matched desktop once fields were capped at three.",
+        verified: true,
+      },
+    ]),
+  });
+
+  await rest("research_findings", {
+    method: "POST",
+    body: JSON.stringify({
+      mission_id: mission.id,
+      workspace_id: workspace.id,
+      created_by: userId,
+      hypothesis_id: hypotheses[1].id,
+      claim: "Completion tracked the number of required fields at every width.",
+      label: "observation",
+      author_role: "investigator",
+      verifier_role: "evidence_verifier",
+      status: "supported",
+      verified_at: new Date().toISOString(),
+    }),
+  });
+
+  // The deliberately unsupported conclusion must be refused by the database.
+  const refusal = await fetch(`${SUPABASE_URL}/rest/v1/research_findings`, {
+    method: "POST",
+    headers: {
+      apikey: ANON_KEY,
+      Authorization: `Bearer ${session.access_token}`,
+      "content-type": "application/json",
+      Prefer: "return=representation",
+    },
+    body: JSON.stringify({
+      mission_id: mission.id,
+      workspace_id: workspace.id,
+      created_by: userId,
+      claim: "Discovery: the viewport alone explains the drop.",
+      label: "discovery",
+      author_role: "investigator",
+      verifier_role: "investigator",
+      status: "supported",
+      verified_at: new Date().toISOString(),
+    }),
+  });
+  assert(
+    !refusal.ok,
+    "an unsupported discovery is refused rather than stored as a finding",
+  );
+}
+
 function assert(condition, message) {
   if (condition) return;
   failures.push({ path: `assertion: ${message}`, ok: false });
@@ -626,6 +769,7 @@ async function main() {
   testUser = await createTestUser();
   session = await signIn(testUser);
   await seed();
+  await seedResearch();
 
   await page("/");
   await page("/dashboard");
@@ -640,6 +784,17 @@ async function main() {
   await page("/radar");
   await page("/outcomes");
   await page("/workspace");
+  await page(`/workspace/${created.workspace}/research`, 200, [
+    "Research missions",
+    "Run a synthetic mission",
+    "explanations competing",
+  ]);
+  await page(`/workspace/${created.workspace}/research/${created.researchMission}`, 200, [
+    "Research brief",
+    "Alternative explanations",
+    "Unresolved questions",
+    "Proposed next experiment",
+  ]);
   await page("/build");
   await page("/build/import");
   await page("/credits");

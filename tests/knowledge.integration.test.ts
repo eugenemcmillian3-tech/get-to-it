@@ -1789,3 +1789,374 @@ describeKnowledge("phase 37 knowledge layer", () => {
     ).toBe(0);
   });
 });
+
+/**
+ * Phase 39: research missions.
+ *
+ * These checks use their own database connection because they create their own
+ * workspace, but they run in the same replayed database as the Phase 37 block.
+ */
+describeKnowledge("phase 39 research missions", () => {
+  let client: Client;
+  const owner = randomUUID();
+  const outsider = randomUUID();
+  const workspaceId = randomUUID();
+  const experimentId = randomUUID();
+  const orchestrationId = randomUUID();
+  let missionId = "";
+
+  beforeAll(async () => {
+    client = new Client({ connectionString });
+    await client.connect();
+    // The Phase 37 block above already bootstrapped and replayed the migrations
+    // into this database; replaying them again would collide with existing
+    // policies.
+    await assertIsolatedDatabase(client);
+
+    for (const userId of [owner, outsider]) {
+      await client.query("insert into auth.users (id, email) values ($1,$2)", [
+        userId,
+        `phase39-${userId.slice(0, 8)}@example.test`,
+      ]);
+    }
+    await client.query("insert into public.workspaces (id, name, created_by) values ($1,$2,$3)", [
+      workspaceId,
+      "Phase 39 research probe",
+      owner,
+    ]);
+    await client.query(
+      "insert into public.workspace_members (workspace_id, user_id, role, status) values ($1,$2,'owner','active')",
+      [workspaceId, owner],
+    );
+    await client.query(
+      `insert into public.experiments
+         (id, workspace_id, created_by, question, hypothesis, target_users,
+          proposed_prototype, success_criteria, failure_criteria, time_limit_minutes,
+          privacy_requirements, consent_requirements, stop_conditions, review_at)
+       values ($1,$2,$3,
+               'Does a narrow viewport change review completion?',
+               'Narrow viewports cause abandonment.',
+               'Synthetic records only',
+               'A one-screen synthetic review',
+               'Completion differs by more than ten points',
+               'Completion is flat across widths',
+               120,
+               'Synthetic records only, no personal data',
+               'Not applicable, synthetic data',
+               'Stop after one synthetic run',
+               current_date + 14)`,
+      [experimentId, workspaceId, owner],
+    );
+    await client.query(
+      `insert into public.orchestrations
+         (id, workspace_id, created_by, origin_kind, experiment_id, goal, review_at, status)
+       values ($1,$2,$3,'experiment',$4,'Probe the narrow viewport claim end to end.',current_date + 14,'running')`,
+      [orchestrationId, workspaceId, owner, experimentId],
+    );
+
+    const created = await asUser(client, owner, () =>
+      client.query<{ id: string }>(
+        `insert into public.research_missions
+           (workspace_id, created_by, orchestration_id, question, scope, existing_evidence,
+            required_source_tier, allowed_tools, deliverables, task_budget, agent_budget,
+            retry_budget, spend_ceiling_cents, time_ceiling_minutes, stop_conditions,
+            checkpoints, status)
+         values ($1,$2,$3,
+                 'Does a 320 px viewport change whether people finish the weekly review?',
+                 'Synthetic data only, one review flow, no participants.',
+                 'Internal notes claim narrow screens cause abandonment.',
+                 'reputable_secondary',
+                 array['read_workspace_records','read_web_page','draft_document'],
+                 array['Sourced research brief','Proposed bounded experiment'],
+                 4, 3, 1, 200, 120,
+                 array['Stop when the spend ceiling is reached.'],
+                 array['A person reviews the sources before synthesis.'],
+                 'ready')
+         returning id`,
+        [workspaceId, owner, orchestrationId],
+      ),
+    );
+    missionId = created.rows[0].id;
+  }, 180_000);
+
+  afterAll(async () => {
+    if (client) await client.end();
+  });
+
+  async function addSource(values: {
+    stance: string;
+    statementKind: string;
+    tier: string;
+    verified: boolean;
+    excerpt?: string;
+  }): Promise<void> {
+    await asUser(client, owner, () =>
+      client.query(
+        `insert into public.research_sources
+           (mission_id, workspace_id, created_by, stance, statement_kind, source_tier,
+            source_kind, title, locator, excerpt, verified)
+         values ($1,$2,$3,$4,$5,$6,'dataset','Synthetic source','Synthetic export row 1',$7,$8)`,
+        [
+          missionId,
+          workspaceId,
+          owner,
+          values.stance,
+          values.statementKind,
+          values.tier,
+          values.excerpt ?? "Completion at 320 px was 41 percent lower for the same task.",
+          values.verified,
+        ],
+      ),
+    );
+  }
+
+  async function addFinding(values: {
+    label: string;
+    author: string;
+    verifier: string | null;
+    status: string;
+    claim?: string;
+    mission?: string;
+  }): Promise<string> {
+    const result = await asUser(client, owner, () =>
+      client.query<{ id: string }>(
+        `insert into public.research_findings
+           (mission_id, workspace_id, created_by, claim, label, author_role,
+            verifier_role, status, verified_at)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         returning id`,
+        [
+          values.mission ?? missionId,
+          workspaceId,
+          owner,
+          values.claim ?? "In the synthetic export, completion tracked the field count.",
+          values.label,
+          values.author,
+          values.verifier,
+          values.status,
+          values.verifier === null ? null : new Date().toISOString(),
+        ],
+      ),
+    );
+    return result.rows[0].id;
+  }
+
+  it("records the contract, its hypotheses and sourced evidence", async () => {
+    await asUser(client, owner, () =>
+      client.query(
+        `insert into public.research_hypotheses (mission_id, workspace_id, created_by, statement, role)
+         values ($1,$2,$3,'Narrow viewports cause abandonment.','leading'),
+                ($1,$2,$3,'Required field count causes abandonment.','competing')`,
+        [missionId, workspaceId, owner],
+      ),
+    );
+    await addSource({ stance: "supports", statementKind: "quotation", tier: "primary", verified: true });
+    await addSource({ stance: "contradicts", statementKind: "observation", tier: "reputable_secondary", verified: true });
+    await addSource({ stance: "supports", statementKind: "inference", tier: "unverified", verified: false });
+
+    const counts = await client.query<{ sources: string; contradictions: string }>(
+      `select count(*)::text as sources,
+              count(*) filter (where stance = 'contradicts')::text as contradictions
+         from public.research_sources where mission_id = $1`,
+      [missionId],
+    );
+    expect(counts.rows[0].sources).toBe("3");
+    expect(counts.rows[0].contradictions).toBe("1");
+
+    // The outsider sees none of it.
+    const visible = await asUser(client, outsider, () =>
+      client.query<{ count: string }>(
+        "select count(*)::text as count from public.research_sources where mission_id = $1",
+        [missionId],
+      ),
+    );
+    expect(visible.rows[0].count).toBe("0");
+  });
+
+  it("refuses a discovery that no verified source supports", async () => {
+    // A second mission with no sources at all: nothing can support a discovery.
+    const empty = await asUser(client, owner, () =>
+      client.query<{ id: string }>(
+        `insert into public.research_missions
+           (workspace_id, created_by, question, scope, required_source_tier, allowed_tools,
+            deliverables, task_budget, stop_conditions, checkpoints, status)
+         values ($1,$2,'Does anything support a claim with no sources?',
+                 'A mission with no evidence at all.','primary',
+                 array['read_web_page'], array['Sourced research brief'], 2,
+                 array['Stop.'], array['A person reviews.'], 'ready')
+         returning id`,
+        [workspaceId, owner],
+      ),
+    );
+    const emptyMissionId = empty.rows[0].id;
+
+    let message = "";
+    try {
+      await addFinding({
+        label: "discovery",
+        author: "evidence_verifier",
+        verifier: "synthesis_writer",
+        status: "supported",
+        claim: "Discovery: nothing at all supports this claim.",
+        mission: emptyMissionId,
+      });
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain("cannot be a discovery");
+  });
+
+  it("refuses a conclusion verified by its own author function", async () => {
+    let message = "";
+    try {
+      await addFinding({
+        label: "observation",
+        author: "investigator",
+        verifier: "investigator",
+        status: "supported",
+      });
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain("same specialist function");
+  });
+
+  it("refuses a discovery while a verified source contradicts it", async () => {
+    let message = "";
+    try {
+      await addFinding({
+        label: "discovery",
+        author: "investigator",
+        verifier: "evidence_verifier",
+        status: "supported",
+        claim: "Discovery: the viewport alone explains the drop.",
+      });
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain("contradicts");
+  });
+
+  it("keeps a proposal out of the evidence, and records an honest observation", async () => {
+    await addSource({ stance: "supports", statementKind: "observation", tier: "primary", verified: true });
+    const observationId = await addFinding({
+      label: "observation",
+      author: "investigator",
+      verifier: "evidence_verifier",
+      status: "supported",
+      claim: "Completion fell as required fields rose at every width in the export.",
+    });
+    expect(observationId).not.toBe("");
+
+    await addFinding({
+      label: "proposal",
+      author: "prototype_builder",
+      verifier: null,
+      status: "pending",
+      claim: "Cap the review at three required fields and measure again.",
+    });
+
+    let message = "";
+    try {
+      await addFinding({
+        label: "proposal",
+        author: "prototype_builder",
+        verifier: null,
+        status: "supported",
+        claim: "Cap the review at three required fields and measure again.",
+      });
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain("proposal is not evidence");
+  });
+
+  it("refuses outreach tools and unbounded budgets", async () => {
+    let toolMessage = "";
+    try {
+      await asUser(client, owner, () =>
+        client.query(
+          `insert into public.research_missions
+             (workspace_id, created_by, question, scope, allowed_tools, deliverables,
+              task_budget, stop_conditions, checkpoints)
+           values ($1,$2,'Is outreach allowed here?','It is not.',
+                   array['send_email'], array['Brief'], 4,
+                   array['Stop.'], array['A person reviews.'])`,
+          [workspaceId, owner],
+        ),
+      );
+    } catch (error) {
+      toolMessage = (error as Error).message;
+    }
+    expect(toolMessage).toContain("outreach");
+
+    let budgetMessage = "";
+    try {
+      await asUser(client, owner, () =>
+        client.query(
+          `insert into public.research_missions
+             (workspace_id, created_by, question, scope, allowed_tools, deliverables,
+              task_budget, stop_conditions, checkpoints)
+           values ($1,$2,'Can a mission run unlimited tasks?','It cannot.',
+                   array['read_web_page'], array['Brief'], 400,
+                   array['Stop.'], array['A person reviews.'])`,
+          [workspaceId, owner],
+        ),
+      );
+    } catch (error) {
+      budgetMessage = (error as Error).message;
+    }
+    expect(budgetMessage).toContain("task_budget");
+  });
+
+  it("cancels the mission and the orchestration behind it", async () => {
+    const result = await asUser(client, owner, () =>
+      client.query<{ result: { ok: boolean } }>(
+        "select public.research_cancel($1,'Synthetic mission cancelled by the harness.') as result",
+        [missionId],
+      ),
+    );
+    expect(result.rows[0].result.ok).toBe(true);
+
+    const mission = await client.query<{ status: string }>(
+      "select status from public.research_missions where id = $1",
+      [missionId],
+    );
+    expect(mission.rows[0].status).toBe("cancelled");
+
+    const orchestration = await client.query<{ status: string }>(
+      "select status from public.orchestrations where id = $1",
+      [orchestrationId],
+    );
+    expect(orchestration.rows[0].status).not.toBe("ready");
+
+    // A cancelled mission cannot be restarted by editing it back.
+    let message = "";
+    try {
+      await asUser(client, owner, () =>
+        client.query("update public.research_missions set status = 'running' where id = $1", [
+          missionId,
+        ]),
+      );
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain("cannot be restarted");
+  });
+
+  it("links a proposed experiment as an ordinary Phase 35 record", async () => {
+    await asUser(client, owner, () =>
+      client.query("update public.research_missions set proposed_experiment_id = $2 where id = $1", [
+        missionId,
+        experimentId,
+      ]),
+    );
+    const linked = await client.query<{ question: string }>(
+      `select e.question from public.research_missions m
+         join public.experiments e on e.id = m.proposed_experiment_id
+        where m.id = $1`,
+      [missionId],
+    );
+    expect(linked.rows[0].question).toContain("narrow viewport");
+  });
+});
