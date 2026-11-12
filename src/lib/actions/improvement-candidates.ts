@@ -95,6 +95,17 @@ export async function createImprovementCandidateAction(
   const kind = readText(formData, "kind");
   if (!isCandidateKind(kind)) return fail("Choose one of the seven proposal kinds.");
 
+  const projectId = readText(formData, "projectId");
+  if (!isUuid(projectId)) return fail("Choose the project this proposal belongs to.");
+
+  const { data: project } = await session.supabase
+    .from("app_projects")
+    .select("id")
+    .eq("id", projectId)
+    .eq("user_id", session.user.id)
+    .maybeSingle();
+  if (!project) return fail("That project isn't available to you.");
+
   const policyName = readText(formData, "policy");
   if (!POLICIES[policyName]) {
     return fail("Choose which candidate policy this proposal would run.");
@@ -147,6 +158,7 @@ export async function createImprovementCandidateAction(
   const { error } = await session.supabase.from("improvement_candidates").insert({
     workspace_id: workspaceId,
     user_id: session.user.id,
+    project_id: projectId,
     kind: draft.kind,
     title: draft.title.trim(),
     problem: draft.problem.trim(),
@@ -269,7 +281,7 @@ export async function decideImprovementCandidateAction(
   const candidateId = readText(formData, "candidateId");
   const decision = readText(formData, "decision");
   const note = readText(formData, "note");
-  const reference = readText(formData, "reference");
+  const deploymentId = readText(formData, "deploymentId");
   if (!isUuid(workspaceId) || !isUuid(candidateId)) return fail(NOT_AVAILABLE);
   if (!(await memberRole(session, workspaceId))) return fail(NOT_AVAILABLE);
 
@@ -281,7 +293,7 @@ export async function decideImprovementCandidateAction(
     promote: () =>
       session.supabase.rpc("improvement_candidate_promote", {
         p_id: candidateId,
-        p_reference: reference,
+        p_deployment_id: isUuid(deploymentId) ? deploymentId : null,
         p_note: note,
       }),
     cancel: () => session.supabase.rpc("improvement_candidate_cancel", { p_id: candidateId }),
@@ -303,7 +315,11 @@ export async function decideImprovementCandidateAction(
       "suite-mismatch": "The evaluation did not run against the frozen suite.",
       "note-required": "Record the review decision in at least a sentence.",
       "not-approved": "Only an approved proposal can be promoted.",
-      "reference-required": "Name the deployment approval this promotion rides on.",
+      "deployment-required": "Choose an approved deployment to ship this through.",
+      "deployment-not-approved": "That deployment has not been approved yet. Approve its exact plan with the typed confirmation first.",
+      "deployment-not-found": "That deployment no longer exists.",
+      "deployment-mismatch": "That deployment belongs to another project or person.",
+      "project-required": "Link this proposal to a project before promoting it.",
       "reason-required": "Give a reason for rejecting this proposal.",
       final: "That decision is already final.",
     };

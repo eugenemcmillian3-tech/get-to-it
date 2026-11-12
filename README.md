@@ -2206,9 +2206,18 @@ appears, a guarded refusal changes or the cost rises above 25%; better only when
 more cases pass with none of those; equal otherwise. Evaluations are append-only.
 
 A different person then reviews the exact change, the run, the remaining risks,
-the cost and the rollback. The author cannot approve their own proposal, approval
-needs a clean result and a written note, and promotion is recorded against an
-existing deployment approval — this phase never deploys anything itself.
+the cost and the rollback. The author cannot approve their own proposal, and
+approval needs a clean result and a written note.
+
+Promotion names a real deployment. A proposal is linked to one of your projects,
+and promoting it requires an `app_deployments` row for that same project and
+person that a person has already approved in the deployment flow — the plan with
+its fingerprint, the typed `DEPLOY` confirmation and the pre-deploy checks. The
+promotion stores that deployment id, so the change ships through the existing
+pipeline rather than through a string someone typed. A deployment that is still
+`draft` or `checks_ready`, was never approved, or belongs to another project is
+refused, and a promoted candidate cannot be repointed at a different deployment.
+This phase still never deploys anything itself.
 
 Refused, by name and on the record: granting permissions, removing an approval
 gate, increasing spending authority, changing a billing price, disabling audit

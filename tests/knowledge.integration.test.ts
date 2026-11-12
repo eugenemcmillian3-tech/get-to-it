@@ -2849,7 +2849,10 @@ describeKnowledge("improvement proposals", () => {
   const owner = randomUUID();
   const reviewer = randomUUID();
   const workspaceId = randomUUID();
+  const projectId = randomUUID();
+  const otherProjectId = randomUUID();
   const ids: Record<string, string> = {};
+  const deploymentIds: Record<string, string> = {};
 
   const draft = {
     kind: "tool_policy",
@@ -2872,14 +2875,15 @@ describeKnowledge("improvement proposals", () => {
     const created = await asUser(client, owner, () =>
       client.query<{ id: string }>(
         `insert into public.improvement_candidates
-           (workspace_id, user_id, kind, title, problem, evidence, proposed_change,
+           (workspace_id, user_id, project_id, kind, title, problem, evidence, proposed_change,
             expected_benefit, possible_regressions, affected_components, evaluation_plan,
             cost_impact, security_implications, rollback_plan, base_ref, candidate_ref, status)
-         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'draft')
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,'draft')
          returning id`,
         [
           workspaceId,
           owner,
+          projectId,
           draft.kind,
           `${draft.title} ${suffix}`,
           draft.problem,
@@ -2937,6 +2941,38 @@ describeKnowledge("improvement proposals", () => {
       await client.query(
         "insert into public.workspace_members (workspace_id, user_id, role, status) values ($1,$2,$3,'active')",
         [workspaceId, userId, role],
+      );
+    }
+
+    for (const [id, userId, name] of [
+      [projectId, owner, "Policy project"],
+      [otherProjectId, reviewer, "Someone else's project"],
+    ] as const) {
+      await client.query(
+        `insert into public.app_projects
+           (id, user_id, name, purpose, target_users, workflows, required_pages, entities,
+            auth_requirements, integrations, definition_of_done)
+         values ($1,$2,$3,'Carry the connector policy.','Operators','Post a summary','/ | Home','','none','','The policy ships')`,
+        [id, userId, name],
+      );
+    }
+
+    for (const [key, userId, project, status, approved] of [
+      ["approved", owner, projectId, "approved", true],
+      ["unapproved", owner, projectId, "checks_ready", false],
+      ["foreign", reviewer, otherProjectId, "approved", true],
+    ] as const) {
+      const deployment = randomUUID();
+      deploymentIds[key] = deployment;
+      await client.query(
+        `insert into public.app_deployments
+           (id, project_id, user_id, target, snapshot_version, snapshot_digest, snapshot,
+            plan, plan_hash, status, approval_at)
+         values ($1,$2,$3,'preview',1, repeat('a',64),
+                 '[{"path":"app/page.tsx","content":"export default function Page(){return null}"}]'::jsonb,
+                 '{"summary":"Ship the connector policy"}'::jsonb, repeat('b',64), $4,
+                 $5)`,
+        [deployment, project, userId, status, approved ? new Date().toISOString() : null],
       );
     }
 
@@ -3111,17 +3147,52 @@ describeKnowledge("improvement proposals", () => {
     );
     expect(approved.rows[0].result.ok).toBe(true);
 
-    const promoted = await asUser(client, reviewer, () =>
-      client.query<{ result: { ok: boolean; status: string } }>(
+    const unapproved = await asUser(client, reviewer, () =>
+      client.query<{ result: { ok: boolean; code: string } }>(
         "select public.improvement_candidate_promote($1,$2,$3) as result",
         [
           ids.better,
-          "deployment approval 4242",
-          "Promoted behind the existing deployment approval; rollback is removing the rule.",
+          deploymentIds.unapproved,
+          "Promoting against a deployment that was never approved by a person.",
         ],
       ),
     );
-    expect(promoted.rows[0].result).toMatchObject({ ok: true, status: "promoted" });
+    expect(unapproved.rows[0].result).toMatchObject({ ok: false, code: "deployment-not-approved" });
+
+    const foreign = await asUser(client, reviewer, () =>
+      client.query<{ result: { ok: boolean; code: string } }>(
+        "select public.improvement_candidate_promote($1,$2,$3) as result",
+        [
+          ids.better,
+          deploymentIds.foreign,
+          "Promoting through a deployment that belongs to another project.",
+        ],
+      ),
+    );
+    expect(foreign.rows[0].result).toMatchObject({ ok: false, code: "deployment-mismatch" });
+
+    const promoted = await asUser(client, reviewer, () =>
+      client.query<{ result: { ok: boolean; status: string; deployment_id: string } }>(
+        "select public.improvement_candidate_promote($1,$2,$3) as result",
+        [
+          ids.better,
+          deploymentIds.approved,
+          "Promoted behind the deployment approval for this project; rollback is removing the rule.",
+        ],
+      ),
+    );
+    expect(promoted.rows[0].result).toMatchObject({
+      ok: true,
+      status: "promoted",
+      deployment_id: deploymentIds.approved,
+    });
+
+    const linked = await client.query<{ deployment_id: string; promotion_ref: string }>(
+      "select deployment_id, promotion_ref from public.improvement_candidates where id = $1",
+      [ids.better],
+    );
+    expect(linked.rows[0].deployment_id).toBe(deploymentIds.approved);
+    expect(linked.rows[0].promotion_ref).toBe(`deployment:${deploymentIds.approved}`);
   });
 
   it("cannot be promoted before a person approves it", async () => {
@@ -3130,18 +3201,18 @@ describeKnowledge("improvement proposals", () => {
         "select public.improvement_candidate_promote($1,$2,$3) as result",
         [
           ids.regressing,
-          "deployment approval 4243",
+          deploymentIds.approved,
           "Attempting to skip the review and go straight to a promotion.",
         ],
       ),
     );
     expect(early.rows[0].result).toMatchObject({ ok: false, code: "not-approved" });
 
-    const deployments = await client.query<{ count: string }>(
-      "select count(*)::text as count from public.app_deployments where user_id = $1",
-      [owner],
+    const after = await client.query<{ status: string; deployment_id: string | null }>(
+      "select status, deployment_id from public.improvement_candidates where id = $1",
+      [ids.regressing],
     );
-    expect(deployments.rows[0].count).toBe("0");
+    expect(after.rows[0]).toEqual({ status: "evaluated", deployment_id: null });
   });
 
   it("cannot rewrite a recorded verdict", async () => {

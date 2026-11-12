@@ -179,6 +179,8 @@ describe("promotion review", () => {
     reviewedBy: "reviewer-1",
     authorId: "author-1",
     sandboxRef: "sandbox/channel-lookup",
+    deploymentApproved: true,
+    deploymentProjectMatches: true,
   };
 
   it("accepts a reviewed, measured candidate", () => {
@@ -191,5 +193,14 @@ describe("promotion review", () => {
     expect(promotionProblems({ ...review, verdict: "worse" }).join(" ")).toContain("not better than or equal");
     expect(promotionProblems({ ...review, integrity: "mismatch" }).join(" ")).toContain("did not match the frozen suite");
     expect(promotionProblems({ ...review, status: "draft" }).join(" ")).toContain("Only an approved candidate");
+  });
+
+  it("refuses a promotion that no approved deployment can ship", () => {
+    expect(promotionProblems({ ...review, deploymentApproved: false }).join(" ")).toContain(
+      "Name a deployment that has already been approved",
+    );
+    expect(promotionProblems({ ...review, deploymentProjectMatches: false }).join(" ")).toContain(
+      "same project as the candidate",
+    );
   });
 });
