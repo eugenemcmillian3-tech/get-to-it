@@ -57,6 +57,14 @@ export default async function ConnectorsPage({
           repository you choose. {GITHUB_NOTES.exclusions}
         </p>
 
+        <p className="mt-4 text-sm text-muted">
+          Looking for Slack?{" "}
+          <Link href={`/workspace/${workspaceId}/connectors/slack`} className="underline">
+            Post a milestone summary to a channel
+          </Link>
+          .
+        </p>
+
         <ul className="mt-4 grid gap-2 text-sm text-muted">
           <li>{GITHUB_NOTES.approval}</li>
           <li>{GITHUB_NOTES.duplicates}</li>

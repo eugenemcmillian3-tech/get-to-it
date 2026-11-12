@@ -2555,3 +2555,276 @@ describeKnowledge("phase 9 github issue handoff", () => {
     expect(kinds).toEqual(["drafted", "approved", "send_started", "sent"]);
   });
 });
+
+/**
+ * Slack milestone summaries. The transport is Composio, so these checks cover
+ * what this phase owns: the approval record, its immutability, the duplicate
+ * guard and the audit trail.
+ */
+describeKnowledge("slack message requests", () => {
+  let client: Client;
+  const owner = randomUUID();
+  const outsider = randomUUID();
+  const workspaceId = randomUUID();
+  const projectId = randomUUID();
+  const connectionId = randomUUID();
+  let requestId = "";
+
+  beforeAll(async () => {
+    client = new Client({ connectionString });
+    await client.connect();
+    await assertIsolatedDatabase(client);
+
+    for (const userId of [owner, outsider]) {
+      await client.query("insert into auth.users (id, email) values ($1,$2)", [
+        userId,
+        `slack-${userId.slice(0, 8)}@example.test`,
+      ]);
+    }
+    await client.query("insert into public.workspaces (id, name, created_by) values ($1,$2,$3)", [
+      workspaceId,
+      "Slack connector probe",
+      owner,
+    ]);
+    await client.query(
+      "insert into public.workspace_members (workspace_id, user_id, role, status) values ($1,$2,'owner','active')",
+      [workspaceId, owner],
+    );
+    await client.query(
+      `insert into public.app_projects
+         (id, user_id, name, purpose, target_users, workflows, required_pages, entities,
+          auth_requirements, integrations, definition_of_done)
+       values ($1,$2,'Slack probe','Probe the summary handoff.','Operators',
+               'Post a summary','/ | Home','','none','',
+               'A message request is recorded')`,
+      [projectId, owner],
+    );
+    await client.query(
+      `insert into public.app_composio_connections
+         (id, user_id, project_id, toolkit, connected_account_id, account_label, status)
+       values ($1,$2,$3,'slack','ca_probe_slack_1','Probe workspace','active')`,
+      [connectionId, owner, projectId],
+    );
+
+    const created = await asUser(client, owner, () =>
+      client.query<{ id: string }>(
+        `insert into public.slack_message_requests
+           (workspace_id, user_id, connection_id, project_id, record_kind, record_id,
+            channel, channel_label, text, fingerprint, status)
+         values ($1,$2,$3,$4,'mission',$5,'C0123456789','product-updates',
+                 '*Mission: ship the smaller header* Approved by a person before posting.',
+                 $6,'draft')
+         returning id`,
+        [workspaceId, owner, connectionId, projectId, randomUUID(), "a".repeat(64)],
+      ),
+    );
+    requestId = created.rows[0].id;
+  }, 180_000);
+
+  afterAll(async () => {
+    if (client) await client.end();
+  });
+
+  it("hides the draft from an outsider", async () => {
+    const visible = await asUser(client, owner, () =>
+      client.query<{ count: string }>(
+        "select count(*)::text as count from public.slack_message_requests where id = $1",
+        [requestId],
+      ),
+    );
+    expect(visible.rows[0].count).toBe("1");
+
+    const hidden = await asUser(client, outsider, () =>
+      client.query<{ count: string }>(
+        "select count(*)::text as count from public.slack_message_requests where id = $1",
+        [requestId],
+      ),
+    );
+    expect(hidden.rows[0].count).toBe("0");
+  });
+
+  it("refuses to post before approval", async () => {
+    const result = await asUser(client, owner, () =>
+      client.query<{ result: { ok: boolean; code: string } }>(
+        "select public.slack_message_claim($1) as result",
+        [requestId],
+      ),
+    );
+    expect(result.rows[0].result).toMatchObject({ ok: false, code: "approval-required" });
+  });
+
+  it("freezes the channel and text once approved", async () => {
+    const approved = await asUser(client, owner, () =>
+      client.query<{ result: { ok: boolean } }>(
+        "select public.slack_message_approve($1) as result",
+        [requestId],
+      ),
+    );
+    expect(approved.rows[0].result.ok).toBe(true);
+
+    const direct = await asUser(client, owner, () =>
+      client.query(
+        "update public.slack_message_requests set text = 'A different message' where id = $1",
+        [requestId],
+      ),
+    );
+    expect(direct.rowCount).toBe(0);
+
+    let message = "";
+    try {
+      await client.query(
+        "update public.slack_message_requests set channel = 'C999999999' where id = $1",
+        [requestId],
+      );
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain("cannot be rewritten");
+  });
+
+  it("posts once, and only with a real message timestamp", async () => {
+    const claimed = await asUser(client, owner, () =>
+      client.query<{ result: { ok: boolean; attempt: number } }>(
+        "select public.slack_message_claim($1) as result",
+        [requestId],
+      ),
+    );
+    expect(claimed.rows[0].result.ok).toBe(true);
+
+    const again = await asUser(client, owner, () =>
+      client.query<{ result: { ok: boolean; code: string } }>(
+        "select public.slack_message_claim($1) as result",
+        [requestId],
+      ),
+    );
+    expect(again.rows[0].result).toMatchObject({ ok: false, code: "already-sending" });
+
+    const withoutTs = await asUser(client, owner, () =>
+      client.query<{ result: { ok: boolean; code: string } }>(
+        "select public.slack_message_complete($1, true, null, null) as result",
+        [requestId],
+      ),
+    );
+    expect(withoutTs.rows[0].result).toMatchObject({ ok: false, code: "missing-message" });
+
+    const badPermalink = await asUser(client, owner, () =>
+      client.query<{ result: { ok: boolean; code: string } }>(
+        "select public.slack_message_complete($1, true, '1699999999.123456', 'https://example.com/x') as result",
+        [requestId],
+      ),
+    );
+    expect(badPermalink.rows[0].result).toMatchObject({ ok: false, code: "bad-permalink" });
+
+    const sent = await asUser(client, owner, () =>
+      client.query<{ result: { ok: boolean } }>(
+        `select public.slack_message_complete(
+           $1, true, '1699999999.123456',
+           'https://acme.slack.com/archives/C0123456789/p1699999999123456') as result`,
+        [requestId],
+      ),
+    );
+    expect(sent.rows[0].result.ok).toBe(true);
+
+    const row = await client.query<{ status: string; message_ts: string }>(
+      "select status, message_ts from public.slack_message_requests where id = $1",
+      [requestId],
+    );
+    expect(row.rows[0].status).toBe("sent");
+    expect(row.rows[0].message_ts).toBe("1699999999.123456");
+
+    let message = "";
+    try {
+      await client.query(
+        "update public.slack_message_requests set status = 'failed' where id = $1",
+        [requestId],
+      );
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain("a sent message is final");
+  });
+
+  it("refuses a duplicate fingerprint for the same record", async () => {
+    const recordId = randomUUID();
+    const insert = () =>
+      client.query(
+        `insert into public.slack_message_requests
+           (workspace_id, user_id, connection_id, project_id, record_kind, record_id,
+            channel, channel_label, text, fingerprint, status)
+         values ($1,$2,$3,$4,'mission',$5,'C0123456789','product-updates',
+                 'The same body, recorded again.', $6, 'draft')`,
+        [workspaceId, owner, connectionId, projectId, recordId, "b".repeat(64)],
+      );
+
+    await asUser(client, owner, insert);
+
+    let message = "";
+    try {
+      await asUser(client, owner, insert);
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain("duplicate key value");
+  });
+
+  it("refuses a channel id that is really a word", async () => {
+    let message = "";
+    try {
+      await client.query(
+        `insert into public.slack_message_requests
+           (workspace_id, user_id, connection_id, project_id, record_kind, record_id,
+            channel, text, fingerprint, status)
+         values ($1,$2,$3,$4,'mission',$5,'GENERAL',
+                 'A message for a word that looks like a channel.', $6, 'draft')`,
+        [workspaceId, owner, connectionId, projectId, randomUUID(), "d".repeat(64)],
+      );
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain("slack_message_requests_channel_check");
+  });
+
+  it("refuses to send when the connection is no longer active", async () => {
+    const pending = await asUser(client, owner, () =>
+      client.query<{ id: string }>(
+        `insert into public.slack_message_requests
+           (workspace_id, user_id, connection_id, project_id, record_kind, record_id,
+            channel, channel_label, text, fingerprint, status)
+         values ($1,$2,$3,$4,'mission',$5,'C0123456789','product-updates',
+                 'This should never be posted.', $6, 'draft')
+         returning id`,
+        [workspaceId, owner, connectionId, projectId, randomUUID(), "c".repeat(64)],
+      ),
+    );
+    const pendingId = pending.rows[0].id;
+
+    await asUser(client, owner, () =>
+      client.query("select public.slack_message_approve($1)", [pendingId]),
+    );
+    await client.query(
+      "update public.app_composio_connections set status = 'revoked' where id = $1",
+      [connectionId],
+    );
+
+    const claim = await asUser(client, owner, () =>
+      client.query<{ result: { ok: boolean; code: string } }>(
+        "select public.slack_message_claim($1) as result",
+        [pendingId],
+      ),
+    );
+    expect(claim.rows[0].result).toMatchObject({ ok: false, code: "connection-inactive" });
+  });
+
+  it("appends the audit trail in order", async () => {
+    const events = await client.query<{ kind: string }>(
+      "select kind from public.slack_message_events where request_id = $1 order by created_at",
+      [requestId],
+    );
+    expect(events.rows.map((row) => row.kind)).toEqual([
+      "drafted",
+      "approved",
+      "send_started",
+      "sent",
+    ]);
+  });
+});

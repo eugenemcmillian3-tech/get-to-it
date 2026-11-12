@@ -2145,3 +2145,33 @@ creation has not been run: it needs a connected GitHub account and the separate
 approval the product decision requires, so the send path is verified up to the
 provider call and refuses rather than fabricates a result when that call cannot
 be made.
+
+## Slack milestone summaries
+
+`/workspace/{workspaceId}/connectors/slack` is the second connector: one
+approved mission, experiment or outcome review becomes one message in one Slack
+channel. It uses the same shape as the GitHub handoff and the user's own Slack
+connection, so nothing is posted unless that connection is active and the
+`SLACK_SEND_MESSAGE` tool is granted on it.
+
+Choosing a destination is done by channel id (`C…` for public channels, `G…`
+for private ones, always ending in a digit), and the draft action resolves that
+id through the connection before saving anything. A channel the connection
+cannot see is refused rather than guessed, which is what the `channels:read`
+and `groups:read` scopes are for; a word like `GENERAL` cannot pass as an id.
+The text is derived on the server from the record — heading, question or
+hypothesis, context, proposed next step and a link back — and is shown exactly
+as it will be posted.
+
+Approval stores a sha256 fingerprint of the channel and text; a trigger refuses
+any later change to either, and the claim RPC moves `approved` to `sending`
+under a row lock so a double click cannot post twice. Completion must carry a
+Slack timestamp matching `^[0-9]{10}\.[0-9]{6}$`, and a permalink when present
+must be a Slack archive URL, so success is never written from a guess. `sent`
+and `cancelled` are final, a unique index on the record and fingerprint refuses
+a duplicate, and every step is appended to `slack_message_events`.
+
+Changing a topic or purpose, archiving a channel, inviting or removing people,
+uploading files, pinning, reacting, starting calls, scheduling messages and
+deleting messages are refused, not merely undocumented. Nothing here calls a
+model, and the connection is limited to the three scopes above.

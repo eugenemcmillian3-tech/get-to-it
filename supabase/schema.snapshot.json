@@ -2595,6 +2595,42 @@
       "check": "(user_id = ( SELECT auth.uid() AS uid))"
     },
     {
+      "key": "slack_message_events.members read slack message events",
+      "table": "slack_message_events",
+      "name": "members read slack message events",
+      "cmd": "SELECT",
+      "roles": "{authenticated}",
+      "qual": "(workspace_role(workspace_id) IS NOT NULL)",
+      "check": ""
+    },
+    {
+      "key": "slack_message_events.owners append slack message events",
+      "table": "slack_message_events",
+      "name": "owners append slack message events",
+      "cmd": "INSERT",
+      "roles": "{authenticated}",
+      "qual": "",
+      "check": "((workspace_role(workspace_id) IS NOT NULL) AND (EXISTS ( SELECT 1 FROM slack_message_requests r WHERE ((r.id = slack_message_events.request_id) AND (r.user_id = auth.uid())))))"
+    },
+    {
+      "key": "slack_message_requests.members read slack message requests",
+      "table": "slack_message_requests",
+      "name": "members read slack message requests",
+      "cmd": "SELECT",
+      "roles": "{authenticated}",
+      "qual": "(workspace_role(workspace_id) IS NOT NULL)",
+      "check": ""
+    },
+    {
+      "key": "slack_message_requests.owners draft slack message requests",
+      "table": "slack_message_requests",
+      "name": "owners draft slack message requests",
+      "cmd": "INSERT",
+      "roles": "{authenticated}",
+      "qual": "",
+      "check": "((workspace_role(workspace_id) IS NOT NULL) AND (user_id = auth.uid()) AND (status = 'draft'::text))"
+    },
+    {
       "key": "supabase_account_connections.owners read their supabase account",
       "table": "supabase_account_connections",
       "name": "owners read their supabase account",
@@ -14317,6 +14353,209 @@
       "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
     },
     {
+      "key": "slack_message_events.slack_message_events_actor_id_fkey",
+      "table": "slack_message_events",
+      "name": "slack_message_events_actor_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (actor_id) REFERENCES auth.users(id) ON DELETE SET NULL"
+    },
+    {
+      "key": "slack_message_events.slack_message_events_detail_check",
+      "table": "slack_message_events",
+      "name": "slack_message_events_detail_check",
+      "type": "c",
+      "definition": "CHECK ((char_length(detail) <= 500))"
+    },
+    {
+      "key": "slack_message_events.slack_message_events_kind_check",
+      "table": "slack_message_events",
+      "name": "slack_message_events_kind_check",
+      "type": "c",
+      "definition": "CHECK ((kind = ANY (ARRAY['drafted'::text, 'approved'::text, 'send_started'::text, 'sent'::text, 'failed'::text, 'cancelled'::text])))"
+    },
+    {
+      "key": "slack_message_events.slack_message_events_pkey",
+      "table": "slack_message_events",
+      "name": "slack_message_events_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "slack_message_events.slack_message_events_request_id_fkey",
+      "table": "slack_message_events",
+      "name": "slack_message_events_request_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (request_id) REFERENCES slack_message_requests(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "slack_message_events.slack_message_events_workspace_id_fkey",
+      "table": "slack_message_events",
+      "name": "slack_message_events_workspace_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "slack_message_requests.slack_message_requests_approval_fingerprint_check",
+      "table": "slack_message_requests",
+      "name": "slack_message_requests_approval_fingerprint_check",
+      "type": "c",
+      "definition": "CHECK ((approval_fingerprint ~ '^[0-9a-f]{64}$'::text))"
+    },
+    {
+      "key": "slack_message_requests.slack_message_requests_approved_by_fkey",
+      "table": "slack_message_requests",
+      "name": "slack_message_requests_approved_by_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (approved_by) REFERENCES auth.users(id) ON DELETE SET NULL"
+    },
+    {
+      "key": "slack_message_requests.slack_message_requests_attempt_count_check",
+      "table": "slack_message_requests",
+      "name": "slack_message_requests_attempt_count_check",
+      "type": "c",
+      "definition": "CHECK ((attempt_count >= 0))"
+    },
+    {
+      "key": "slack_message_requests.slack_message_requests_channel_check",
+      "table": "slack_message_requests",
+      "name": "slack_message_requests_channel_check",
+      "type": "c",
+      "definition": "CHECK ((channel ~ '^[CG][A-Z0-9]{5,19}[0-9]$'::text))"
+    },
+    {
+      "key": "slack_message_requests.slack_message_requests_channel_label_check",
+      "table": "slack_message_requests",
+      "name": "slack_message_requests_channel_label_check",
+      "type": "c",
+      "definition": "CHECK ((char_length(channel_label) <= 120))"
+    },
+    {
+      "key": "slack_message_requests.slack_message_requests_check",
+      "table": "slack_message_requests",
+      "name": "slack_message_requests_check",
+      "type": "c",
+      "definition": "CHECK (((approved_at IS NULL) OR ((approval_fingerprint IS NOT NULL) AND (approved_by IS NOT NULL))))"
+    },
+    {
+      "key": "slack_message_requests.slack_message_requests_check1",
+      "table": "slack_message_requests",
+      "name": "slack_message_requests_check1",
+      "type": "c",
+      "definition": "CHECK (((status <> 'approved'::text) OR ((approval_fingerprint = fingerprint) AND (approved_at IS NOT NULL))))"
+    },
+    {
+      "key": "slack_message_requests.slack_message_requests_check2",
+      "table": "slack_message_requests",
+      "name": "slack_message_requests_check2",
+      "type": "c",
+      "definition": "CHECK (((status <> 'sent'::text) OR (message_ts IS NOT NULL)))"
+    },
+    {
+      "key": "slack_message_requests.slack_message_requests_connection_id_fkey",
+      "table": "slack_message_requests",
+      "name": "slack_message_requests_connection_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (connection_id) REFERENCES app_composio_connections(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "slack_message_requests.slack_message_requests_error_code_check",
+      "table": "slack_message_requests",
+      "name": "slack_message_requests_error_code_check",
+      "type": "c",
+      "definition": "CHECK (((error_code IS NULL) OR (char_length(error_code) <= 60)))"
+    },
+    {
+      "key": "slack_message_requests.slack_message_requests_error_message_check",
+      "table": "slack_message_requests",
+      "name": "slack_message_requests_error_message_check",
+      "type": "c",
+      "definition": "CHECK (((error_message IS NULL) OR (char_length(error_message) <= 500)))"
+    },
+    {
+      "key": "slack_message_requests.slack_message_requests_fingerprint_check",
+      "table": "slack_message_requests",
+      "name": "slack_message_requests_fingerprint_check",
+      "type": "c",
+      "definition": "CHECK ((fingerprint ~ '^[0-9a-f]{64}$'::text))"
+    },
+    {
+      "key": "slack_message_requests.slack_message_requests_message_ts_check",
+      "table": "slack_message_requests",
+      "name": "slack_message_requests_message_ts_check",
+      "type": "c",
+      "definition": "CHECK (((message_ts IS NULL) OR (message_ts ~ '^[0-9]{10}\\.[0-9]{6}$'::text)))"
+    },
+    {
+      "key": "slack_message_requests.slack_message_requests_permalink_check",
+      "table": "slack_message_requests",
+      "name": "slack_message_requests_permalink_check",
+      "type": "c",
+      "definition": "CHECK (((permalink IS NULL) OR (permalink ~ '^https://[A-Za-z0-9.-]+\\.slack\\.com/archives/'::text)))"
+    },
+    {
+      "key": "slack_message_requests.slack_message_requests_pkey",
+      "table": "slack_message_requests",
+      "name": "slack_message_requests_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "slack_message_requests.slack_message_requests_project_id_fkey",
+      "table": "slack_message_requests",
+      "name": "slack_message_requests_project_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (project_id) REFERENCES app_projects(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "slack_message_requests.slack_message_requests_provider_ref_check",
+      "table": "slack_message_requests",
+      "name": "slack_message_requests_provider_ref_check",
+      "type": "c",
+      "definition": "CHECK (((provider_ref IS NULL) OR (char_length(provider_ref) <= 200)))"
+    },
+    {
+      "key": "slack_message_requests.slack_message_requests_record_kind_check",
+      "table": "slack_message_requests",
+      "name": "slack_message_requests_record_kind_check",
+      "type": "c",
+      "definition": "CHECK ((record_kind = ANY (ARRAY['mission'::text, 'experiment'::text, 'outcome_review'::text])))"
+    },
+    {
+      "key": "slack_message_requests.slack_message_requests_status_check",
+      "table": "slack_message_requests",
+      "name": "slack_message_requests_status_check",
+      "type": "c",
+      "definition": "CHECK ((status = ANY (ARRAY['draft'::text, 'approved'::text, 'sending'::text, 'sent'::text, 'failed'::text, 'cancelled'::text])))"
+    },
+    {
+      "key": "slack_message_requests.slack_message_requests_text_check",
+      "table": "slack_message_requests",
+      "name": "slack_message_requests_text_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(text)) >= 10) AND (char_length(btrim(text)) <= 3000)))"
+    },
+    {
+      "key": "slack_message_requests.slack_message_requests_user_id_fkey",
+      "table": "slack_message_requests",
+      "name": "slack_message_requests_user_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "slack_message_requests.slack_message_requests_user_id_record_kind_record_id_finger_key",
+      "table": "slack_message_requests",
+      "name": "slack_message_requests_user_id_record_kind_record_id_finger_key",
+      "type": "u",
+      "definition": "UNIQUE (user_id, record_kind, record_id, fingerprint)"
+    },
+    {
+      "key": "slack_message_requests.slack_message_requests_workspace_id_fkey",
+      "table": "slack_message_requests",
+      "name": "slack_message_requests_workspace_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE"
+    },
+    {
       "key": "supabase_account_connections.supabase_account_connections_access_token_sealed_check",
       "table": "supabase_account_connections",
       "name": "supabase_account_connections_access_token_sealed_check",
@@ -17719,6 +17958,36 @@
       "table": "reviews",
       "name": "reviews_user_idx",
       "definition": "CREATE INDEX reviews_user_idx ON public.reviews USING btree (user_id, created_at DESC)"
+    },
+    {
+      "key": "slack_message_events.slack_message_events_pkey",
+      "table": "slack_message_events",
+      "name": "slack_message_events_pkey",
+      "definition": "CREATE UNIQUE INDEX slack_message_events_pkey ON public.slack_message_events USING btree (id)"
+    },
+    {
+      "key": "slack_message_events.slack_message_events_request_idx",
+      "table": "slack_message_events",
+      "name": "slack_message_events_request_idx",
+      "definition": "CREATE INDEX slack_message_events_request_idx ON public.slack_message_events USING btree (request_id, created_at)"
+    },
+    {
+      "key": "slack_message_requests.slack_message_requests_pkey",
+      "table": "slack_message_requests",
+      "name": "slack_message_requests_pkey",
+      "definition": "CREATE UNIQUE INDEX slack_message_requests_pkey ON public.slack_message_requests USING btree (id)"
+    },
+    {
+      "key": "slack_message_requests.slack_message_requests_user_id_record_kind_record_id_finger_key",
+      "table": "slack_message_requests",
+      "name": "slack_message_requests_user_id_record_kind_record_id_finger_key",
+      "definition": "CREATE UNIQUE INDEX slack_message_requests_user_id_record_kind_record_id_finger_key ON public.slack_message_requests USING btree (user_id, record_kind, record_id, fingerprint)"
+    },
+    {
+      "key": "slack_message_requests.slack_message_requests_workspace_idx",
+      "table": "slack_message_requests",
+      "name": "slack_message_requests_workspace_idx",
+      "definition": "CREATE INDEX slack_message_requests_workspace_idx ON public.slack_message_requests USING btree (workspace_id, created_at DESC)"
     },
     {
       "key": "supabase_account_connections.supabase_account_connections_pkey",

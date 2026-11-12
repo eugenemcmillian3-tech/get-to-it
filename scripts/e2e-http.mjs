@@ -789,6 +789,12 @@ async function main() {
     "Run a synthetic mission",
     "explanations competing",
   ]);
+  await page(`/workspace/${created.workspace}/connectors/slack`, 200, [
+    "Slack milestone summaries",
+    "Message requests",
+    "posts one message and nothing else",
+    "channels:read, groups:read and chat:write",
+  ]);
   await page(`/workspace/${created.workspace}/connectors`, 200, [
     "GitHub issue handoff",
     "creates issues and nothing else",
