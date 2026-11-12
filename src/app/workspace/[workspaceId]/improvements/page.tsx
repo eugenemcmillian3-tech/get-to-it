@@ -68,7 +68,12 @@ export default async function ImprovementsPage({
           Back to {list.workspace.name}
         </Link>
 
-        <h1 className="mt-3 text-3xl font-black tracking-tight">Improvement proposals</h1>
+        <div className="mt-3 flex flex-wrap items-baseline justify-between gap-2">
+          <h1 className="text-3xl font-black tracking-tight">Improvement proposals</h1>
+          <Link href={`/workspace/${workspaceId}/improvements/promotions`} className="text-sm underline">
+            Promotion audit
+          </Link>
+        </div>
         <p className="mt-2 max-w-2xl text-sm text-muted">
           One written case per change to how this product is built and run: a prompt revision, a
           routing rule, a tool policy, a procedure, a workflow, an application patch or a new

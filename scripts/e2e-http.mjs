@@ -789,6 +789,12 @@ async function main() {
     "Run a synthetic mission",
     "explanations competing",
   ]);
+  await page(`/workspace/${created.workspace}/improvements/promotions`, 200, [
+    "Promotion audit",
+    "Promoted changes",
+    "No proposal has been promoted in this workspace yet",
+    "the deployment it rides on",
+  ]);
   await page(`/workspace/${created.workspace}/improvements`, 200, [
     "Improvement proposals",
     "Write a proposal",
