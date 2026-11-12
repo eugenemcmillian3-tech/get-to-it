@@ -12,6 +12,14 @@ import {
   bootstrapSupabase,
   replayMigrations,
 } from "./support/phase37-db";
+import {
+  CHANNEL_LOOKUP_POLICY,
+  EVAL_SUITE_NAME,
+  EVAL_SUITE_VERSION,
+  WIDENED_TOOLSET_POLICY,
+  evaluateCandidate,
+  suiteDigest,
+} from "@/lib/improvement-eval";
 
 /**
  * Phase 37 regression harness, on an isolated database.
@@ -2825,6 +2833,341 @@ describeKnowledge("slack message requests", () => {
       "approved",
       "send_started",
       "sent",
+    ]);
+  });
+});
+
+/**
+ * Phase 40 — improvement proposals.
+ *
+ * These checks are the ones the phase promises: a measurable candidate, a
+ * rejected regression, a blocked attempt to weaken a safeguard, and no
+ * promotion without a separate human decision.
+ */
+describeKnowledge("improvement proposals", () => {
+  let client: Client;
+  const owner = randomUUID();
+  const reviewer = randomUUID();
+  const workspaceId = randomUUID();
+  const ids: Record<string, string> = {};
+
+  const draft = {
+    kind: "tool_policy",
+    title: "Resolve a Slack channel name before posting",
+    problem: "A named channel is handed straight to the send tool and refused after the draft.",
+    evidence: "Three of twelve authored cases never reach the listing tool.",
+    proposed_change: "Add one listing rule ahead of the send rule and change nothing else.",
+    expected_benefit: "Three more intents reach the right tool.",
+    possible_regressions: "A trailing word could be read as a channel name.",
+    affected_components: ["connector tool policy"],
+    evaluation_plan: "Run all twelve cases against the baseline and the candidate.",
+    cost_impact: "Three send calls become listing calls in the authored suite.",
+    security_implications: "Only an already-granted, read-only tool is called.",
+    rollback_plan: "Remove the added rule; the send path is untouched.",
+    base_ref: "main@policy-shipped",
+    candidate_ref: "sandbox/channel-lookup",
+  };
+
+  async function insertDraft(suffix: string): Promise<string> {
+    const created = await asUser(client, owner, () =>
+      client.query<{ id: string }>(
+        `insert into public.improvement_candidates
+           (workspace_id, user_id, kind, title, problem, evidence, proposed_change,
+            expected_benefit, possible_regressions, affected_components, evaluation_plan,
+            cost_impact, security_implications, rollback_plan, base_ref, candidate_ref, status)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'draft')
+         returning id`,
+        [
+          workspaceId,
+          owner,
+          draft.kind,
+          `${draft.title} ${suffix}`,
+          draft.problem,
+          draft.evidence,
+          draft.proposed_change,
+          draft.expected_benefit,
+          draft.possible_regressions,
+          draft.affected_components,
+          draft.evaluation_plan,
+          draft.cost_impact,
+          draft.security_implications,
+          draft.rollback_plan,
+          draft.base_ref,
+          `${draft.candidate_ref}-${suffix}`,
+        ],
+      ),
+    );
+    return created.rows[0].id;
+  }
+
+  async function begin(id: string): Promise<void> {
+    await asUser(client, owner, () =>
+      client.query("select public.improvement_candidate_begin_evaluation($1,$2,$3,$4,$5)", [
+        id,
+        EVAL_SUITE_NAME,
+        EVAL_SUITE_VERSION,
+        suiteDigest(),
+        "a".repeat(64),
+      ]),
+    );
+  }
+
+  beforeAll(async () => {
+    client = new Client({ connectionString });
+    await client.connect();
+    await assertIsolatedDatabase(client);
+
+    for (const userId of [owner, reviewer]) {
+      await client.query("insert into auth.users (id, email) values ($1,$2)", [
+        userId,
+        `improvement-${userId.slice(0, 8)}@example.test`,
+      ]);
+    }
+
+    await client.query("insert into public.workspaces (id, name, created_by) values ($1,$2,$3)", [
+      workspaceId,
+      "Improvement proposal probe",
+      owner,
+    ]);
+
+    for (const [userId, role] of [
+      [owner, "owner"],
+      [reviewer, "admin"],
+    ] as const) {
+      await client.query(
+        "insert into public.workspace_members (workspace_id, user_id, role, status) values ($1,$2,$3,'active')",
+        [workspaceId, userId, role],
+      );
+    }
+
+    ids.better = await insertDraft("better");
+    ids.regressing = await insertDraft("regressing");
+    ids.tampered = await insertDraft("tampered");
+  }, 180_000);
+
+  afterAll(async () => {
+    if (client) await client.end();
+  });
+
+  it("refuses a protected authority and says which one", async () => {
+    let message = "";
+    try {
+      await asUser(client, owner, () =>
+        client.query(
+          `insert into public.improvement_candidates
+             (workspace_id, user_id, kind, title, problem, evidence, proposed_change,
+              expected_benefit, possible_regressions, affected_components, evaluation_plan,
+              cost_impact, security_implications, rollback_plan, base_ref, candidate_ref,
+              requested_authorities)
+           values ($1,$2,'tool_policy','Grant the engine more power',
+                   'The engine would like to change its own permissions to ship faster.',
+                   'Repeated manual approvals slow the loop down more than they help.',
+                   'Grant the engine permission to approve and deploy its own changes.',
+                   'Faster turnaround on small changes.',
+                   'An unapproved change could reach production.',
+                   array['permissions'], 'Run the suite and approve automatically.',
+                   'None beyond the existing budget.', 'Removes the human approval gate.',
+                   'Revert the grant and rotate credentials.', 'main', 'sandbox/self-grant',
+                   array['grant_permissions'])`,
+          [workspaceId, owner],
+        ),
+      );
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain("improvement engine cannot grant_permissions");
+  });
+
+  it("refuses to post a review before the evaluation", async () => {
+    const early = await asUser(client, reviewer, () =>
+      client.query<{ result: { ok: boolean; code: string } }>(
+        "select public.improvement_candidate_approve($1,$2) as result",
+        [ids.better, "This note is long enough to pass the review requirement."],
+      ),
+    );
+    expect(early.rows[0].result).toMatchObject({ ok: false, code: "not-evaluated" });
+  });
+
+  it("freezes the success criteria once evaluation starts", async () => {
+    await begin(ids.better);
+
+    let message = "";
+    try {
+      await client.query(
+        "update public.improvement_candidates set evaluation_plan = $2 where id = $1",
+        [ids.better, "Only check that the app still starts, which is much easier to pass."],
+      );
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain("success criteria are frozen");
+  });
+
+  it("records a measurable improvement and derives the verdict itself", async () => {
+    const improvement = evaluateCandidate({ policy: CHANNEL_LOOKUP_POLICY });
+    expect(improvement.numbers.baselinePassed).toBeLessThan(improvement.numbers.candidatePassed);
+
+    const recorded = await asUser(client, owner, () =>
+      client.query<{ result: { ok: boolean; verdict: string } }>(
+        "select public.improvement_candidate_record_evaluation($1,$2,$3,$4) as result",
+        [
+          ids.better,
+          suiteDigest(),
+          JSON.stringify(improvement.numbers),
+          JSON.stringify(improvement.cases),
+        ],
+      ),
+    );
+    expect(recorded.rows[0].result).toMatchObject({ ok: true, verdict: "better" });
+
+    const row = await client.query<{ status: string; verdict: string; security_findings: number }>(
+      "select status, verdict, security_findings from public.improvement_candidates where id = $1",
+      [ids.better],
+    );
+    expect(row.rows[0]).toMatchObject({ status: "evaluated", verdict: "better", security_findings: 0 });
+  });
+
+  it("refuses a verdict that disagrees with the numbers", async () => {
+    await begin(ids.tampered);
+
+    let message = "";
+    try {
+      await client.query(
+        `insert into public.improvement_candidate_evaluations
+           (candidate_id, workspace_id, user_id, suite_name, suite_version, suite_hash,
+            total_cases, baseline_passed, candidate_passed, security_findings, regressions,
+            baseline_cost_units, candidate_cost_units, cost_delta_ratio, verdict, integrity)
+         values ($1,$2,$3,$4,$5,$6,12,9,9,0,0,18,18,0,'better','verified')`,
+        [ids.tampered, workspaceId, owner, EVAL_SUITE_NAME, EVAL_SUITE_VERSION, suiteDigest()],
+      );
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain("does not match the numbers");
+  });
+
+  it("refuses a suite that is not the frozen one", async () => {
+    let message = "";
+    try {
+      await client.query(
+        `insert into public.improvement_candidate_evaluations
+           (candidate_id, workspace_id, user_id, suite_name, suite_version, suite_hash,
+            total_cases, baseline_passed, candidate_passed, security_findings, regressions,
+            baseline_cost_units, candidate_cost_units, cost_delta_ratio, verdict, integrity)
+         values ($1,$2,$3,$4,$5,$6,3,1,3,0,0,2,3,0.5,'better','verified')`,
+        [ids.tampered, workspaceId, owner, EVAL_SUITE_NAME, EVAL_SUITE_VERSION, "f".repeat(64)],
+      );
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain("does not match the one frozen");
+  });
+
+  it("rejects a candidate with a regression", async () => {
+    const regression = evaluateCandidate({ policy: WIDENED_TOOLSET_POLICY });
+    expect(regression.numbers.securityFindings).toBeGreaterThan(0);
+    expect(regression.numbers.regressions).toBeGreaterThan(0);
+
+    await begin(ids.regressing);
+    const recorded = await asUser(client, owner, () =>
+      client.query<{ result: { ok: boolean; verdict: string } }>(
+        "select public.improvement_candidate_record_evaluation($1,$2,$3,$4) as result",
+        [
+          ids.regressing,
+          suiteDigest(),
+          JSON.stringify(regression.numbers),
+          JSON.stringify(regression.cases),
+        ],
+      ),
+    );
+    expect(recorded.rows[0].result).toMatchObject({ ok: true, verdict: "worse" });
+
+    const refusal = await asUser(client, reviewer, () =>
+      client.query<{ result: { ok: boolean; code: string } }>(
+        "select public.improvement_candidate_approve($1,$2) as result",
+        [ids.regressing, "The numbers are worse and the guarded refusals moved."],
+      ),
+    );
+    expect(refusal.rows[0].result).toMatchObject({ ok: false, code: "result-worse" });
+  });
+
+  it("refuses self-review and promotes only with a second decision", async () => {
+    const selfApproval = await asUser(client, owner, () =>
+      client.query<{ result: { ok: boolean; code: string } }>(
+        "select public.improvement_candidate_approve($1,$2) as result",
+        [ids.better, "I wrote it, ran it and I am satisfied with the result."],
+      ),
+    );
+    expect(selfApproval.rows[0].result).toMatchObject({ ok: false, code: "self-review" });
+
+    const approved = await asUser(client, reviewer, () =>
+      client.query<{ result: { ok: boolean } }>(
+        "select public.improvement_candidate_approve($1,$2) as result",
+        [
+          ids.better,
+          "Read the added rule and the twelve-case run; the cost is lower and the rollback is one line.",
+        ],
+      ),
+    );
+    expect(approved.rows[0].result.ok).toBe(true);
+
+    const promoted = await asUser(client, reviewer, () =>
+      client.query<{ result: { ok: boolean; status: string } }>(
+        "select public.improvement_candidate_promote($1,$2,$3) as result",
+        [
+          ids.better,
+          "deployment approval 4242",
+          "Promoted behind the existing deployment approval; rollback is removing the rule.",
+        ],
+      ),
+    );
+    expect(promoted.rows[0].result).toMatchObject({ ok: true, status: "promoted" });
+  });
+
+  it("cannot be promoted before a person approves it", async () => {
+    const early = await asUser(client, reviewer, () =>
+      client.query<{ result: { ok: boolean; code: string } }>(
+        "select public.improvement_candidate_promote($1,$2,$3) as result",
+        [
+          ids.regressing,
+          "deployment approval 4243",
+          "Attempting to skip the review and go straight to a promotion.",
+        ],
+      ),
+    );
+    expect(early.rows[0].result).toMatchObject({ ok: false, code: "not-approved" });
+
+    const deployments = await client.query<{ count: string }>(
+      "select count(*)::text as count from public.app_deployments where user_id = $1",
+      [owner],
+    );
+    expect(deployments.rows[0].count).toBe("0");
+  });
+
+  it("cannot rewrite a recorded verdict", async () => {
+    let message = "";
+    try {
+      await client.query(
+        "update public.improvement_candidates set verdict = 'equal' where id = $1",
+        [ids.regressing],
+      );
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain("verdict cannot be rewritten");
+  });
+
+  it("keeps the audit trail in order", async () => {
+    const events = await client.query<{ kind: string }>(
+      "select kind from public.improvement_candidate_events where candidate_id = $1 order by created_at",
+      [ids.better],
+    );
+    expect(events.rows.map((row) => row.kind)).toEqual([
+      "drafted",
+      "evaluation_started",
+      "evaluated",
+      "approved",
+      "promoted",
     ]);
   });
 });

@@ -1497,6 +1497,69 @@
       "check": "(user_id = ( SELECT auth.uid() AS uid))"
     },
     {
+      "key": "improvement_boundary_blocks.members read boundary blocks",
+      "table": "improvement_boundary_blocks",
+      "name": "members read boundary blocks",
+      "cmd": "SELECT",
+      "roles": "{authenticated}",
+      "qual": "(workspace_role(workspace_id) IS NOT NULL)",
+      "check": ""
+    },
+    {
+      "key": "improvement_boundary_blocks.members record boundary blocks",
+      "table": "improvement_boundary_blocks",
+      "name": "members record boundary blocks",
+      "cmd": "INSERT",
+      "roles": "{authenticated}",
+      "qual": "",
+      "check": "((workspace_role(workspace_id) IS NOT NULL) AND (user_id = auth.uid()))"
+    },
+    {
+      "key": "improvement_candidate_evaluations.members read improvement evaluations",
+      "table": "improvement_candidate_evaluations",
+      "name": "members read improvement evaluations",
+      "cmd": "SELECT",
+      "roles": "{authenticated}",
+      "qual": "(workspace_role(workspace_id) IS NOT NULL)",
+      "check": ""
+    },
+    {
+      "key": "improvement_candidate_events.members read improvement events",
+      "table": "improvement_candidate_events",
+      "name": "members read improvement events",
+      "cmd": "SELECT",
+      "roles": "{authenticated}",
+      "qual": "(workspace_role(workspace_id) IS NOT NULL)",
+      "check": ""
+    },
+    {
+      "key": "improvement_candidate_events.owners append improvement events",
+      "table": "improvement_candidate_events",
+      "name": "owners append improvement events",
+      "cmd": "INSERT",
+      "roles": "{authenticated}",
+      "qual": "",
+      "check": "((workspace_role(workspace_id) IS NOT NULL) AND (EXISTS ( SELECT 1 FROM improvement_candidates c WHERE ((c.id = improvement_candidate_events.candidate_id) AND (c.user_id = auth.uid())))))"
+    },
+    {
+      "key": "improvement_candidates.members read improvement candidates",
+      "table": "improvement_candidates",
+      "name": "members read improvement candidates",
+      "cmd": "SELECT",
+      "roles": "{authenticated}",
+      "qual": "(workspace_role(workspace_id) IS NOT NULL)",
+      "check": ""
+    },
+    {
+      "key": "improvement_candidates.owners draft improvement candidates",
+      "table": "improvement_candidates",
+      "name": "owners draft improvement candidates",
+      "cmd": "INSERT",
+      "roles": "{authenticated}",
+      "qual": "",
+      "check": "((workspace_role(workspace_id) IS NOT NULL) AND (user_id = auth.uid()) AND (status = 'draft'::text))"
+    },
+    {
       "key": "improvement_proposals.people create their own improvement proposals",
       "table": "improvement_proposals",
       "name": "people create their own improvement proposals",
@@ -10587,6 +10650,496 @@
       "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
     },
     {
+      "key": "improvement_boundary_blocks.improvement_boundary_blocks_attempted_action_check",
+      "table": "improvement_boundary_blocks",
+      "name": "improvement_boundary_blocks_attempted_action_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(attempted_action) >= 2) AND (char_length(attempted_action) <= 120)))"
+    },
+    {
+      "key": "improvement_boundary_blocks.improvement_boundary_blocks_candidate_id_fkey",
+      "table": "improvement_boundary_blocks",
+      "name": "improvement_boundary_blocks_candidate_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (candidate_id) REFERENCES improvement_candidates(id) ON DELETE SET NULL"
+    },
+    {
+      "key": "improvement_boundary_blocks.improvement_boundary_blocks_pkey",
+      "table": "improvement_boundary_blocks",
+      "name": "improvement_boundary_blocks_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "improvement_boundary_blocks.improvement_boundary_blocks_reason_check",
+      "table": "improvement_boundary_blocks",
+      "name": "improvement_boundary_blocks_reason_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(reason) >= 2) AND (char_length(reason) <= 500)))"
+    },
+    {
+      "key": "improvement_boundary_blocks.improvement_boundary_blocks_user_id_fkey",
+      "table": "improvement_boundary_blocks",
+      "name": "improvement_boundary_blocks_user_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "improvement_boundary_blocks.improvement_boundary_blocks_workspace_id_fkey",
+      "table": "improvement_boundary_blocks",
+      "name": "improvement_boundary_blocks_workspace_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "improvement_candidate_evaluations.improvement_candidate_evaluations_baseline_cost_units_check",
+      "table": "improvement_candidate_evaluations",
+      "name": "improvement_candidate_evaluations_baseline_cost_units_check",
+      "type": "c",
+      "definition": "CHECK ((baseline_cost_units >= 0))"
+    },
+    {
+      "key": "improvement_candidate_evaluations.improvement_candidate_evaluations_baseline_passed_check",
+      "table": "improvement_candidate_evaluations",
+      "name": "improvement_candidate_evaluations_baseline_passed_check",
+      "type": "c",
+      "definition": "CHECK (((baseline_passed >= 0) AND (baseline_passed <= 200)))"
+    },
+    {
+      "key": "improvement_candidate_evaluations.improvement_candidate_evaluations_candidate_cost_units_check",
+      "table": "improvement_candidate_evaluations",
+      "name": "improvement_candidate_evaluations_candidate_cost_units_check",
+      "type": "c",
+      "definition": "CHECK ((candidate_cost_units >= 0))"
+    },
+    {
+      "key": "improvement_candidate_evaluations.improvement_candidate_evaluations_candidate_id_fkey",
+      "table": "improvement_candidate_evaluations",
+      "name": "improvement_candidate_evaluations_candidate_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (candidate_id) REFERENCES improvement_candidates(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "improvement_candidate_evaluations.improvement_candidate_evaluations_candidate_passed_check",
+      "table": "improvement_candidate_evaluations",
+      "name": "improvement_candidate_evaluations_candidate_passed_check",
+      "type": "c",
+      "definition": "CHECK (((candidate_passed >= 0) AND (candidate_passed <= 200)))"
+    },
+    {
+      "key": "improvement_candidate_evaluations.improvement_candidate_evaluations_check",
+      "table": "improvement_candidate_evaluations",
+      "name": "improvement_candidate_evaluations_check",
+      "type": "c",
+      "definition": "CHECK ((baseline_passed <= total_cases))"
+    },
+    {
+      "key": "improvement_candidate_evaluations.improvement_candidate_evaluations_check1",
+      "table": "improvement_candidate_evaluations",
+      "name": "improvement_candidate_evaluations_check1",
+      "type": "c",
+      "definition": "CHECK ((candidate_passed <= total_cases))"
+    },
+    {
+      "key": "improvement_candidate_evaluations.improvement_candidate_evaluations_integrity_check",
+      "table": "improvement_candidate_evaluations",
+      "name": "improvement_candidate_evaluations_integrity_check",
+      "type": "c",
+      "definition": "CHECK ((integrity = 'verified'::text))"
+    },
+    {
+      "key": "improvement_candidate_evaluations.improvement_candidate_evaluations_pkey",
+      "table": "improvement_candidate_evaluations",
+      "name": "improvement_candidate_evaluations_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "improvement_candidate_evaluations.improvement_candidate_evaluations_regressions_check",
+      "table": "improvement_candidate_evaluations",
+      "name": "improvement_candidate_evaluations_regressions_check",
+      "type": "c",
+      "definition": "CHECK ((regressions >= 0))"
+    },
+    {
+      "key": "improvement_candidate_evaluations.improvement_candidate_evaluations_security_findings_check",
+      "table": "improvement_candidate_evaluations",
+      "name": "improvement_candidate_evaluations_security_findings_check",
+      "type": "c",
+      "definition": "CHECK ((security_findings >= 0))"
+    },
+    {
+      "key": "improvement_candidate_evaluations.improvement_candidate_evaluations_suite_hash_check",
+      "table": "improvement_candidate_evaluations",
+      "name": "improvement_candidate_evaluations_suite_hash_check",
+      "type": "c",
+      "definition": "CHECK ((suite_hash ~ '^[0-9a-f]{64}$'::text))"
+    },
+    {
+      "key": "improvement_candidate_evaluations.improvement_candidate_evaluations_suite_name_check",
+      "table": "improvement_candidate_evaluations",
+      "name": "improvement_candidate_evaluations_suite_name_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(suite_name) >= 1) AND (char_length(suite_name) <= 80)))"
+    },
+    {
+      "key": "improvement_candidate_evaluations.improvement_candidate_evaluations_suite_version_check",
+      "table": "improvement_candidate_evaluations",
+      "name": "improvement_candidate_evaluations_suite_version_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(suite_version) >= 1) AND (char_length(suite_version) <= 40)))"
+    },
+    {
+      "key": "improvement_candidate_evaluations.improvement_candidate_evaluations_total_cases_check",
+      "table": "improvement_candidate_evaluations",
+      "name": "improvement_candidate_evaluations_total_cases_check",
+      "type": "c",
+      "definition": "CHECK (((total_cases >= 1) AND (total_cases <= 200)))"
+    },
+    {
+      "key": "improvement_candidate_evaluations.improvement_candidate_evaluations_user_id_fkey",
+      "table": "improvement_candidate_evaluations",
+      "name": "improvement_candidate_evaluations_user_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "improvement_candidate_evaluations.improvement_candidate_evaluations_verdict_check",
+      "table": "improvement_candidate_evaluations",
+      "name": "improvement_candidate_evaluations_verdict_check",
+      "type": "c",
+      "definition": "CHECK ((verdict = ANY (ARRAY['better'::text, 'equal'::text, 'worse'::text, 'inconclusive'::text])))"
+    },
+    {
+      "key": "improvement_candidate_evaluations.improvement_candidate_evaluations_workspace_id_fkey",
+      "table": "improvement_candidate_evaluations",
+      "name": "improvement_candidate_evaluations_workspace_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "improvement_candidate_events.improvement_candidate_events_actor_id_fkey",
+      "table": "improvement_candidate_events",
+      "name": "improvement_candidate_events_actor_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (actor_id) REFERENCES auth.users(id) ON DELETE SET NULL"
+    },
+    {
+      "key": "improvement_candidate_events.improvement_candidate_events_candidate_id_fkey",
+      "table": "improvement_candidate_events",
+      "name": "improvement_candidate_events_candidate_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (candidate_id) REFERENCES improvement_candidates(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "improvement_candidate_events.improvement_candidate_events_detail_check",
+      "table": "improvement_candidate_events",
+      "name": "improvement_candidate_events_detail_check",
+      "type": "c",
+      "definition": "CHECK ((char_length(detail) <= 500))"
+    },
+    {
+      "key": "improvement_candidate_events.improvement_candidate_events_kind_check",
+      "table": "improvement_candidate_events",
+      "name": "improvement_candidate_events_kind_check",
+      "type": "c",
+      "definition": "CHECK ((kind = ANY (ARRAY['drafted'::text, 'evaluation_started'::text, 'evaluated'::text, 'approved'::text, 'rejected'::text, 'promoted'::text, 'cancelled'::text, 'blocked'::text])))"
+    },
+    {
+      "key": "improvement_candidate_events.improvement_candidate_events_pkey",
+      "table": "improvement_candidate_events",
+      "name": "improvement_candidate_events_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "improvement_candidate_events.improvement_candidate_events_workspace_id_fkey",
+      "table": "improvement_candidate_events",
+      "name": "improvement_candidate_events_workspace_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_affected_components_check",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_affected_components_check",
+      "type": "c",
+      "definition": "CHECK (((cardinality(affected_components) >= 1) AND (cardinality(affected_components) <= 8)))"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_base_ref_check",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_base_ref_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(base_ref)) >= 1) AND (char_length(btrim(base_ref)) <= 200)))"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_blocked_code_check",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_blocked_code_check",
+      "type": "c",
+      "definition": "CHECK (((blocked_code IS NULL) OR (char_length(blocked_code) <= 60)))"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_blocked_reason_check",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_blocked_reason_check",
+      "type": "c",
+      "definition": "CHECK (((blocked_reason IS NULL) OR (char_length(blocked_reason) <= 500)))"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_candidate_ref_check",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_candidate_ref_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(candidate_ref)) >= 1) AND (char_length(btrim(candidate_ref)) <= 200)))"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_check",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_check",
+      "type": "c",
+      "definition": "CHECK ((btrim(base_ref) <> btrim(candidate_ref)))"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_check1",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_check1",
+      "type": "c",
+      "definition": "CHECK (((status <> 'evaluating'::text) OR (criteria_frozen_at IS NOT NULL)))"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_check2",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_check2",
+      "type": "c",
+      "definition": "CHECK (((status <> ALL (ARRAY['evaluated'::text, 'approved'::text, 'promoted'::text])) OR ((verdict IS NOT NULL) AND (criteria_frozen_at IS NOT NULL))))"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_check3",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_check3",
+      "type": "c",
+      "definition": "CHECK (((status <> ALL (ARRAY['approved'::text, 'promoted'::text])) OR ((verdict = ANY (ARRAY['better'::text, 'equal'::text])) AND (integrity = 'verified'::text) AND (security_findings = 0) AND (regressions = 0) AND (cost_delta_ratio <= 0.25) AND (reviewed_at IS NOT NULL) AND (reviewed_by IS NOT NULL) AND (reviewed_by <> user_id) AND (char_length(btrim(COALESCE(review_note, ''::text))) >= 20))))"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_check4",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_check4",
+      "type": "c",
+      "definition": "CHECK (((status <> 'promoted'::text) OR ((promotion_approved_at IS NOT NULL) AND (promotion_approved_by IS NOT NULL) AND (promotion_ref IS NOT NULL) AND (promoted_at IS NOT NULL))))"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_cost_impact_check",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_cost_impact_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(cost_impact)) >= 5) AND (char_length(btrim(cost_impact)) <= 1000)))"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_criteria_hash_check",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_criteria_hash_check",
+      "type": "c",
+      "definition": "CHECK (((criteria_hash IS NULL) OR (criteria_hash ~ '^[0-9a-f]{64}$'::text)))"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_evaluation_plan_check",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_evaluation_plan_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(evaluation_plan)) >= 20) AND (char_length(btrim(evaluation_plan)) <= 3000)))"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_evidence_check",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_evidence_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(evidence)) >= 20) AND (char_length(btrim(evidence)) <= 4000)))"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_expected_benefit_check",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_expected_benefit_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(expected_benefit)) >= 10) AND (char_length(btrim(expected_benefit)) <= 1000)))"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_integrity_check",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_integrity_check",
+      "type": "c",
+      "definition": "CHECK (((integrity IS NULL) OR (integrity = ANY (ARRAY['verified'::text, 'mismatch'::text]))))"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_kind_check",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_kind_check",
+      "type": "c",
+      "definition": "CHECK ((kind = ANY (ARRAY['prompt_revision'::text, 'model_routing'::text, 'tool_policy'::text, 'procedure'::text, 'workflow_change'::text, 'code_patch'::text, 'evaluation_case'::text])))"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_pkey",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_possible_regressions_check",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_possible_regressions_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(possible_regressions)) >= 10) AND (char_length(btrim(possible_regressions)) <= 2000)))"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_problem_check",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_problem_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(problem)) >= 20) AND (char_length(btrim(problem)) <= 2000)))"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_project_id_fkey",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_project_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (project_id) REFERENCES app_projects(id) ON DELETE SET NULL"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_promotion_approved_by_fkey",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_promotion_approved_by_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (promotion_approved_by) REFERENCES auth.users(id) ON DELETE SET NULL"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_promotion_ref_check",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_promotion_ref_check",
+      "type": "c",
+      "definition": "CHECK (((promotion_ref IS NULL) OR ((char_length(promotion_ref) >= 1) AND (char_length(promotion_ref) <= 200))))"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_proposed_change_check",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_proposed_change_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(proposed_change)) >= 20) AND (char_length(btrim(proposed_change)) <= 3000)))"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_regressions_check",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_regressions_check",
+      "type": "c",
+      "definition": "CHECK ((regressions >= 0))"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_requested_authorities_check",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_requested_authorities_check",
+      "type": "c",
+      "definition": "CHECK ((cardinality(requested_authorities) = 0))"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_review_note_check",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_review_note_check",
+      "type": "c",
+      "definition": "CHECK (((review_note IS NULL) OR (char_length(review_note) <= 1000)))"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_reviewed_by_fkey",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_reviewed_by_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (reviewed_by) REFERENCES auth.users(id) ON DELETE SET NULL"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_rollback_plan_check",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_rollback_plan_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(rollback_plan)) >= 20) AND (char_length(btrim(rollback_plan)) <= 2000)))"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_sandbox_kind_check",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_sandbox_kind_check",
+      "type": "c",
+      "definition": "CHECK ((sandbox_kind = ANY (ARRAY['branch'::text, 'sandbox'::text])))"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_security_findings_check",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_security_findings_check",
+      "type": "c",
+      "definition": "CHECK ((security_findings >= 0))"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_security_implications_check",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_security_implications_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(security_implications)) >= 5) AND (char_length(btrim(security_implications)) <= 2000)))"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_status_check",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_status_check",
+      "type": "c",
+      "definition": "CHECK ((status = ANY (ARRAY['draft'::text, 'evaluating'::text, 'evaluated'::text, 'approved'::text, 'rejected'::text, 'promoted'::text, 'cancelled'::text, 'blocked'::text])))"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_suite_hash_check",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_suite_hash_check",
+      "type": "c",
+      "definition": "CHECK (((suite_hash IS NULL) OR (suite_hash ~ '^[0-9a-f]{64}$'::text)))"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_suite_name_check",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_suite_name_check",
+      "type": "c",
+      "definition": "CHECK (((suite_name IS NULL) OR ((char_length(suite_name) >= 1) AND (char_length(suite_name) <= 80))))"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_suite_version_check",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_suite_version_check",
+      "type": "c",
+      "definition": "CHECK (((suite_version IS NULL) OR ((char_length(suite_version) >= 1) AND (char_length(suite_version) <= 40))))"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_title_check",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_title_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(title)) >= 5) AND (char_length(btrim(title)) <= 160)))"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_user_id_fkey",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_user_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_verdict_check",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_verdict_check",
+      "type": "c",
+      "definition": "CHECK (((verdict IS NULL) OR (verdict = ANY (ARRAY['better'::text, 'equal'::text, 'worse'::text, 'inconclusive'::text]))))"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_workspace_id_fkey",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_workspace_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE"
+    },
+    {
       "key": "improvement_proposals.improvement_proposals_area_check",
       "table": "improvement_proposals",
       "name": "improvement_proposals_area_check",
@@ -17160,6 +17713,48 @@
       "table": "goals",
       "name": "goals_user_id_created_at_idx",
       "definition": "CREATE INDEX goals_user_id_created_at_idx ON public.goals USING btree (user_id, created_at DESC)"
+    },
+    {
+      "key": "improvement_boundary_blocks.improvement_boundary_blocks_pkey",
+      "table": "improvement_boundary_blocks",
+      "name": "improvement_boundary_blocks_pkey",
+      "definition": "CREATE UNIQUE INDEX improvement_boundary_blocks_pkey ON public.improvement_boundary_blocks USING btree (id)"
+    },
+    {
+      "key": "improvement_candidate_evaluations.improvement_candidate_evaluations_candidate_idx",
+      "table": "improvement_candidate_evaluations",
+      "name": "improvement_candidate_evaluations_candidate_idx",
+      "definition": "CREATE INDEX improvement_candidate_evaluations_candidate_idx ON public.improvement_candidate_evaluations USING btree (candidate_id, created_at)"
+    },
+    {
+      "key": "improvement_candidate_evaluations.improvement_candidate_evaluations_pkey",
+      "table": "improvement_candidate_evaluations",
+      "name": "improvement_candidate_evaluations_pkey",
+      "definition": "CREATE UNIQUE INDEX improvement_candidate_evaluations_pkey ON public.improvement_candidate_evaluations USING btree (id)"
+    },
+    {
+      "key": "improvement_candidate_events.improvement_candidate_events_candidate_idx",
+      "table": "improvement_candidate_events",
+      "name": "improvement_candidate_events_candidate_idx",
+      "definition": "CREATE INDEX improvement_candidate_events_candidate_idx ON public.improvement_candidate_events USING btree (candidate_id, created_at)"
+    },
+    {
+      "key": "improvement_candidate_events.improvement_candidate_events_pkey",
+      "table": "improvement_candidate_events",
+      "name": "improvement_candidate_events_pkey",
+      "definition": "CREATE UNIQUE INDEX improvement_candidate_events_pkey ON public.improvement_candidate_events USING btree (id)"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_pkey",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_pkey",
+      "definition": "CREATE UNIQUE INDEX improvement_candidates_pkey ON public.improvement_candidates USING btree (id)"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_workspace_idx",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_workspace_idx",
+      "definition": "CREATE INDEX improvement_candidates_workspace_idx ON public.improvement_candidates USING btree (workspace_id, created_at DESC)"
     },
     {
       "key": "improvement_proposals.improvement_proposals_pkey",

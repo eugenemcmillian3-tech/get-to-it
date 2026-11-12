@@ -789,6 +789,12 @@ async function main() {
     "Run a synthetic mission",
     "explanations competing",
   ]);
+  await page(`/workspace/${created.workspace}/improvements`, 200, [
+    "Improvement proposals",
+    "Write a proposal",
+    "Boundaries the engine cannot cross",
+    "Blocked attempts",
+  ]);
   await page(`/workspace/${created.workspace}/connectors/slack`, 200, [
     "Slack milestone summaries",
     "Message requests",
