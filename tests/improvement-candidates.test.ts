@@ -10,6 +10,7 @@ import {
   requestedAuthorityProblems,
   type CandidateDraft,
 } from "@/lib/improvement-candidates";
+import { promotionState } from "@/lib/promotion-state";
 import {
   BASELINE_POLICY,
   CHANNEL_LOOKUP_POLICY,
@@ -202,5 +203,78 @@ describe("promotion review", () => {
     expect(promotionProblems({ ...review, deploymentProjectMatches: false }).join(" ")).toContain(
       "same project as the candidate",
     );
+  });
+});
+
+describe("promotion liveness", () => {
+  const shipped = {
+    id: "d1",
+    target: "production",
+    status: "succeeded",
+    created_at: "2026-11-10T09:00:00.000Z",
+  };
+
+  it("calls a succeeded deployment with no rollback live", () => {
+    const state = promotionState({ deployment: shipped });
+    expect(state.state).toBe("live");
+    expect(state.label).toBe("Live");
+    expect(state.detail).toContain("no rollback is recorded");
+  });
+
+  it("prefers a resolved rollback over the deployment status", () => {
+    const state = promotionState({
+      deployment: shipped,
+      rollback: {
+        title: "Errors spiked after the policy shipped",
+        recovery_kind: "code_rollback",
+        resolved_at: "2026-11-11T12:30:00.000Z",
+      },
+    });
+    expect(state.state).toBe("rolled_back");
+    expect(state.detail).toContain("code rollback recorded 2026-11-11 12:30");
+    expect(state.detail).toContain("Errors spiked after the policy shipped");
+  });
+
+  it("names a later successful deployment to the same target as superseding", () => {
+    const state = promotionState({
+      deployment: shipped,
+      laterDeployment: {
+        id: "d2",
+        target: "production",
+        created_at: "2026-11-12T08:00:00.000Z",
+      },
+    });
+    expect(state.state).toBe("superseded");
+    expect(state.detail).toContain("2026-11-12 08:00");
+    expect(state.detail).toContain("no longer the newest one shipped");
+  });
+
+  it("says a change has not shipped while the deployment waits for approval", () => {
+    expect(promotionState({ deployment: { ...shipped, status: "checks_ready" } }).state).toBe(
+      "not_deployed",
+    );
+    expect(promotionState({ deployment: { ...shipped, status: "approved" } }).state).toBe(
+      "not_deployed",
+    );
+  });
+
+  it("reports a failed deployment as failed, not live", () => {
+    const state = promotionState({ deployment: { ...shipped, status: "partial_failure" } });
+    expect(state.state).toBe("failed");
+    expect(state.detail).toContain("partial failure");
+  });
+
+  it("does not call an unshipped change superseded by a later ship", () => {
+    const state = promotionState({
+      deployment: { ...shipped, status: "approved" },
+      laterDeployment: { id: "d2", target: "preview", created_at: "2026-11-12T08:00:00.000Z" },
+    });
+    expect(state.state).toBe("not_deployed");
+  });
+
+  it("refuses to guess when the deployment record is gone", () => {
+    const state = promotionState({ deployment: null });
+    expect(state.state).toBe("unknown");
+    expect(state.detail).toContain("cannot be confirmed");
   });
 });

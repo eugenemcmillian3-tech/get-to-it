@@ -61,7 +61,9 @@ export default async function PromotionAuditPage({
           Every promoted proposal in this workspace with the deployment it rides on, the person who
           approved the change, the person who approved the promotion and the rollback that undoes
           it. A promotion never deploys anything itself; the deployment column is where the change
-          actually ships.
+          actually ships. Status now is derived from evidence only: a resolved rollback incident on
+          that deployment means rolled back, a later successful deployment to the same target means
+          superseded, and a succeeded deployment with neither is live.
         </p>
 
         <section aria-labelledby="promotions-heading" className="mt-8">
@@ -83,12 +85,22 @@ export default async function PromotionAuditPage({
                         {CANDIDATE_KIND_LABELS[row.kind]} · promoted {when(row.promoted_at)}
                       </p>
                     </div>
-                    <span className={chipClass}>
-                      {row.verdict ? VERDICT_LABELS[row.verdict as Verdict] : "no verdict"}
-                    </span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={chipClass}>
+                        {row.verdict ? VERDICT_LABELS[row.verdict as Verdict] : "no verdict"}
+                      </span>
+                      <span className={chipClass}>{row.state.label}</span>
+                    </div>
                   </div>
 
                   <dl className="mt-3 grid gap-3 text-sm">
+                    <div>
+                      <dt className="font-semibold">Status now</dt>
+                      <dd className="text-muted">
+                        {row.state.label}: {row.state.detail}
+                      </dd>
+                    </div>
+
                     <div>
                       <dt className="font-semibold">Deployment</dt>
                       <dd className="text-muted">
