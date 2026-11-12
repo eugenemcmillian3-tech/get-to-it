@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { CAPABILITY_DOMAIN_IDS } from "@/lib/capability-eval";
 import {
   AUTHORED_TASKS,
   LIVE_TRIAL_COST_CENTS,
   LIVE_TRIAL_CREDIT_COST,
   LIVE_TRIAL_LIMITS,
+  answerKind,
   liveTrialMessages,
   liveTrialReadiness,
   liveTrialTimeoutMs,
@@ -24,55 +26,129 @@ const ready = {
 };
 
 describe("authored machine-checkable tasks", () => {
-  it("never states the expected answer in the problem", () => {
+  it("covers every capability domain with a development and a held-out task", () => {
+    for (const domain of CAPABILITY_DOMAIN_IDS) {
+      const rows = AUTHORED_TASKS.filter((task) => task.domain === domain);
+      expect(rows.map((task) => task.split).sort()).toEqual(["development", "held_out"]);
+    }
+    expect(AUTHORED_TASKS).toHaveLength(CAPABILITY_DOMAIN_IDS.length * 2);
+  });
+
+  it("never states a numeric answer except as one of several listed steps", () => {
     for (const task of AUTHORED_TASKS) {
-      expect(task.problem).not.toContain(String(task.expected));
-      expect(task.expected).toBeGreaterThan(0);
+      if (task.expected === undefined) continue;
+      const standalone = new RegExp(`(^|\\D)${task.expected}(\\D|$)`);
+      if (task.options) {
+        // A choice among referenced steps: the answer must not be the only one.
+        expect(task.options.length).toBeGreaterThanOrEqual(3);
+        expect(task.options).toContain(String(task.expected));
+        continue;
+      }
+      expect(task.problem).not.toMatch(standalone);
     }
   });
 
-  it("covers a development and a held-out split with different problems", () => {
-    const splits = AUTHORED_TASKS.map((task) => task.split).sort();
-    expect(splits).toEqual(["development", "held_out"]);
-    expect(new Set(AUTHORED_TASKS.map((task) => task.problem)).size).toBe(AUTHORED_TASKS.length);
+  it("never offers a text answer as the only option", () => {
+    for (const task of AUTHORED_TASKS) {
+      if (task.expectedText === undefined) continue;
+      expect(task.options?.length ?? 0).toBeGreaterThanOrEqual(3);
+      expect(task.options).toContain(task.expectedText);
+      const others = (task.options ?? []).filter((option) => option !== task.expectedText);
+      expect(others.length).toBeGreaterThan(0);
+      for (const option of task.options ?? []) {
+        expect(task.problem.toLowerCase()).toContain(option.toLowerCase());
+      }
+    }
   });
 
-  it("computes the remainder from the numbers it describes", () => {
-    // 240 - (18 + 6 * (9 + 14) + 25)
-    expect(AUTHORED_TASKS[0].expected).toBe(59);
-    // 300 - (24 + 4 * (11 + 19) + 30)
-    expect(AUTHORED_TASKS[1].expected).toBe(126);
+  it("computes the answers its own problems describe", () => {
+    const byTitle = (needle: string) => {
+      const task = AUTHORED_TASKS.find((entry) => entry.title.includes(needle));
+      if (!task) throw new Error(`missing task: ${needle}`);
+      return task;
+    };
+
+    // 240 - (18 + 6 * (9 + 14) + 25) and 300 - (24 + 4 * (11 + 19) + 30)
+    expect(byTitle("Repair budget remainder — development").expected).toBe(59);
+    expect(byTitle("Repair budget remainder — held out").expected).toBe(126);
+
+    expect(byTitle("Acceptable sources left uncited — development").expected).toBe(1);
+    expect(byTitle("Acceptable sources left uncited — held out").expected).toBe(3);
+
+    // 120 * 6 * (1 + 1/4 * 1/2) and 80 * 10 * (1 + 1/5 * 1/2)
+    expect(byTitle("Weighted throughput — development").expected).toBe(810);
+    expect(byTitle("Weighted throughput — held out").expected).toBe(880);
+
+    expect(byTitle("Total citations — development").expected).toBe(9);
+    expect(byTitle("Total citations — held out").expected).toBe(13);
+
+    // 45 + 30 + 50 fits 180; adding 70 does not. 45 + 30 + 50 + 60 fits 240.
+    expect(byTitle("Tasks inside a fixed window — development").expected).toBe(3);
+    expect(byTitle("Tasks inside a fixed window — held out").expected).toBe(4);
+
+    expect(byTitle("Find the step that broke it — development").expected).toBe(3);
+    expect(byTitle("Find the step that broke it — held out").expected).toBe(2);
+
+    expect(byTitle("Choose one permitted tool — development").expectedText).toBe("search");
+    expect(byTitle("Choose one permitted tool — held out").expectedText).toBe("run_tests");
+
+    expect(byTitle("Missing required key — development").expectedText).toBe("name");
+    expect(byTitle("Missing required key — held out").expectedText).toBe("currency");
   });
 
-  it("sends the problem and the reply shape, never the answer", () => {
-    const messages = liveTrialMessages({ task_spec: { prompt: AUTHORED_TASKS[0].problem } });
-    const text = messages.map((message) => message.content).join("\n");
-    expect(text).toContain('"answer"');
-    expect(text).toContain(AUTHORED_TASKS[0].problem);
-    expect(text).not.toContain("59");
+  it("asks for the reply shape that matches the answer kind", () => {
+    const numeric = AUTHORED_TASKS.find((task) => task.expected !== undefined);
+    const textual = AUTHORED_TASKS.find((task) => task.expectedText !== undefined);
+    if (!numeric || !textual) throw new Error("expected both kinds");
+
+    const numberPrompt = liveTrialMessages(
+      { task_spec: { prompt: numeric.problem } },
+      answerKind(numeric),
+    )
+      .map((message) => message.content)
+      .join("\n");
+    expect(numberPrompt).toContain('"answer": <number>');
+
+    const textPrompt = liveTrialMessages(
+      { task_spec: { prompt: textual.problem } },
+      answerKind(textual),
+    )
+      .map((message) => message.content)
+      .join("\n");
+    expect(textPrompt).toContain('"answer": "<one of the listed names>"');
   });
 
   it("tolerates an empty task spec without throwing", () => {
-    const messages = liveTrialMessages({ task_spec: {} });
-    expect(messages).toHaveLength(2);
+    expect(liveTrialMessages({ task_spec: {} }, "number")).toHaveLength(2);
   });
 });
 
 describe("parseLiveAnswer", () => {
   it("accepts a JSON object with a numeric answer", () => {
-    expect(parseLiveAnswer('{"answer": 59, "working": "240 - 181"}')).toEqual({
+    expect(parseLiveAnswer('{"answer": 59, "working": "240 - 181"}', "number")).toEqual({
       ok: true,
       answer: 59,
     });
   });
 
-  it("rejects a bare number, prose and non-numeric answers", () => {
-    expect(parseLiveAnswer("59").ok).toBe(false);
-    expect(parseLiveAnswer('The answer is 59').ok).toBe(false);
-    expect(parseLiveAnswer('{"answer": "59"}').ok).toBe(false);
-    expect(parseLiveAnswer('{"working": "59"}').ok).toBe(false);
-    expect(parseLiveAnswer("").ok).toBe(false);
-    expect(parseLiveAnswer("[59]").ok).toBe(false);
+  it("accepts a JSON object with a text answer", () => {
+    expect(parseLiveAnswer('{"answer": " search "}', "text")).toEqual({
+      ok: true,
+      answer: "search",
+    });
+  });
+
+  it("rejects the wrong kind of answer", () => {
+    expect(parseLiveAnswer('{"answer": "59"}', "number").ok).toBe(false);
+    expect(parseLiveAnswer('{"answer": 59}', "text").ok).toBe(false);
+  });
+
+  it("rejects a bare value, prose and empty replies", () => {
+    expect(parseLiveAnswer("59", "number").ok).toBe(false);
+    expect(parseLiveAnswer('The answer is 59', "number").ok).toBe(false);
+    expect(parseLiveAnswer('{"working": "59"}', "number").ok).toBe(false);
+    expect(parseLiveAnswer("", "number").ok).toBe(false);
+    expect(parseLiveAnswer("[59]", "number").ok).toBe(false);
   });
 });
 

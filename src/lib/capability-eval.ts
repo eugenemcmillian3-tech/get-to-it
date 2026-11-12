@@ -137,6 +137,8 @@ export type CapabilityTaskDraft = {
     permitted_tools: string[];
     /** Set on machine-checkable tasks graded by an exact answer. */
     mode?: string;
+    /** "number" or "text", for the reply shape the model is asked for. */
+    answer_kind?: string;
   };
   dataset_version: string;
   permitted_tools: string[];

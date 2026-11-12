@@ -1590,12 +1590,12 @@ describeKnowledge("phase 37 knowledge layer", () => {
 
     // The expected answer is written once, by the owner, and never read back.
     await asUser(client, owner, () =>
-      client.query("select public.capability_eval_seed_authored_key($1, 59, 0)", [taskId]),
+      client.query("select public.capability_eval_seed_authored_key($1, 59, null, 0)", [taskId]),
     );
     expect(
       await failure(() =>
         asUser(client, owner, () =>
-          client.query("select public.capability_eval_seed_authored_key($1, 60, 0)", [taskId]),
+          client.query("select public.capability_eval_seed_authored_key($1, 60, null, 0)", [taskId]),
         ),
       ),
     ).toMatch(/already has an answer key/i);
@@ -1642,6 +1642,67 @@ describeKnowledge("phase 37 knowledge layer", () => {
         ),
       ),
     ).toMatch(/exact answer/i);
+
+    // A short text answer is graded the same way: exactly, after trimming and
+    // case folding, and still without returning the expected value.
+    const textTaskId = randomUUID();
+    await asUser(client, owner, async () => {
+      await client.query(
+        `insert into public.capability_eval_tasks
+           (id, eval_id, user_id, domain, difficulty, split, title, task_spec, dataset_version,
+            permitted_tools, runtime_seconds, spend_limit_cents, scoring_rubric)
+         values ($1, $2, $3, 'tool_selection_execution', 'easy', 'development', 'Pick a tool',
+           jsonb_build_object('mode', 'authored_answer', 'answer_kind', 'text',
+             'prompt', 'Only search, read_files and run_tests are permitted. Find which file references a symbol.',
+             'required_elements', 0, 'permitted_tools', '[]'::jsonb),
+           'dataset-v1', '[]'::jsonb, 120, 20,
+           '{"pass": "correct", "partial": "n/a", "fail": "wrong"}'::jsonb)`,
+        [textTaskId, evalId, owner],
+      );
+      await client.query(
+        "select public.capability_eval_seed_authored_key($1, null, 'search', 0)",
+        [textTaskId],
+      );
+    });
+
+    const textRight = await asUser(client, owner, () =>
+      client.query<{ result: { outcome: string } }>(
+        `select public.capability_eval_score_answer($1, '{"answer": "  SEARCH "}'::jsonb) as result`,
+        [textTaskId],
+      ),
+    );
+    expect(textRight.rows[0].result.outcome).toBe("verified_success");
+
+    const textWrong = await asUser(client, owner, () =>
+      client.query<{ result: { outcome: string; failure_category: string | null } }>(
+        `select public.capability_eval_score_answer($1, '{"answer": "read_files"}'::jsonb) as result`,
+        [textTaskId],
+      ),
+    );
+    expect(textWrong.rows[0].result.outcome).toBe("failed");
+    expect(textWrong.rows[0].result.failure_category).toBe("wrong_answer");
+
+    // A number where a label is expected is unreadable: the reply shape was
+    // part of what the task asked for.
+    const numberForText = await asUser(client, owner, () =>
+      client.query<{ result: { failure_category: string | null } }>(
+        `select public.capability_eval_score_answer($1, '{"answer": 1}'::jsonb) as result`,
+        [textTaskId],
+      ),
+    );
+    expect(numberForText.rows[0].result.failure_category).toBe("unreadable_answer");
+    expect(JSON.stringify(textRight.rows[0].result)).not.toContain("search");
+
+    // A key must hold exactly one expected answer.
+    expect(
+      await failure(() =>
+        asUser(client, owner, () =>
+          client.query("select public.capability_eval_seed_authored_key($1, 5, 'search', 0)", [
+            textTaskId,
+          ]),
+        ),
+      ),
+    ).toMatch(/already has an answer key|exactly one expected answer/i);
 
     // Somebody else cannot grade it.
     expect(
