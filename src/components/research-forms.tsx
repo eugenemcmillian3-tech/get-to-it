@@ -8,6 +8,7 @@ import {
   cancelResearchMissionAction,
   completeResearchMissionAction,
   createResearchMissionAction,
+  planResearchTasksAction,
   proposeResearchExperimentAction,
   seedSyntheticResearchAction,
 } from "@/lib/actions/research";
@@ -616,12 +617,18 @@ export function MissionControlForms({
   missionId,
   hasExperiment,
   closed,
+  orchestrationId,
 }: {
   workspaceId: string;
   missionId: string;
   hasExperiment: boolean;
   closed: boolean;
+  orchestrationId: string | null;
 }) {
+  const [planState, planAction] = useActionState(
+    planResearchTasksAction,
+    idleResearchState,
+  );
   const [proposeState, proposeAction] = useActionState(
     proposeResearchExperimentAction,
     idleResearchState,
@@ -646,6 +653,20 @@ export function MissionControlForms({
       </p>
 
       <div className="mt-3 flex flex-wrap gap-3">
+        <form action={planAction}>
+          <input type="hidden" name="workspace_id" value={workspaceId} />
+          <input type="hidden" name="mission_id" value={missionId} />
+          <button
+            type="submit"
+            className={secondaryButton}
+            disabled={!orchestrationId || closed}
+          >
+            {orchestrationId
+              ? "Add the research plan to the orchestration"
+              : "Link an orchestration to plan tasks"}
+          </button>
+        </form>
+
         <form action={proposeAction}>
           <input type="hidden" name="workspace_id" value={workspaceId} />
           <input type="hidden" name="mission_id" value={missionId} />
@@ -671,6 +692,7 @@ export function MissionControlForms({
         </form>
       </div>
 
+      <Note state={planState} />
       <Note state={proposeState} />
       <Note state={completeState} />
       <Note state={cancelState} />

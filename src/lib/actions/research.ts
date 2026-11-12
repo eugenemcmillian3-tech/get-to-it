@@ -8,6 +8,7 @@ import {
   RESEARCH_FORBIDDEN_TOOLS,
   RESEARCH_TOOLS,
   buildResearchBrief,
+  researchTaskPlan,
   syntheticResearchMission,
   validateResearchContract,
   type FindingLabel,
@@ -560,6 +561,104 @@ export async function cancelResearchMissionAction(
     result.orchestration
       ? "Mission cancelled, and the orchestration behind it was cancelled too."
       : "Mission cancelled. It had no orchestration to stop.",
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Dispatch into the existing orchestration plan
+// ---------------------------------------------------------------------------
+
+export async function planResearchTasksAction(
+  _previous: ResearchState,
+  formData: FormData,
+): Promise<ResearchState> {
+  const session = await getSession();
+  if (!session) return fail(SESSION_EXPIRED);
+
+  const workspaceId = readText(formData, "workspace_id");
+  const missionId = readText(formData, "mission_id");
+  if (!isUuid(workspaceId) || !isUuid(missionId)) return fail(NOT_AVAILABLE);
+  if (!(await membershipRole(session, workspaceId))) return fail(NOT_AVAILABLE);
+
+  const { data: mission } = await session.supabase
+    .from("research_missions")
+    .select("*")
+    .eq("id", missionId)
+    .eq("workspace_id", workspaceId)
+    .maybeSingle();
+  if (!mission) return fail(NOT_AVAILABLE);
+
+  const record = mission as ResearchMission;
+  if (record.status === "cancelled") {
+    return fail("This mission is cancelled. Nothing will be scheduled for it.");
+  }
+  if (!record.orchestration_id) {
+    return fail(
+      "Link an orchestration to this mission first: the plan runs on the existing task queue, not a separate one.",
+    );
+  }
+
+  const { data: orchestration } = await session.supabase
+    .from("orchestrations")
+    .select("id, status")
+    .eq("id", record.orchestration_id)
+    .eq("workspace_id", workspaceId)
+    .maybeSingle();
+  if (!orchestration) return fail("That orchestration isn't available in this workspace.");
+
+  const status = (orchestration as { status: string }).status;
+  if (!["draft", "awaiting_approval", "ready"].includes(status)) {
+    return fail(
+      "A plan can only be added before execution starts. This orchestration has already begun.",
+    );
+  }
+
+  const { data: existing } = await session.supabase
+    .from("orchestration_tasks")
+    .select("task_key")
+    .eq("orchestration_id", record.orchestration_id)
+    .like("task_key", "research-%");
+
+  if ((existing ?? []).length > 0) {
+    return fail("This orchestration already carries a research plan.");
+  }
+
+  const tasks = researchTaskPlan(record);
+  if (tasks.length === 0) {
+    return fail("The contract's budgets leave no room for a task.");
+  }
+
+  const { error } = await session.supabase.from("orchestration_tasks").insert(
+    tasks.map((task, index) => ({
+      orchestration_id: record.orchestration_id,
+      workspace_id: workspaceId,
+      task_key: task.task_key,
+      position: index,
+      title: task.title,
+      purpose: task.purpose,
+      capability: task.capability,
+      depends_on: task.depends_on,
+      covers: task.covers,
+      input_refs: task.input_refs,
+      expected_output: task.expected_output,
+      verification_method: task.verification_method,
+      credits_micros: task.credits_micros,
+      permissions: task.permissions,
+      retry_limit: task.retry_limit,
+      external_action_kind: task.external_action_kind,
+    })),
+  );
+
+  if (error) {
+    console.error("planResearchTasksAction failed:", error.message);
+    return fail(`We couldn't add that plan: ${error.message}`);
+  }
+
+  refreshMission(workspaceId, missionId);
+  revalidatePath(`/workspace/${workspaceId}/orchestrations`);
+
+  return succeed(
+    `Added ${tasks.length} research tasks to the orchestration plan, within ${record.task_budget} tasks, ${record.agent_budget} agents and ${record.spend_ceiling_cents} cents.`,
   );
 }
 

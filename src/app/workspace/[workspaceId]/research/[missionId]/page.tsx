@@ -287,6 +287,7 @@ export default async function ResearchMissionPage({
           missionId={mission.id}
           hasExperiment={mission.proposed_experiment_id !== null}
           closed={closed}
+          orchestrationId={mission.orchestration_id}
         />
 
         {closed ? null : (
