@@ -2248,8 +2248,10 @@ escalation at day 7, then silence however long it stays open. Each one says how 
 the incident has been open (`now 3 days`) and the escalation is prefixed
 `Escalation:`, a repeated run the same day delivers nothing, delivery stops by itself
 as soon as the incident is resolved or dismissed, and anyone who turned off
-`notify_incidents` in their workspace notification preferences is skipped. Delivery
-stays in-app; no email, SMS or push is sent.
+`notify_incidents` in their workspace notification preferences is skipped. Resolving
+or dismissing the incident marks its unread notifications read, so the inbox and its
+unread count stop advertising a problem that is already closed; the rows stay as
+history. Delivery stays in-app; no email, SMS or push is sent.
 
 Refused, by name and on the record: granting permissions, removing an approval
 gate, increasing spending authority, changing a billing price, disabling audit
