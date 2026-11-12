@@ -239,3 +239,11 @@ export type BuildState = {
 };
 
 export const idleBuildState: BuildState = { status: "idle" };
+
+export type ResearchState = {
+  status: "idle" | "error" | "success";
+  message?: string;
+  nonce?: number;
+};
+
+export const idleResearchState: ResearchState = { status: "idle" };

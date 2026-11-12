@@ -2379,6 +2379,105 @@
       "check": ""
     },
     {
+      "key": "research_findings.members create research findings",
+      "table": "research_findings",
+      "name": "members create research findings",
+      "cmd": "INSERT",
+      "roles": "{authenticated}",
+      "qual": "",
+      "check": "((workspace_role(workspace_id) IS NOT NULL) AND (created_by = auth.uid()))"
+    },
+    {
+      "key": "research_findings.members read research findings",
+      "table": "research_findings",
+      "name": "members read research findings",
+      "cmd": "SELECT",
+      "roles": "{authenticated}",
+      "qual": "(workspace_role(workspace_id) IS NOT NULL)",
+      "check": ""
+    },
+    {
+      "key": "research_findings.members update research findings",
+      "table": "research_findings",
+      "name": "members update research findings",
+      "cmd": "UPDATE",
+      "roles": "{authenticated}",
+      "qual": "(workspace_role(workspace_id) IS NOT NULL)",
+      "check": "(workspace_role(workspace_id) IS NOT NULL)"
+    },
+    {
+      "key": "research_hypotheses.members create research hypotheses",
+      "table": "research_hypotheses",
+      "name": "members create research hypotheses",
+      "cmd": "INSERT",
+      "roles": "{authenticated}",
+      "qual": "",
+      "check": "((workspace_role(workspace_id) IS NOT NULL) AND (created_by = auth.uid()))"
+    },
+    {
+      "key": "research_hypotheses.members read research hypotheses",
+      "table": "research_hypotheses",
+      "name": "members read research hypotheses",
+      "cmd": "SELECT",
+      "roles": "{authenticated}",
+      "qual": "(workspace_role(workspace_id) IS NOT NULL)",
+      "check": ""
+    },
+    {
+      "key": "research_missions.creators delete research missions",
+      "table": "research_missions",
+      "name": "creators delete research missions",
+      "cmd": "DELETE",
+      "roles": "{authenticated}",
+      "qual": "(created_by = auth.uid())",
+      "check": ""
+    },
+    {
+      "key": "research_missions.members create their own research missions",
+      "table": "research_missions",
+      "name": "members create their own research missions",
+      "cmd": "INSERT",
+      "roles": "{authenticated}",
+      "qual": "",
+      "check": "((workspace_role(workspace_id) IS NOT NULL) AND (created_by = auth.uid()))"
+    },
+    {
+      "key": "research_missions.members read research missions",
+      "table": "research_missions",
+      "name": "members read research missions",
+      "cmd": "SELECT",
+      "roles": "{authenticated}",
+      "qual": "(workspace_role(workspace_id) IS NOT NULL)",
+      "check": ""
+    },
+    {
+      "key": "research_missions.members update research missions",
+      "table": "research_missions",
+      "name": "members update research missions",
+      "cmd": "UPDATE",
+      "roles": "{authenticated}",
+      "qual": "(workspace_role(workspace_id) IS NOT NULL)",
+      "check": "(workspace_role(workspace_id) IS NOT NULL)"
+    },
+    {
+      "key": "research_sources.members create research sources",
+      "table": "research_sources",
+      "name": "members create research sources",
+      "cmd": "INSERT",
+      "roles": "{authenticated}",
+      "qual": "",
+      "check": "((workspace_role(workspace_id) IS NOT NULL) AND (created_by = auth.uid()))"
+    },
+    {
+      "key": "research_sources.members read research sources",
+      "table": "research_sources",
+      "name": "members read research sources",
+      "cmd": "SELECT",
+      "roles": "{authenticated}",
+      "qual": "(workspace_role(workspace_id) IS NOT NULL)",
+      "check": ""
+    },
+    {
       "key": "review_stages.people create their own review stages",
       "table": "review_stages",
       "name": "people create their own review stages",
@@ -13480,6 +13579,363 @@
       "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
     },
     {
+      "key": "research_findings.research_findings_author_role_check",
+      "table": "research_findings",
+      "name": "research_findings_author_role_check",
+      "type": "c",
+      "definition": "CHECK ((author_role = ANY (ARRAY['investigator'::text, 'alternative_hypothesis_reviewer'::text, 'methodology_reviewer'::text, 'prototype_builder'::text, 'evidence_verifier'::text, 'synthesis_writer'::text])))"
+    },
+    {
+      "key": "research_findings.research_findings_check",
+      "table": "research_findings",
+      "name": "research_findings_check",
+      "type": "c",
+      "definition": "CHECK (((verified_at IS NULL) OR (verifier_role IS NOT NULL)))"
+    },
+    {
+      "key": "research_findings.research_findings_claim_check",
+      "table": "research_findings",
+      "name": "research_findings_claim_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(claim)) >= 8) AND (char_length(btrim(claim)) <= 2000)))"
+    },
+    {
+      "key": "research_findings.research_findings_created_by_fkey",
+      "table": "research_findings",
+      "name": "research_findings_created_by_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "research_findings.research_findings_hypothesis_id_fkey",
+      "table": "research_findings",
+      "name": "research_findings_hypothesis_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (hypothesis_id) REFERENCES research_hypotheses(id) ON DELETE SET NULL"
+    },
+    {
+      "key": "research_findings.research_findings_label_check",
+      "table": "research_findings",
+      "name": "research_findings_label_check",
+      "type": "c",
+      "definition": "CHECK ((label = ANY (ARRAY['observation'::text, 'inference'::text, 'proposal'::text, 'discovery'::text])))"
+    },
+    {
+      "key": "research_findings.research_findings_mission_id_fkey",
+      "table": "research_findings",
+      "name": "research_findings_mission_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (mission_id) REFERENCES research_missions(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "research_findings.research_findings_pkey",
+      "table": "research_findings",
+      "name": "research_findings_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "research_findings.research_findings_status_check",
+      "table": "research_findings",
+      "name": "research_findings_status_check",
+      "type": "c",
+      "definition": "CHECK ((status = ANY (ARRAY['pending'::text, 'supported'::text, 'conflicted'::text, 'unsupported'::text])))"
+    },
+    {
+      "key": "research_findings.research_findings_verifier_role_check",
+      "table": "research_findings",
+      "name": "research_findings_verifier_role_check",
+      "type": "c",
+      "definition": "CHECK (((verifier_role IS NULL) OR (verifier_role = ANY (ARRAY['investigator'::text, 'alternative_hypothesis_reviewer'::text, 'methodology_reviewer'::text, 'prototype_builder'::text, 'evidence_verifier'::text, 'synthesis_writer'::text]))))"
+    },
+    {
+      "key": "research_findings.research_findings_workspace_id_fkey",
+      "table": "research_findings",
+      "name": "research_findings_workspace_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "research_hypotheses.research_hypotheses_created_by_fkey",
+      "table": "research_hypotheses",
+      "name": "research_hypotheses_created_by_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "research_hypotheses.research_hypotheses_mission_id_fkey",
+      "table": "research_hypotheses",
+      "name": "research_hypotheses_mission_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (mission_id) REFERENCES research_missions(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "research_hypotheses.research_hypotheses_pkey",
+      "table": "research_hypotheses",
+      "name": "research_hypotheses_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "research_hypotheses.research_hypotheses_role_check",
+      "table": "research_hypotheses",
+      "name": "research_hypotheses_role_check",
+      "type": "c",
+      "definition": "CHECK ((role = ANY (ARRAY['leading'::text, 'competing'::text])))"
+    },
+    {
+      "key": "research_hypotheses.research_hypotheses_statement_check",
+      "table": "research_hypotheses",
+      "name": "research_hypotheses_statement_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(statement)) >= 8) AND (char_length(btrim(statement)) <= 1000)))"
+    },
+    {
+      "key": "research_hypotheses.research_hypotheses_status_check",
+      "table": "research_hypotheses",
+      "name": "research_hypotheses_status_check",
+      "type": "c",
+      "definition": "CHECK ((status = ANY (ARRAY['open'::text, 'supported'::text, 'rejected'::text, 'unresolved'::text])))"
+    },
+    {
+      "key": "research_hypotheses.research_hypotheses_workspace_id_fkey",
+      "table": "research_hypotheses",
+      "name": "research_hypotheses_workspace_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "research_missions.research_missions_agent_budget_check",
+      "table": "research_missions",
+      "name": "research_missions_agent_budget_check",
+      "type": "c",
+      "definition": "CHECK (((agent_budget >= 1) AND (agent_budget <= 6)))"
+    },
+    {
+      "key": "research_missions.research_missions_allowed_tools_check",
+      "table": "research_missions",
+      "name": "research_missions_allowed_tools_check",
+      "type": "c",
+      "definition": "CHECK (((cardinality(allowed_tools) >= 1) AND (cardinality(allowed_tools) <= 8)))"
+    },
+    {
+      "key": "research_missions.research_missions_checkpoints_check",
+      "table": "research_missions",
+      "name": "research_missions_checkpoints_check",
+      "type": "c",
+      "definition": "CHECK (((cardinality(checkpoints) >= 1) AND (cardinality(checkpoints) <= 6)))"
+    },
+    {
+      "key": "research_missions.research_missions_created_by_fkey",
+      "table": "research_missions",
+      "name": "research_missions_created_by_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "research_missions.research_missions_deliverables_check",
+      "table": "research_missions",
+      "name": "research_missions_deliverables_check",
+      "type": "c",
+      "definition": "CHECK (((cardinality(deliverables) >= 1) AND (cardinality(deliverables) <= 6)))"
+    },
+    {
+      "key": "research_missions.research_missions_existing_evidence_check",
+      "table": "research_missions",
+      "name": "research_missions_existing_evidence_check",
+      "type": "c",
+      "definition": "CHECK ((char_length(existing_evidence) <= 4000))"
+    },
+    {
+      "key": "research_missions.research_missions_orchestration_id_fkey",
+      "table": "research_missions",
+      "name": "research_missions_orchestration_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (orchestration_id) REFERENCES orchestrations(id) ON DELETE SET NULL"
+    },
+    {
+      "key": "research_missions.research_missions_pkey",
+      "table": "research_missions",
+      "name": "research_missions_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "research_missions.research_missions_proposed_experiment_id_fkey",
+      "table": "research_missions",
+      "name": "research_missions_proposed_experiment_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (proposed_experiment_id) REFERENCES experiments(id) ON DELETE SET NULL"
+    },
+    {
+      "key": "research_missions.research_missions_question_check",
+      "table": "research_missions",
+      "name": "research_missions_question_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(question)) >= 8) AND (char_length(btrim(question)) <= 300)))"
+    },
+    {
+      "key": "research_missions.research_missions_required_source_tier_check",
+      "table": "research_missions",
+      "name": "research_missions_required_source_tier_check",
+      "type": "c",
+      "definition": "CHECK ((required_source_tier = ANY (ARRAY['primary'::text, 'reputable_secondary'::text, 'any'::text])))"
+    },
+    {
+      "key": "research_missions.research_missions_retry_budget_check",
+      "table": "research_missions",
+      "name": "research_missions_retry_budget_check",
+      "type": "c",
+      "definition": "CHECK (((retry_budget >= 0) AND (retry_budget <= 3)))"
+    },
+    {
+      "key": "research_missions.research_missions_scope_check",
+      "table": "research_missions",
+      "name": "research_missions_scope_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(scope)) >= 5) AND (char_length(btrim(scope)) <= 2000)))"
+    },
+    {
+      "key": "research_missions.research_missions_spend_ceiling_cents_check",
+      "table": "research_missions",
+      "name": "research_missions_spend_ceiling_cents_check",
+      "type": "c",
+      "definition": "CHECK (((spend_ceiling_cents >= 10) AND (spend_ceiling_cents <= 20000)))"
+    },
+    {
+      "key": "research_missions.research_missions_status_check",
+      "table": "research_missions",
+      "name": "research_missions_status_check",
+      "type": "c",
+      "definition": "CHECK ((status = ANY (ARRAY['draft'::text, 'ready'::text, 'running'::text, 'paused'::text, 'complete'::text, 'cancelled'::text])))"
+    },
+    {
+      "key": "research_missions.research_missions_stop_conditions_check",
+      "table": "research_missions",
+      "name": "research_missions_stop_conditions_check",
+      "type": "c",
+      "definition": "CHECK (((cardinality(stop_conditions) >= 1) AND (cardinality(stop_conditions) <= 6)))"
+    },
+    {
+      "key": "research_missions.research_missions_task_budget_check",
+      "table": "research_missions",
+      "name": "research_missions_task_budget_check",
+      "type": "c",
+      "definition": "CHECK (((task_budget >= 1) AND (task_budget <= 12)))"
+    },
+    {
+      "key": "research_missions.research_missions_time_ceiling_minutes_check",
+      "table": "research_missions",
+      "name": "research_missions_time_ceiling_minutes_check",
+      "type": "c",
+      "definition": "CHECK (((time_ceiling_minutes >= 15) AND (time_ceiling_minutes <= 10080)))"
+    },
+    {
+      "key": "research_missions.research_missions_workspace_id_fkey",
+      "table": "research_missions",
+      "name": "research_missions_workspace_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "research_sources.research_sources_check",
+      "table": "research_sources",
+      "name": "research_sources_check",
+      "type": "c",
+      "definition": "CHECK (((statement_kind <> 'quotation'::text) OR (char_length(btrim(excerpt)) >= 10)))"
+    },
+    {
+      "key": "research_sources.research_sources_check1",
+      "table": "research_sources",
+      "name": "research_sources_check1",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(locator)) >= 3) OR (source_kind = 'observation'::text)))"
+    },
+    {
+      "key": "research_sources.research_sources_created_by_fkey",
+      "table": "research_sources",
+      "name": "research_sources_created_by_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "research_sources.research_sources_excerpt_check",
+      "table": "research_sources",
+      "name": "research_sources_excerpt_check",
+      "type": "c",
+      "definition": "CHECK ((char_length(excerpt) <= 4000))"
+    },
+    {
+      "key": "research_sources.research_sources_hypothesis_id_fkey",
+      "table": "research_sources",
+      "name": "research_sources_hypothesis_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (hypothesis_id) REFERENCES research_hypotheses(id) ON DELETE SET NULL"
+    },
+    {
+      "key": "research_sources.research_sources_locator_check",
+      "table": "research_sources",
+      "name": "research_sources_locator_check",
+      "type": "c",
+      "definition": "CHECK ((char_length(locator) <= 500))"
+    },
+    {
+      "key": "research_sources.research_sources_mission_id_fkey",
+      "table": "research_sources",
+      "name": "research_sources_mission_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (mission_id) REFERENCES research_missions(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "research_sources.research_sources_pkey",
+      "table": "research_sources",
+      "name": "research_sources_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "research_sources.research_sources_source_kind_check",
+      "table": "research_sources",
+      "name": "research_sources_source_kind_check",
+      "type": "c",
+      "definition": "CHECK ((source_kind = ANY (ARRAY['document'::text, 'dataset'::text, 'interview'::text, 'observation'::text, 'code'::text, 'literature'::text, 'internal_record'::text, 'web_page'::text])))"
+    },
+    {
+      "key": "research_sources.research_sources_source_tier_check",
+      "table": "research_sources",
+      "name": "research_sources_source_tier_check",
+      "type": "c",
+      "definition": "CHECK ((source_tier = ANY (ARRAY['primary'::text, 'reputable_secondary'::text, 'unverified'::text])))"
+    },
+    {
+      "key": "research_sources.research_sources_stance_check",
+      "table": "research_sources",
+      "name": "research_sources_stance_check",
+      "type": "c",
+      "definition": "CHECK ((stance = ANY (ARRAY['supports'::text, 'contradicts'::text])))"
+    },
+    {
+      "key": "research_sources.research_sources_statement_kind_check",
+      "table": "research_sources",
+      "name": "research_sources_statement_kind_check",
+      "type": "c",
+      "definition": "CHECK ((statement_kind = ANY (ARRAY['quotation'::text, 'observation'::text, 'inference'::text, 'proposal'::text])))"
+    },
+    {
+      "key": "research_sources.research_sources_title_check",
+      "table": "research_sources",
+      "name": "research_sources_title_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(title)) >= 3) AND (char_length(btrim(title)) <= 300)))"
+    },
+    {
+      "key": "research_sources.research_sources_workspace_id_fkey",
+      "table": "research_sources",
+      "name": "research_sources_workspace_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE"
+    },
+    {
       "key": "review_stages.review_stages_perspective_check",
       "table": "review_stages",
       "name": "review_stages_perspective_check",
@@ -16901,6 +17357,54 @@
       "table": "reminders",
       "name": "reminders_pkey",
       "definition": "CREATE UNIQUE INDEX reminders_pkey ON public.reminders USING btree (id)"
+    },
+    {
+      "key": "research_findings.research_findings_mission_idx",
+      "table": "research_findings",
+      "name": "research_findings_mission_idx",
+      "definition": "CREATE INDEX research_findings_mission_idx ON public.research_findings USING btree (mission_id, created_at)"
+    },
+    {
+      "key": "research_findings.research_findings_pkey",
+      "table": "research_findings",
+      "name": "research_findings_pkey",
+      "definition": "CREATE UNIQUE INDEX research_findings_pkey ON public.research_findings USING btree (id)"
+    },
+    {
+      "key": "research_hypotheses.research_hypotheses_mission_idx",
+      "table": "research_hypotheses",
+      "name": "research_hypotheses_mission_idx",
+      "definition": "CREATE INDEX research_hypotheses_mission_idx ON public.research_hypotheses USING btree (mission_id, created_at)"
+    },
+    {
+      "key": "research_hypotheses.research_hypotheses_pkey",
+      "table": "research_hypotheses",
+      "name": "research_hypotheses_pkey",
+      "definition": "CREATE UNIQUE INDEX research_hypotheses_pkey ON public.research_hypotheses USING btree (id)"
+    },
+    {
+      "key": "research_missions.research_missions_pkey",
+      "table": "research_missions",
+      "name": "research_missions_pkey",
+      "definition": "CREATE UNIQUE INDEX research_missions_pkey ON public.research_missions USING btree (id)"
+    },
+    {
+      "key": "research_missions.research_missions_workspace_idx",
+      "table": "research_missions",
+      "name": "research_missions_workspace_idx",
+      "definition": "CREATE INDEX research_missions_workspace_idx ON public.research_missions USING btree (workspace_id, created_at DESC)"
+    },
+    {
+      "key": "research_sources.research_sources_mission_idx",
+      "table": "research_sources",
+      "name": "research_sources_mission_idx",
+      "definition": "CREATE INDEX research_sources_mission_idx ON public.research_sources USING btree (mission_id, stance)"
+    },
+    {
+      "key": "research_sources.research_sources_pkey",
+      "table": "research_sources",
+      "name": "research_sources_pkey",
+      "definition": "CREATE UNIQUE INDEX research_sources_pkey ON public.research_sources USING btree (id)"
     },
     {
       "key": "review_stages.review_stages_pkey",
