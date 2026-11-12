@@ -1443,6 +1443,42 @@
       "check": "((user_id = ( SELECT auth.uid() AS uid)) AND (EXISTS ( SELECT 1 FROM future_paths p WHERE ((p.id = future_scenarios.path_id) AND (p.user_id = ( SELECT auth.uid() AS uid))))))"
     },
     {
+      "key": "github_issue_events.members read github issue events",
+      "table": "github_issue_events",
+      "name": "members read github issue events",
+      "cmd": "SELECT",
+      "roles": "{authenticated}",
+      "qual": "(workspace_role(workspace_id) IS NOT NULL)",
+      "check": ""
+    },
+    {
+      "key": "github_issue_events.owners append github issue events",
+      "table": "github_issue_events",
+      "name": "owners append github issue events",
+      "cmd": "INSERT",
+      "roles": "{authenticated}",
+      "qual": "",
+      "check": "((workspace_role(workspace_id) IS NOT NULL) AND (EXISTS ( SELECT 1 FROM github_issue_requests r WHERE ((r.id = github_issue_events.request_id) AND (r.user_id = auth.uid())))))"
+    },
+    {
+      "key": "github_issue_requests.members read github issue requests",
+      "table": "github_issue_requests",
+      "name": "members read github issue requests",
+      "cmd": "SELECT",
+      "roles": "{authenticated}",
+      "qual": "(workspace_role(workspace_id) IS NOT NULL)",
+      "check": ""
+    },
+    {
+      "key": "github_issue_requests.owners draft github issue requests",
+      "table": "github_issue_requests",
+      "name": "owners draft github issue requests",
+      "cmd": "INSERT",
+      "roles": "{authenticated}",
+      "qual": "",
+      "check": "((workspace_role(workspace_id) IS NOT NULL) AND (user_id = auth.uid()) AND (status = 'draft'::text))"
+    },
+    {
       "key": "goal_templates.templates are private to their owner",
       "table": "goal_templates",
       "name": "templates are private to their owner",
@@ -10214,6 +10250,209 @@
       "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
     },
     {
+      "key": "github_issue_events.github_issue_events_actor_id_fkey",
+      "table": "github_issue_events",
+      "name": "github_issue_events_actor_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (actor_id) REFERENCES auth.users(id) ON DELETE SET NULL"
+    },
+    {
+      "key": "github_issue_events.github_issue_events_detail_check",
+      "table": "github_issue_events",
+      "name": "github_issue_events_detail_check",
+      "type": "c",
+      "definition": "CHECK ((char_length(detail) <= 500))"
+    },
+    {
+      "key": "github_issue_events.github_issue_events_kind_check",
+      "table": "github_issue_events",
+      "name": "github_issue_events_kind_check",
+      "type": "c",
+      "definition": "CHECK ((kind = ANY (ARRAY['drafted'::text, 'approved'::text, 'send_started'::text, 'sent'::text, 'failed'::text, 'cancelled'::text])))"
+    },
+    {
+      "key": "github_issue_events.github_issue_events_pkey",
+      "table": "github_issue_events",
+      "name": "github_issue_events_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "github_issue_events.github_issue_events_request_id_fkey",
+      "table": "github_issue_events",
+      "name": "github_issue_events_request_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (request_id) REFERENCES github_issue_requests(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "github_issue_events.github_issue_events_workspace_id_fkey",
+      "table": "github_issue_events",
+      "name": "github_issue_events_workspace_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "github_issue_requests.github_issue_requests_approval_fingerprint_check",
+      "table": "github_issue_requests",
+      "name": "github_issue_requests_approval_fingerprint_check",
+      "type": "c",
+      "definition": "CHECK ((approval_fingerprint ~ '^[0-9a-f]{64}$'::text))"
+    },
+    {
+      "key": "github_issue_requests.github_issue_requests_approved_by_fkey",
+      "table": "github_issue_requests",
+      "name": "github_issue_requests_approved_by_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (approved_by) REFERENCES auth.users(id) ON DELETE SET NULL"
+    },
+    {
+      "key": "github_issue_requests.github_issue_requests_attempt_count_check",
+      "table": "github_issue_requests",
+      "name": "github_issue_requests_attempt_count_check",
+      "type": "c",
+      "definition": "CHECK ((attempt_count >= 0))"
+    },
+    {
+      "key": "github_issue_requests.github_issue_requests_body_check",
+      "table": "github_issue_requests",
+      "name": "github_issue_requests_body_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(body)) >= 10) AND (char_length(btrim(body)) <= 8000)))"
+    },
+    {
+      "key": "github_issue_requests.github_issue_requests_check",
+      "table": "github_issue_requests",
+      "name": "github_issue_requests_check",
+      "type": "c",
+      "definition": "CHECK (((approved_at IS NULL) OR ((approval_fingerprint IS NOT NULL) AND (approved_by IS NOT NULL))))"
+    },
+    {
+      "key": "github_issue_requests.github_issue_requests_check1",
+      "table": "github_issue_requests",
+      "name": "github_issue_requests_check1",
+      "type": "c",
+      "definition": "CHECK (((status <> 'approved'::text) OR ((approval_fingerprint = fingerprint) AND (approved_at IS NOT NULL))))"
+    },
+    {
+      "key": "github_issue_requests.github_issue_requests_check2",
+      "table": "github_issue_requests",
+      "name": "github_issue_requests_check2",
+      "type": "c",
+      "definition": "CHECK (((status <> 'sent'::text) OR ((issue_url IS NOT NULL) AND (issue_number IS NOT NULL))))"
+    },
+    {
+      "key": "github_issue_requests.github_issue_requests_connection_id_fkey",
+      "table": "github_issue_requests",
+      "name": "github_issue_requests_connection_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (connection_id) REFERENCES app_composio_connections(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "github_issue_requests.github_issue_requests_error_code_check",
+      "table": "github_issue_requests",
+      "name": "github_issue_requests_error_code_check",
+      "type": "c",
+      "definition": "CHECK (((error_code IS NULL) OR (char_length(error_code) <= 60)))"
+    },
+    {
+      "key": "github_issue_requests.github_issue_requests_error_message_check",
+      "table": "github_issue_requests",
+      "name": "github_issue_requests_error_message_check",
+      "type": "c",
+      "definition": "CHECK (((error_message IS NULL) OR (char_length(error_message) <= 500)))"
+    },
+    {
+      "key": "github_issue_requests.github_issue_requests_fingerprint_check",
+      "table": "github_issue_requests",
+      "name": "github_issue_requests_fingerprint_check",
+      "type": "c",
+      "definition": "CHECK ((fingerprint ~ '^[0-9a-f]{64}$'::text))"
+    },
+    {
+      "key": "github_issue_requests.github_issue_requests_issue_number_check",
+      "table": "github_issue_requests",
+      "name": "github_issue_requests_issue_number_check",
+      "type": "c",
+      "definition": "CHECK (((issue_number IS NULL) OR (issue_number > 0)))"
+    },
+    {
+      "key": "github_issue_requests.github_issue_requests_issue_url_check",
+      "table": "github_issue_requests",
+      "name": "github_issue_requests_issue_url_check",
+      "type": "c",
+      "definition": "CHECK (((issue_url IS NULL) OR (issue_url ~ '^https://github\\.com/'::text)))"
+    },
+    {
+      "key": "github_issue_requests.github_issue_requests_pkey",
+      "table": "github_issue_requests",
+      "name": "github_issue_requests_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "github_issue_requests.github_issue_requests_project_id_fkey",
+      "table": "github_issue_requests",
+      "name": "github_issue_requests_project_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (project_id) REFERENCES app_projects(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "github_issue_requests.github_issue_requests_provider_ref_check",
+      "table": "github_issue_requests",
+      "name": "github_issue_requests_provider_ref_check",
+      "type": "c",
+      "definition": "CHECK (((provider_ref IS NULL) OR (char_length(provider_ref) <= 200)))"
+    },
+    {
+      "key": "github_issue_requests.github_issue_requests_record_kind_check",
+      "table": "github_issue_requests",
+      "name": "github_issue_requests_record_kind_check",
+      "type": "c",
+      "definition": "CHECK ((record_kind = ANY (ARRAY['mission'::text, 'experiment'::text, 'outcome_review'::text, 'research_mission'::text])))"
+    },
+    {
+      "key": "github_issue_requests.github_issue_requests_repository_check",
+      "table": "github_issue_requests",
+      "name": "github_issue_requests_repository_check",
+      "type": "c",
+      "definition": "CHECK ((repository ~ '^[A-Za-z0-9_.-]{1,39}/[A-Za-z0-9_.-]{1,100}$'::text))"
+    },
+    {
+      "key": "github_issue_requests.github_issue_requests_status_check",
+      "table": "github_issue_requests",
+      "name": "github_issue_requests_status_check",
+      "type": "c",
+      "definition": "CHECK ((status = ANY (ARRAY['draft'::text, 'approved'::text, 'sending'::text, 'sent'::text, 'failed'::text, 'cancelled'::text])))"
+    },
+    {
+      "key": "github_issue_requests.github_issue_requests_title_check",
+      "table": "github_issue_requests",
+      "name": "github_issue_requests_title_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(title)) >= 8) AND (char_length(btrim(title)) <= 120)))"
+    },
+    {
+      "key": "github_issue_requests.github_issue_requests_user_id_fkey",
+      "table": "github_issue_requests",
+      "name": "github_issue_requests_user_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "github_issue_requests.github_issue_requests_user_id_record_kind_record_id_fingerp_key",
+      "table": "github_issue_requests",
+      "name": "github_issue_requests_user_id_record_kind_record_id_fingerp_key",
+      "type": "u",
+      "definition": "UNIQUE (user_id, record_kind, record_id, fingerprint)"
+    },
+    {
+      "key": "github_issue_requests.github_issue_requests_workspace_id_fkey",
+      "table": "github_issue_requests",
+      "name": "github_issue_requests_workspace_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE"
+    },
+    {
       "key": "goal_templates.goal_templates_description_check",
       "table": "goal_templates",
       "name": "goal_templates_description_check",
@@ -16616,6 +16855,36 @@
       "table": "future_scenarios",
       "name": "future_scenarios_pkey",
       "definition": "CREATE UNIQUE INDEX future_scenarios_pkey ON public.future_scenarios USING btree (id)"
+    },
+    {
+      "key": "github_issue_events.github_issue_events_pkey",
+      "table": "github_issue_events",
+      "name": "github_issue_events_pkey",
+      "definition": "CREATE UNIQUE INDEX github_issue_events_pkey ON public.github_issue_events USING btree (id)"
+    },
+    {
+      "key": "github_issue_events.github_issue_events_request_idx",
+      "table": "github_issue_events",
+      "name": "github_issue_events_request_idx",
+      "definition": "CREATE INDEX github_issue_events_request_idx ON public.github_issue_events USING btree (request_id, created_at)"
+    },
+    {
+      "key": "github_issue_requests.github_issue_requests_pkey",
+      "table": "github_issue_requests",
+      "name": "github_issue_requests_pkey",
+      "definition": "CREATE UNIQUE INDEX github_issue_requests_pkey ON public.github_issue_requests USING btree (id)"
+    },
+    {
+      "key": "github_issue_requests.github_issue_requests_user_id_record_kind_record_id_fingerp_key",
+      "table": "github_issue_requests",
+      "name": "github_issue_requests_user_id_record_kind_record_id_fingerp_key",
+      "definition": "CREATE UNIQUE INDEX github_issue_requests_user_id_record_kind_record_id_fingerp_key ON public.github_issue_requests USING btree (user_id, record_kind, record_id, fingerprint)"
+    },
+    {
+      "key": "github_issue_requests.github_issue_requests_workspace_idx",
+      "table": "github_issue_requests",
+      "name": "github_issue_requests_workspace_idx",
+      "definition": "CREATE INDEX github_issue_requests_workspace_idx ON public.github_issue_requests USING btree (workspace_id, created_at DESC)"
     },
     {
       "key": "goal_templates.goal_templates_pkey",

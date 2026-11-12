@@ -10,7 +10,7 @@
 | Phase 6 | Optional in-app reminders, quiet hours, daily check-in, scheduler endpoint | Complete |
 | Phase 7 | Template library, private templates, goal search, filters, archive | Complete |
 | Phase 8 | One accountability partner, opt-in sharing, encouragement, block/report | Complete |
-| Phase 9 | Action framework and one external connector | Not started — no connector was selected |
+| Phase 9 | One external connector: GitHub issue handoff. A user picks their own GitHub connection, a selected repository and an existing mission, experiment, outcome review or research mission; the issue title and body are derived on the server, shown exactly as they will be sent, and approval is bound to a sha256 fingerprint of that repository, title and body. Sending needs an approved fingerprint, an active connection and the granted `GITHUB_CREATE_AN_ISSUE` tool; the returned issue URL and number are recorded and linked from the request, with an append-only audit trail, duplicate protection per record and content frozen after approval. Pushes, merges, deletion, workflow changes, secrets and deployment are refused | Complete for the workflow and state machine (unit, database and crawl tested; a live issue creation has not been run because it needs a connected GitHub account and separate approval) |
 | Phase 10 | Prepaid AI credits, Stripe test-mode checkout, ledger, owner dashboard | Complete (test mode; $0.10 credit; no free plan; live payments not enabled) |
 | Phase 11 | Optional work preferences, preference-aware suggestions, approved daily plan | Complete |
 | Phase 12 | Optional learning mode: editable path, practice records, step help | Complete |
@@ -37,8 +37,7 @@
 | Phase 38 | Versioned capability evaluation: eight domains, development/validation/held-out splits, server-side answer keys no client role can read, contamination and repeated-exposure tracking, single-model versus orchestrated comparison with failure categories, cost, latency and variability, permission fixed at version creation, and human baselines only under a documented protocol. Machine-checkable authored tasks compute their expected answer in code, with number and text answers, wrong-kind replies recorded as unreadable, and each live submission retained for review | Complete (one paid live trial verified end to end: 2 credits / 20 cents, 879 ms, graded exact-number; no deployment or permission change) |
 | Phase 39 | Research missions: a bounded research contract (question, scope, competing hypotheses, required source quality, tool allowlist, budgets, stop conditions, human checkpoints), sources with provenance and stance, findings separated into quotations, observations, inferences and proposals, independent verification enforced in Postgres, a brief that re-checks its evidence when rendered, tasks dispatched into the existing orchestration queue, and a proposed next experiment recorded as a normal Phase 35 draft | Complete (fixture-tested plus a live crawl; no autonomous executor, outreach or publication) |
 
-Every phase that has a row below is complete except Phase 9, which was never
-started because no connector was selected. The most recent phases are described
+Every phase that has a row below is complete. The most recent phases are described
 at the end of this file. Phases 26–30 exist in the repository as migrations and
 routes (integration studio and Supabase OAuth, design workspace, build room,
 release dashboard, developer API) but never received a scope row in this table,

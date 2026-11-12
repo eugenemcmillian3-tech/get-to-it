@@ -789,6 +789,11 @@ async function main() {
     "Run a synthetic mission",
     "explanations competing",
   ]);
+  await page(`/workspace/${created.workspace}/connectors`, 200, [
+    "GitHub issue handoff",
+    "creates issues and nothing else",
+    "Issue requests",
+  ]);
   await page(`/workspace/${created.workspace}/research/${created.researchMission}`, 200, [
     "Research brief",
     "Alternative explanations",
