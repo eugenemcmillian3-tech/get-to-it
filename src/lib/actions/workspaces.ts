@@ -386,6 +386,7 @@ export async function setNotificationPrefsAction(
     assignments: readText(formData, "notify_assignments") === "on",
     comments: readText(formData, "notify_comments") === "on",
     membership: readText(formData, "notify_membership") === "on",
+    incidents: readText(formData, "notify_incidents") === "on",
   });
   if (!parsed.success) {
     return { status: "error", message: firstErrorMessage(parsed.error) };
@@ -396,6 +397,7 @@ export async function setNotificationPrefsAction(
     p_assignments: parsed.data.assignments,
     p_comments: parsed.data.comments,
     p_membership: parsed.data.membership,
+    p_incidents: parsed.data.incidents,
   });
 
   if (payload.ok !== true) {

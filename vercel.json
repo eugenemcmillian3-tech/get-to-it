@@ -4,6 +4,10 @@
     {
       "path": "/api/reminders/run",
       "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/incidents/run",
+      "schedule": "30 7 * * *"
     }
   ]
 }

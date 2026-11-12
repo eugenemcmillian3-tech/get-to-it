@@ -15893,11 +15893,18 @@
       "definition": "FOREIGN KEY (workspace_id, user_id) REFERENCES workspace_members(workspace_id, user_id) ON DELETE CASCADE"
     },
     {
+      "key": "workspace_notifications.workspace_notifications_incident_id_fkey",
+      "table": "workspace_notifications",
+      "name": "workspace_notifications_incident_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (incident_id) REFERENCES app_release_incidents(id) ON DELETE CASCADE"
+    },
+    {
       "key": "workspace_notifications.workspace_notifications_kind_check",
       "table": "workspace_notifications",
       "name": "workspace_notifications_kind_check",
       "type": "c",
-      "definition": "CHECK ((kind = ANY (ARRAY['assigned'::text, 'comment'::text, 'role_changed'::text, 'member_joined'::text])))"
+      "definition": "CHECK ((kind = ANY (ARRAY['assigned'::text, 'comment'::text, 'role_changed'::text, 'member_joined'::text, 'incident_stale'::text])))"
     },
     {
       "key": "workspace_notifications.workspace_notifications_pkey",
@@ -18843,6 +18850,12 @@
       "table": "workspace_notifications",
       "name": "workspace_notifications_inbox_idx",
       "definition": "CREATE INDEX workspace_notifications_inbox_idx ON public.workspace_notifications USING btree (user_id, read_at, created_at DESC)"
+    },
+    {
+      "key": "workspace_notifications.workspace_notifications_one_per_incident_idx",
+      "table": "workspace_notifications",
+      "name": "workspace_notifications_one_per_incident_idx",
+      "definition": "CREATE UNIQUE INDEX workspace_notifications_one_per_incident_idx ON public.workspace_notifications USING btree (user_id, incident_id) WHERE (incident_id IS NOT NULL)"
     },
     {
       "key": "workspace_notifications.workspace_notifications_pkey",

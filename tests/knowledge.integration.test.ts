@@ -3454,4 +3454,105 @@ describeKnowledge("improvement proposals", () => {
     const quiet = forCandidate((await read()).rows);
     expect(quiet).toMatchObject({ open_incident_count: 0, open_incidents: null });
   });
+
+  it("notifies each member once about an incident open for a day", async () => {
+    type Pass = { result: { ok: boolean; delivered: number } };
+    const pass = () =>
+      client.query<Pass>("select public.run_incident_notification_pass(now(), $1) as result", [
+        workspaceId,
+      ]);
+
+    const release = await client.query<{ id: string }>(
+      `insert into public.app_releases (project_id, user_id, version, deployment_id, source_digest)
+       values ($1,$2,902,$3,$4) returning id`,
+      [projectId, owner, deploymentIds.approved, "f".repeat(64)],
+    );
+    const stale = await client.query<{ id: string }>(
+      `insert into public.app_release_incidents
+         (project_id, release_id, deployment_id, user_id, title, trigger, severity, status,
+          evidence, created_at)
+       values ($1,$2,$3,$4,$5,$6,'high','diagnosed',
+               '[{"kind":"log","detail":"still failing"}]'::jsonb, now() - interval '2 days')
+       returning id`,
+      [
+        projectId,
+        release.rows[0].id,
+        deploymentIds.approved,
+        owner,
+        "Stale incident for the pass",
+        "The release check kept failing.",
+      ],
+    );
+    await client.query(
+      `insert into public.app_release_incidents
+         (project_id, release_id, deployment_id, user_id, title, trigger, severity, status, evidence)
+       values ($1,$2,$3,$4,$5,$6,'medium','diagnosed','[{"kind":"log","detail":"brand new"}]'::jsonb)`,
+      [
+        projectId,
+        release.rows[0].id,
+        deploymentIds.approved,
+        owner,
+        "Fresh incident, no notification yet",
+        "The release check just failed.",
+      ],
+    );
+
+    const first = await pass();
+    expect(first.rows[0].result).toMatchObject({ ok: true, delivered: 2 });
+
+    const delivered = await client.query<{ user_id: string; kind: string; summary: string }>(
+      "select user_id, kind, summary from public.workspace_notifications where incident_id = $1 order by user_id",
+      [stale.rows[0].id],
+    );
+    expect(delivered.rowCount).toBe(2);
+    expect(delivered.rows.map((row) => row.user_id).sort()).toEqual([owner, reviewer].sort());
+    expect(delivered.rows[0].kind).toBe("incident_stale");
+    expect(delivered.rows[0].summary).toContain("Stale incident for the pass");
+    expect(delivered.rows[0].summary).toContain("open since");
+
+    const second = await pass();
+    expect(second.rows[0].result).toMatchObject({ ok: true, delivered: 0 });
+
+    const counted = await client.query<{ total: string }>(
+      "select count(*)::text as total from public.workspace_notifications where incident_id = $1",
+      [stale.rows[0].id],
+    );
+    expect(counted.rows[0].total).toBe("2");
+
+    // Opting out stops delivery for that member only.
+    await client.query(
+      `insert into public.workspace_notification_prefs (workspace_id, user_id, notify_incidents)
+       values ($1,$2,false)
+       on conflict (workspace_id, user_id) do update set notify_incidents = false`,
+      [workspaceId, owner],
+    );
+    await client.query(
+      `insert into public.app_release_incidents
+         (project_id, release_id, deployment_id, user_id, title, trigger, severity, status,
+          evidence, created_at)
+       values ($1,$2,$3,$4,$5,$6,'critical','evidence_collected',
+               '[{"kind":"log","detail":"another one"}]'::jsonb, now() - interval '3 days')`,
+      [
+        projectId,
+        release.rows[0].id,
+        deploymentIds.approved,
+        owner,
+        "Second stale incident after the opt-out",
+        "The release check failed again.",
+      ],
+    );
+    const third = await pass();
+    expect(third.rows[0].result).toMatchObject({ ok: true, delivered: 1 });
+
+    // Members cannot trigger the pass themselves.
+    let refusal = "";
+    try {
+      await asUser(client, owner, () =>
+        client.query("select public.run_incident_notification_pass() as result"),
+      );
+    } catch (error) {
+      refusal = (error as Error).message;
+    }
+    expect(refusal).toContain("permission denied");
+  });
 });

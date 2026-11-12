@@ -148,7 +148,7 @@ export async function getWorkspaceOverview(
         .limit(12),
       session.supabase
         .from("workspace_notification_prefs")
-        .select("notify_assignments, notify_comments, notify_membership")
+        .select("notify_assignments, notify_comments, notify_membership, notify_incidents")
         .eq("workspace_id", workspaceId)
         .eq("user_id", session.user.id)
         .maybeSingle(),
