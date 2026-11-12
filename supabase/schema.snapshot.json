@@ -8566,6 +8566,13 @@
       "definition": "CHECK ((jsonb_typeof(scoring_detail) = 'object'::text))"
     },
     {
+      "key": "capability_eval_runs.capability_eval_runs_submission_check",
+      "table": "capability_eval_runs",
+      "name": "capability_eval_runs_submission_check",
+      "type": "c",
+      "definition": "CHECK (((submission IS NULL) OR (jsonb_typeof(submission) = 'object'::text)))"
+    },
+    {
       "key": "capability_eval_runs.capability_eval_runs_task_id_fkey",
       "table": "capability_eval_runs",
       "name": "capability_eval_runs_task_id_fkey",

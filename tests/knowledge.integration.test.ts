@@ -1704,6 +1704,62 @@ describeKnowledge("phase 37 knowledge layer", () => {
       ),
     ).toMatch(/already has an answer key|exactly one expected answer/i);
 
+    // A live run keeps the answer it submitted, and only its owner can read it.
+    const versionId = randomUUID();
+    const runId = randomUUID();
+    await asUser(client, owner, async () => {
+      await client.query(
+        `insert into public.capability_eval_versions
+           (id, eval_id, user_id, label, version, baseline_kind, model_version, orchestration_version,
+            prompt_version, dataset_version, scoring_rubric, permitted_tools, runtime_limit_seconds,
+            spend_limit_cents, human_assistance, autonomy_permission, status)
+         values ($1, $2, $3, 'Live smoke', 2, 'single_model_baseline', 'deepseek-v4-pro', 'none',
+           'live-prompt-v1', 'dataset-v1', '{}'::jsonb, '[]'::jsonb, 120, 20, 'none', 'none', 'active')`,
+        [versionId, evalId, owner],
+      );
+      await client.query(
+        `insert into public.capability_eval_runs
+           (id, eval_id, version_id, task_id, user_id, domain, difficulty, split, trial, outcome,
+            verified_success, unsupported_claims, permission_violations, human_interventions,
+            recovery_attempts, cost_cents, latency_ms, failure_category, scoring_detail, submission)
+         values ($1, $2, $3, $4, $5, 'quantitative_reasoning', 'medium', 'development', 1,
+           'verified_success', true, 0, 0, 0, 0, 20, 879, null,
+           '{"graded_by": "exact_number"}'::jsonb, '{"answer": 9, "kind": "number"}'::jsonb)`,
+        [runId, evalId, versionId, taskId, owner],
+      );
+    });
+
+    const stored = await asUser(client, owner, () =>
+      client.query<{ submission: { answer: number } | null; cost_cents: number }>(
+        "select submission, cost_cents from public.capability_eval_runs where id = $1",
+        [runId],
+      ),
+    );
+    expect(stored.rows).toHaveLength(1);
+    expect(stored.rows[0].submission?.answer).toBe(9);
+    expect(stored.rows[0].cost_cents).toBe(20);
+
+    // The row is the owner's alone.
+    const otherView = await asB(() =>
+      client.query<{ count: string }>(
+        "select count(*)::text as count from public.capability_eval_runs where id = $1",
+        [runId],
+      ),
+    );
+    expect(otherView.rows[0].count).toBe("0");
+
+    // A submission that is not an object is refused outright.
+    await expect(
+      client.query(
+        `insert into public.capability_eval_runs
+           (eval_id, version_id, task_id, user_id, domain, difficulty, split, trial, outcome,
+            verified_success, cost_cents, latency_ms, scoring_detail, submission)
+         values ($1, $2, $3, $4, 'quantitative_reasoning', 'medium', 'development', 2,
+           'failed', false, 0, 100, '{}'::jsonb, '"nine"'::jsonb)`,
+        [evalId, versionId, taskId, owner],
+      ),
+    ).rejects.toThrow(/capability_eval_runs_submission_check/);
+
     // Somebody else cannot grade it.
     expect(
       await failure(() =>
