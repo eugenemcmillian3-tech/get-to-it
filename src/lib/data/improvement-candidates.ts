@@ -289,101 +289,41 @@ export async function listPromotionAudit(
     deployment_id: string | null;
   }[];
 
-  const deploymentIds = rows.map((row) => row.deployment_id).filter((id): id is string => Boolean(id));
-
-  // Profiles are private to their owner, so names come from the workspace
-  // directory the app already uses; an approver who has left still shows up.
-  const [deployments, directory] = await Promise.all([
-    deploymentIds.length
-      ? session.supabase
-          .from("app_deployments")
-          .select(
-            "id, project_id, target, status, approval_at, deployment_url, external_deployment_id, created_at",
-          )
-          .in("id", deploymentIds)
-      : Promise.resolve({ data: [], error: null }),
+  // Profiles and deployments are private to their owner, so names and liveness
+  // come from workspace-scoped reads; a member who did not deploy still sees
+  // whether the change is live.
+  const [liveness, directory] = await Promise.all([
+    session.supabase.rpc("improvement_promotion_liveness", { p_workspace_id: workspaceId }),
     session.supabase.rpc("workspace_member_directory", { p_workspace_id: workspaceId }),
   ]);
 
-  if (deployments.error || directory.error) {
+  if (liveness.error || directory.error) {
     console.error(
       "promotion audit detail read failed:",
-      deployments.error?.message ?? directory.error?.message,
+      liveness.error?.message ?? directory.error?.message,
     );
     throw new DataError(LOAD_ERROR);
   }
 
-  const deploymentRows = (deployments.data ?? []) as (NonNullable<
-    PromotionAuditRow["deployment"]
-  > & { project_id: string })[];
-  const deploymentById = new Map(deploymentRows.map((row) => [row.id, row]));
-  const projectIds = [...new Set(deploymentRows.map((row) => row.project_id))];
-
-  // Liveness evidence: a resolved rollback against the deployment, and any
-  // later deployment to the same target that would have replaced it.
-  const [incidents, shipments] = await Promise.all([
-    deploymentIds.length
-      ? session.supabase
-          .from("app_release_incidents")
-          .select("deployment_id, title, recovery_kind, status, resolved_at")
-          .in("deployment_id", deploymentIds)
-      : Promise.resolve({ data: [], error: null }),
-    projectIds.length
-      ? session.supabase
-          .from("app_deployments")
-          .select("id, project_id, target, created_at")
-          .in("project_id", projectIds)
-          .eq("status", "succeeded")
-      : Promise.resolve({ data: [], error: null }),
-  ]);
-
-  if (incidents.error || shipments.error) {
-    console.error(
-      "promotion liveness read failed:",
-      incidents.error?.message ?? shipments.error?.message,
-    );
-    throw new DataError(LOAD_ERROR);
-  }
-
-  const rollbackByDeployment = new Map<string, PromotionRollbackEvidence>();
-  for (const row of (incidents.data ?? []) as {
-    deployment_id: string | null;
-    title: string;
-    recovery_kind: string | null;
-    status: string;
-    resolved_at: string | null;
-  }[]) {
-    if (!row.deployment_id) continue;
-    if (row.recovery_kind !== "code_rollback" && row.recovery_kind !== "config_rollback") continue;
-    if (row.status !== "resolved" && row.status !== "approved") continue;
-    const current = rollbackByDeployment.get(row.deployment_id);
-    if (current && (current.resolved_at ?? "") > (row.resolved_at ?? "")) continue;
-    rollbackByDeployment.set(row.deployment_id, {
-      title: row.title,
-      recovery_kind: row.recovery_kind,
-      resolved_at: row.resolved_at,
-    });
-  }
-
-  function shippedAfter(deployment: {
-    id: string;
-    project_id: string;
+  type LivenessRow = {
+    candidate_id: string;
+    deployment_id: string;
     target: string;
+    status: string;
+    approval_at: string | null;
+    deployment_url: string | null;
+    external_deployment_id: string | null;
     created_at: string;
-  }) {
-    const later = ((shipments.data ?? []) as (PromotionLaterDeployment & { project_id: string })[])
-      .filter(
-        (row) =>
-          row.id !== deployment.id &&
-          row.project_id === deployment.project_id &&
-          row.target === deployment.target &&
-          row.created_at > deployment.created_at,
-      )
-      .sort((a, b) => a.created_at.localeCompare(b.created_at));
-    return later[0]
-      ? { id: later[0].id, target: later[0].target, created_at: later[0].created_at }
-      : null;
-  }
+    rollback_title: string | null;
+    rollback_kind: string | null;
+    rollback_resolved_at: string | null;
+    later_target: string | null;
+    later_created_at: string | null;
+  };
+  const evidenceRows =
+    ((liveness.data ?? {}) as { deployments?: LivenessRow[] }).deployments ?? [];
+  const evidenceById = new Map(evidenceRows.map((row) => [row.candidate_id, row]));
+
   const members =
     ((directory.data ?? {}) as { members?: { user_id: string; display_name: string | null }[] })
       .members ?? [];
@@ -393,7 +333,24 @@ export async function listPromotionAudit(
     workspace: workspace as Workspace,
     myRole: (member as { role: WorkspaceRole }).role,
     rows: rows.map((row) => {
-      const deployment = row.deployment_id ? (deploymentById.get(row.deployment_id) ?? null) : null;
+      const evidence = evidenceById.get(row.id) ?? null;
+      const rollback: PromotionRollbackEvidence | null =
+        evidence && evidence.rollback_kind && evidence.rollback_title
+          ? {
+              title: evidence.rollback_title,
+              recovery_kind:
+                evidence.rollback_kind === "code_rollback" ? "code_rollback" : "config_rollback",
+              resolved_at: evidence.rollback_resolved_at,
+            }
+          : null;
+      const laterDeployment: PromotionLaterDeployment | null =
+        evidence && evidence.later_created_at && evidence.later_target
+          ? {
+              id: `${evidence.deployment_id}-later`,
+              target: evidence.later_target,
+              created_at: evidence.later_created_at,
+            }
+          : null;
       return {
         id: row.id,
         title: row.title,
@@ -411,28 +368,28 @@ export async function listPromotionAudit(
         promotion_approved_by_name: row.promotion_approved_by
           ? (nameById.get(row.promotion_approved_by) ?? null)
           : null,
-        deployment: deployment
+        deployment: evidence
           ? {
-              id: deployment.id,
-              target: deployment.target,
-              status: deployment.status,
-              approval_at: deployment.approval_at,
-              deployment_url: deployment.deployment_url,
-              external_deployment_id: deployment.external_deployment_id,
-              created_at: deployment.created_at,
+              id: evidence.deployment_id,
+              target: evidence.target,
+              status: evidence.status,
+              approval_at: evidence.approval_at,
+              deployment_url: evidence.deployment_url,
+              external_deployment_id: evidence.external_deployment_id,
+              created_at: evidence.created_at,
             }
           : null,
         state: promotionState({
-          deployment: deployment
+          deployment: evidence
             ? {
-                id: deployment.id,
-                target: deployment.target,
-                status: deployment.status,
-                created_at: deployment.created_at,
+                id: evidence.deployment_id,
+                target: evidence.target,
+                status: evidence.status,
+                created_at: evidence.created_at,
               }
             : null,
-          rollback: deployment ? (rollbackByDeployment.get(deployment.id) ?? null) : null,
-          laterDeployment: deployment ? shippedAfter(deployment) : null,
+          rollback,
+          laterDeployment,
         }),
       };
     }),
