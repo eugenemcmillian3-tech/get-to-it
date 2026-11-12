@@ -15,6 +15,7 @@ import {
   PROTECTED_AUTHORITIES,
   PROTECTED_AUTHORITY_LABELS,
 } from "@/lib/improvement-candidates";
+import type { DeploymentOption, ProjectOption } from "@/lib/data/improvement-candidates";
 import {
   cardClass,
   inputClass,
@@ -52,7 +53,13 @@ const FIELD = [
   { name: "rollbackPlan", label: "Rollback plan", hint: "How to undo it, and what stays behind." },
 ] as const;
 
-export function NewImprovementCandidateForm({ workspaceId }: { workspaceId: string }) {
+export function NewImprovementCandidateForm({
+  workspaceId,
+  projects,
+}: {
+  workspaceId: string;
+  projects: ProjectOption[];
+}) {
   const [state, action] = useActionState(createImprovementCandidateAction, idleBuildState);
 
   return (
@@ -91,6 +98,21 @@ export function NewImprovementCandidateForm({ workspaceId }: { workspaceId: stri
             </select>
           </label>
         </div>
+
+        <label className="grid gap-1">
+          <span className={labelClass}>Project this proposal belongs to</span>
+          <select name="projectId" className={inputClass} defaultValue={projects[0]?.id ?? ""} required>
+            {projects.length === 0 ? <option value="">No project yet</option> : null}
+            {projects.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.name}
+              </option>
+            ))}
+          </select>
+          <span className="text-xs text-muted">
+            A promotion ships through an approved deployment of this project.
+          </span>
+        </label>
 
         <label className="grid gap-1">
           <span className={labelClass}>Title</span>
@@ -196,9 +218,11 @@ export function EvaluateCandidateForm({
 export function DecideCandidateForm({
   workspaceId,
   candidateId,
+  deployments,
 }: {
   workspaceId: string;
   candidateId: string;
+  deployments: DeploymentOption[];
 }) {
   const [state, action] = useActionState(decideImprovementCandidateAction, idleBuildState);
 
@@ -216,8 +240,21 @@ export function DecideCandidateForm({
         />
       </label>
       <label className="grid gap-1">
-        <span className={labelClass}>Promotion reference (for promotion only)</span>
-        <input name="reference" className={inputClass} placeholder="deployment approval #123" />
+        <span className={labelClass}>Deployment to ship through (for promotion only)</span>
+        <select name="deploymentId" className={inputClass} defaultValue={deployments[0]?.id ?? ""}>
+          {deployments.length === 0 ? <option value="">No approved deployment yet</option> : null}
+          {deployments.map((deployment) => (
+            <option key={deployment.id} value={deployment.id}>
+              {deployment.target} · {deployment.status.replaceAll("_", " ")} ·{" "}
+              {deployment.approval_at
+                ? `approved ${deployment.approval_at.slice(0, 10)}`
+                : "not approved"}
+            </option>
+          ))}
+        </select>
+        <span className="text-xs text-muted">
+          Only a deployment already approved in the deployment flow can ship this change.
+        </span>
       </label>
       <div className="flex flex-wrap gap-2">
         <button type="submit" name="decision" value="approve" className={primaryButton}>

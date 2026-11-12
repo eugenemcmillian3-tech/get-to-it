@@ -10944,6 +10944,13 @@
       "definition": "CHECK (((criteria_hash IS NULL) OR (criteria_hash ~ '^[0-9a-f]{64}$'::text)))"
     },
     {
+      "key": "improvement_candidates.improvement_candidates_deployment_id_fkey",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_deployment_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (deployment_id) REFERENCES app_deployments(id) ON DELETE SET NULL"
+    },
+    {
       "key": "improvement_candidates.improvement_candidates_evaluation_plan_check",
       "table": "improvement_candidates",
       "name": "improvement_candidates_evaluation_plan_check",
@@ -11005,6 +11012,13 @@
       "name": "improvement_candidates_project_id_fkey",
       "type": "f",
       "definition": "FOREIGN KEY (project_id) REFERENCES app_projects(id) ON DELETE SET NULL"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_promoted_needs_deployment",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_promoted_needs_deployment",
+      "type": "c",
+      "definition": "CHECK (((status <> 'promoted'::text) OR (deployment_id IS NOT NULL)))"
     },
     {
       "key": "improvement_candidates.improvement_candidates_promotion_approved_by_fkey",
@@ -17743,6 +17757,12 @@
       "table": "improvement_candidate_events",
       "name": "improvement_candidate_events_pkey",
       "definition": "CREATE UNIQUE INDEX improvement_candidate_events_pkey ON public.improvement_candidate_events USING btree (id)"
+    },
+    {
+      "key": "improvement_candidates.improvement_candidates_deployment_idx",
+      "table": "improvement_candidates",
+      "name": "improvement_candidates_deployment_idx",
+      "definition": "CREATE UNIQUE INDEX improvement_candidates_deployment_idx ON public.improvement_candidates USING btree (deployment_id) WHERE (deployment_id IS NOT NULL)"
     },
     {
       "key": "improvement_candidates.improvement_candidates_pkey",

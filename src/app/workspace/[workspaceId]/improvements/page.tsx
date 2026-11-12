@@ -81,7 +81,7 @@ export default async function ImprovementsPage({
           <li>{CANDIDATE_NOTES.promotion}</li>
         </ul>
 
-        <NewImprovementCandidateForm workspaceId={workspaceId} />
+        <NewImprovementCandidateForm workspaceId={workspaceId} projects={list.projects} />
 
         <section aria-labelledby="boundaries-heading" className={`${cardClass} mt-8`}>
           <h2 id="boundaries-heading" className="text-xl font-bold">
@@ -109,6 +109,15 @@ export default async function ImprovementsPage({
                 );
                 const events = list.events.filter((event) => event.candidate_id === candidate.id);
                 const mine = candidate.user_id === session.user.id;
+                const project = list.projects.find((row) => row.id === candidate.project_id);
+                const shipDeployments = list.deployments.filter(
+                  (deployment) =>
+                    deployment.project_id === candidate.project_id &&
+                    deployment.approval_at !== null &&
+                    !["draft", "checks_ready", "failed", "partial_failure"].includes(
+                      deployment.status,
+                    ),
+                );
                 return (
                   <li key={candidate.id} className={cardClass}>
                     <div className="flex flex-wrap items-start justify-between gap-2">
@@ -117,6 +126,7 @@ export default async function ImprovementsPage({
                         <p className="text-xs text-muted">
                           {CANDIDATE_KIND_LABELS[candidate.kind]} · {candidate.sandbox_kind}{" "}
                           {candidate.candidate_ref} against {candidate.base_ref}
+                          {project ? ` · ${project.name}` : " · no project linked"}
                         </p>
                       </div>
                       <span className={chipClass}>
@@ -185,7 +195,11 @@ export default async function ImprovementsPage({
                       <EvaluateCandidateForm workspaceId={workspaceId} candidateId={candidate.id} />
                     ) : null}
                     {candidate.status === "evaluated" || candidate.status === "approved" ? (
-                      <DecideCandidateForm workspaceId={workspaceId} candidateId={candidate.id} />
+                      <DecideCandidateForm
+                        workspaceId={workspaceId}
+                        candidateId={candidate.id}
+                        deployments={shipDeployments}
+                      />
                     ) : null}
                     {candidate.criteria_frozen_at ? (
                       <RelaxationAttemptForm workspaceId={workspaceId} candidateId={candidate.id} />

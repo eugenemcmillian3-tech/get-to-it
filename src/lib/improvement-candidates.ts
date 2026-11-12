@@ -311,6 +311,9 @@ export type PromotionReview = {
   reviewedBy: string | null;
   authorId: string;
   sandboxRef: string;
+  /** The deployment that would ship the change. */
+  deploymentApproved: boolean;
+  deploymentProjectMatches: boolean;
 };
 
 /** What a person still has to supply before a candidate may be promoted. */
@@ -335,6 +338,12 @@ export function promotionProblems(review: PromotionReview): string[] {
     problems.push("The author cannot approve their own candidate.");
   }
   if (!review.sandboxRef.trim()) problems.push("The promotion needs the sandbox or branch it came from.");
+  if (!review.deploymentApproved) {
+    problems.push("Name a deployment that has already been approved; promotion rides on its approval.");
+  }
+  if (!review.deploymentProjectMatches) {
+    problems.push("The deployment has to belong to the same project as the candidate.");
+  }
   return problems;
 }
 
@@ -356,6 +365,7 @@ export function reviewSummary(input: {
     `Security findings: ${input.securityFindings}. Guarded behaviours changed: ${input.regressions}.`,
     `Cost change: ${(input.costDeltaRatio * 100).toFixed(0)}%.`,
     `Ran in: ${input.sandboxRef}.`,
+    "Promotion ships through the deployment approval for the same project.",
     `Rollback: ${input.rollbackPlan}`,
   ];
   if (input.comparison) lines.push(...input.comparison.reasons);

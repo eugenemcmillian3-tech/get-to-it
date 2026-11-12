@@ -14,6 +14,7 @@ export type ImprovementCandidate = {
   id: string;
   workspace_id: string;
   user_id: string;
+  project_id: string | null;
   kind: CandidateKind;
   title: string;
   problem: string;
@@ -40,6 +41,7 @@ export type ImprovementCandidate = {
   reviewed_by: string | null;
   review_note: string | null;
   promotion_ref: string | null;
+  deployment_id: string | null;
   promoted_at: string | null;
   created_at: string;
 };
@@ -74,9 +76,22 @@ export type ImprovementBlock = {
   created_at: string;
 };
 
+export type DeploymentOption = {
+  id: string;
+  project_id: string;
+  target: string;
+  status: string;
+  approval_at: string | null;
+  created_at: string;
+};
+
+export type ProjectOption = { id: string; name: string };
+
 export type ImprovementList = {
   workspace: Workspace;
   myRole: WorkspaceRole;
+  projects: ProjectOption[];
+  deployments: DeploymentOption[];
   candidates: ImprovementCandidate[];
   evaluations: ImprovementEvaluation[];
   events: ImprovementEvent[];
@@ -111,11 +126,11 @@ export async function listImprovementCandidates(
   }
   if (!member) return null;
 
-  const [candidates, evaluations, events, blocks] = await Promise.all([
+  const [candidates, evaluations, events, blocks, projects, deployments] = await Promise.all([
     session.supabase
       .from("improvement_candidates")
       .select(
-        "id, workspace_id, user_id, kind, title, problem, evidence, proposed_change, expected_benefit, possible_regressions, affected_components, evaluation_plan, cost_impact, security_implications, rollback_plan, sandbox_kind, base_ref, candidate_ref, status, verdict, integrity, security_findings, regressions, cost_delta_ratio, criteria_frozen_at, reviewed_at, reviewed_by, review_note, promotion_ref, promoted_at, created_at",
+        "id, workspace_id, user_id, project_id, kind, title, problem, evidence, proposed_change, expected_benefit, possible_regressions, affected_components, evaluation_plan, cost_impact, security_implications, rollback_plan, sandbox_kind, base_ref, candidate_ref, status, verdict, integrity, security_findings, regressions, cost_delta_ratio, criteria_frozen_at, reviewed_at, reviewed_by, review_note, promotion_ref, deployment_id, promoted_at, created_at",
       )
       .eq("workspace_id", workspaceId)
       .order("created_at", { ascending: false })
@@ -140,9 +155,21 @@ export async function listImprovementCandidates(
       .eq("workspace_id", workspaceId)
       .order("created_at", { ascending: false })
       .limit(20),
+    session.supabase
+      .from("app_projects")
+      .select("id, name")
+      .eq("user_id", session.user.id)
+      .order("created_at", { ascending: false })
+      .limit(20),
+    session.supabase
+      .from("app_deployments")
+      .select("id, project_id, target, status, approval_at, created_at")
+      .eq("user_id", session.user.id)
+      .order("created_at", { ascending: false })
+      .limit(40),
   ]);
 
-  for (const result of [candidates, evaluations, events, blocks]) {
+  for (const result of [candidates, evaluations, events, blocks, projects, deployments]) {
     if (result.error) {
       console.error("improvement read failed:", result.error.message);
       throw new DataError(LOAD_ERROR);
@@ -152,6 +179,8 @@ export async function listImprovementCandidates(
   return {
     workspace: workspace as Workspace,
     myRole: (member as { role: WorkspaceRole }).role,
+    projects: (projects.data ?? []) as ProjectOption[],
+    deployments: (deployments.data ?? []) as DeploymentOption[],
     candidates: (candidates.data ?? []) as ImprovementCandidate[],
     evaluations: (evaluations.data ?? []) as ImprovementEvaluation[],
     events: (events.data ?? []) as ImprovementEvent[],
