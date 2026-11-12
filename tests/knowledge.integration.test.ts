@@ -3455,6 +3455,70 @@ describeKnowledge("improvement proposals", () => {
     expect(quiet).toMatchObject({ open_incident_count: 0, open_incidents: null });
   });
 
+  it("marks an incident's notifications read once it is resolved or dismissed", async () => {
+    const release = await client.query<{ id: string }>(
+      `insert into public.app_releases (project_id, user_id, version, deployment_id, source_digest)
+       values ($1,$2,920,$3,$4) returning id`,
+      [projectId, owner, deploymentIds.approved, "b".repeat(63) + "2"],
+    );
+    const addIncident = async (title: string) =>
+      (
+        await client.query<{ id: string }>(
+          `insert into public.app_release_incidents
+             (project_id, release_id, deployment_id, user_id, title, trigger, severity, status,
+              evidence, created_at)
+           values ($1,$2,$3,$4,$5,$6,'high','diagnosed',
+                   '[{"kind":"log","detail":"still failing"}]'::jsonb, now() - interval '2 days')
+           returning id`,
+          [
+            projectId,
+            release.rows[0].id,
+            deploymentIds.approved,
+            owner,
+            title,
+            "The release check kept failing.",
+          ],
+        )
+      ).rows[0].id;
+    const unreadFor = async (incidentId: string) =>
+      (
+        await client.query<{ total: string }>(
+          "select count(*)::text as total from public.workspace_notifications where incident_id = $1 and read_at is null",
+          [incidentId],
+        )
+      ).rows[0].total;
+    const runPass = () =>
+      client.query("select public.run_incident_notification_pass(now(), $1) as result", [
+        workspaceId,
+      ]);
+
+    const resolvedIncident = await addIncident("An incident that gets fixed");
+    await runPass();
+    expect(await unreadFor(resolvedIncident)).toBe("2");
+
+    await client.query(
+      "update public.app_release_incidents set status = 'resolved', resolved_at = now() where id = $1",
+      [resolvedIncident],
+    );
+    expect(await unreadFor(resolvedIncident)).toBe("0");
+
+    const dismissedIncident = await addIncident("An incident that is dismissed");
+    await runPass();
+    expect(await unreadFor(dismissedIncident)).toBe("2");
+
+    await client.query("update public.app_release_incidents set status = 'dismissed' where id = $1", [
+      dismissedIncident,
+    ]);
+    expect(await unreadFor(dismissedIncident)).toBe("0");
+
+    // The rows are still there as history.
+    const kept = await client.query<{ total: string }>(
+      "select count(*)::text as total from public.workspace_notifications where incident_id = $1",
+      [resolvedIncident],
+    );
+    expect(kept.rows[0].total).toBe("2");
+  });
+
   it("notifies on a backoff schedule instead of every day forever", async () => {
     type Pass = { result: { ok: boolean; delivered: number; escalated: number; day: string } };
     const runAt = (offset: string) =>
