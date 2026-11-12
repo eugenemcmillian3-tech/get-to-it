@@ -2088,3 +2088,44 @@ The proposed next experiment becomes an ordinary draft Phase 35 record with its
 own review, consent and approval. Nothing publishes a brief, contacts a
 participant or runs a separate unrestricted agent runtime, and no research task
 is executed by an autonomous worker in this build.
+
+## GitHub issue handoff (Phase 9)
+
+`/workspace/{workspaceId}/connectors` is the only external connector in this
+build, and it does one thing: an approved GET TO IT record becomes an issue in a
+repository the user chooses. It reuses the existing project-scoped Composio
+connection rather than adding a second OAuth path, so a request references the
+user's own `app_composio_connections` row and takes its project from there. If
+no active GitHub connection exists the page says so and nothing can be sent.
+
+The draft is derived on the server from the record — title, body and the link
+back to the record — and never edited in a form, so what is approved is what was
+shown. Approval stores `approved_at`, `approved_by` and a sha256 fingerprint of
+the repository, title and body; a trigger refuses any later change to those
+fields, and a send is refused unless the stored fingerprint still equals the
+approved one. Sending also needs an active connection and the granted tool
+`GITHUB_CREATE_AN_ISSUE`; when the tool grant is missing the request is refused
+with `tool_not_granted` rather than widening the connection's permissions.
+
+The claim RPC moves `approved` to `sending` under a row lock, so a double click
+cannot create two issues, and a second claim is refused as `already-sending`.
+Completion must carry a real `https://github.com/{owner}/{repo}/issues/{n}` URL
+and a positive number, or the request is recorded as `failed` and stays
+unsent — no success is written without a provider receipt. The issue URL and
+number are stored on the request and linked from it, `sent` and `cancelled` are
+final, and every step is appended to `github_issue_events` (drafted, approved,
+send_started, sent, failed, cancelled). A unique index on the record and
+fingerprint refuses the same write twice.
+
+Pushes to a branch, merges, repository deletion, workflow-file changes, secrets,
+deployment and unapproved background issue creation are refused, not merely
+undocumented: `excludedActionProblem` rejects those action names and the schema
+stores only issue fields. Nothing here calls a model, so this phase adds no
+cost; the existing rate card is unchanged and no connector fee was added.
+
+The workflow, state machine, audit trail, immutability and duplicate protection
+are covered by unit tests, a database harness and the page crawl. A live issue
+creation has not been run: it needs a connected GitHub account and the separate
+approval the product decision requires, so the send path is verified up to the
+provider call and refuses rather than fabricates a result when that call cannot
+be made.

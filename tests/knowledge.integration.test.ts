@@ -2293,3 +2293,265 @@ describeKnowledge("phase 39 research missions", () => {
     expect(linked.rows[0].question).toContain("narrow viewport");
   });
 });
+
+/**
+ * Phase 9: the GitHub issue handoff. The connection and transport are the
+ * existing Composio path, so these checks cover the parts this phase owns: the
+ * approval record, its immutability, duplicates and the audit trail.
+ */
+describeKnowledge("phase 9 github issue handoff", () => {
+  let client: Client;
+  const owner = randomUUID();
+  const outsider = randomUUID();
+  const workspaceId = randomUUID();
+  const projectId = randomUUID();
+  const connectionId = randomUUID();
+  let requestId = "";
+
+  beforeAll(async () => {
+    client = new Client({ connectionString });
+    await client.connect();
+    await assertIsolatedDatabase(client);
+
+    for (const userId of [owner, outsider]) {
+      await client.query("insert into auth.users (id, email) values ($1,$2)", [
+        userId,
+        `phase9-${userId.slice(0, 8)}@example.test`,
+      ]);
+    }
+    await client.query("insert into public.workspaces (id, name, created_by) values ($1,$2,$3)", [
+      workspaceId,
+      "Phase 9 connector probe",
+      owner,
+    ]);
+    await client.query(
+      "insert into public.workspace_members (workspace_id, user_id, role, status) values ($1,$2,'owner','active')",
+      [workspaceId, owner],
+    );
+    await client.query(
+      `insert into public.app_projects
+         (id, user_id, name, purpose, target_users, workflows, required_pages, entities,
+          auth_requirements, integrations, definition_of_done)
+       values ($1,$2,'Connector probe','Probe the issue handoff.','Operators',
+               'Create an issue','/ | Home','','none','',
+               'An issue request is recorded')`,
+      [projectId, owner],
+    );
+    await client.query(
+      `insert into public.app_composio_connections
+         (id, user_id, project_id, toolkit, connected_account_id, account_label, status)
+       values ($1,$2,$3,'github','ca_probe_account_1','Probe account','active')`,
+      [connectionId, owner, projectId],
+    );
+
+    const created = await asUser(client, owner, () =>
+      client.query<{ id: string }>(
+        `insert into public.github_issue_requests
+           (workspace_id, user_id, connection_id, project_id, record_kind, record_id,
+            repository, title, body, fingerprint, status)
+         values ($1,$2,$3,$4,'mission',$5,'acme/roadmap',
+                 '[Mission] Turn the finding into work',
+                 'From GET TO IT: a person approved this before it was sent.',
+                 $6,'draft')
+         returning id`,
+        [workspaceId, owner, connectionId, projectId, randomUUID(), "a".repeat(64)],
+      ),
+    );
+    requestId = created.rows[0].id;
+  }, 180_000);
+
+  afterAll(async () => {
+    if (client) await client.end();
+  });
+
+  it("records the draft and keeps it invisible to an outsider", async () => {
+    const visible = await asUser(client, owner, () =>
+      client.query<{ count: string }>(
+        "select count(*)::text as count from public.github_issue_requests where id = $1",
+        [requestId],
+      ),
+    );
+    expect(visible.rows[0].count).toBe("1");
+
+    const hidden = await asUser(client, outsider, () =>
+      client.query<{ count: string }>(
+        "select count(*)::text as count from public.github_issue_requests where id = $1",
+        [requestId],
+      ),
+    );
+    expect(hidden.rows[0].count).toBe("0");
+  });
+
+  it("refuses to send before approval", async () => {
+    const result = await asUser(client, owner, () =>
+      client.query<{ result: { ok: boolean; code: string } }>(
+        "select public.github_issue_claim($1) as result",
+        [requestId],
+      ),
+    );
+    expect(result.rows[0].result).toMatchObject({ ok: false, code: "approval-required" });
+  });
+
+  it("binds the approval to the fingerprint and freezes the content", async () => {
+    const approved = await asUser(client, owner, () =>
+      client.query<{ result: { ok: boolean } }>(
+        "select public.github_issue_approve($1) as result",
+        [requestId],
+      ),
+    );
+    expect(approved.rows[0].result.ok).toBe(true);
+
+    const row = await client.query<{ status: string; approval_fingerprint: string }>(
+      "select status, approval_fingerprint from public.github_issue_requests where id = $1",
+      [requestId],
+    );
+    expect(row.rows[0].status).toBe("approved");
+    expect(row.rows[0].approval_fingerprint).toBe("a".repeat(64));
+
+    // A client has no update policy, so a direct edit silently touches nothing.
+    const direct = await asUser(client, owner, () =>
+      client.query(
+        "update public.github_issue_requests set title = 'A quietly changed title' where id = $1",
+        [requestId],
+      ),
+    );
+    expect(direct.rowCount).toBe(0);
+
+    // The definer RPCs can write, so the trigger must refuse them instead.
+    let message = "";
+    try {
+      await client.query(
+        "update public.github_issue_requests set title = 'A quietly changed title' where id = $1",
+        [requestId],
+      );
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain("cannot be rewritten");
+  });
+
+  it("sends once and never twice", async () => {
+    const claimed = await asUser(client, owner, () =>
+      client.query<{ result: { ok: boolean; attempt: number } }>(
+        "select public.github_issue_claim($1) as result",
+        [requestId],
+      ),
+    );
+    expect(claimed.rows[0].result.ok).toBe(true);
+
+    // A second claim while sending is refused, so a double click cannot send twice.
+    const again = await asUser(client, owner, () =>
+      client.query<{ result: { ok: boolean; code: string } }>(
+        "select public.github_issue_claim($1) as result",
+        [requestId],
+      ),
+    );
+    expect(again.rows[0].result).toMatchObject({ ok: false, code: "already-sending" });
+
+    // A completion without an issue link is refused rather than recorded as sent.
+    const withoutIssue = await asUser(client, owner, () =>
+      client.query<{ result: { ok: boolean; code: string } }>(
+        "select public.github_issue_complete($1, true, null, null) as result",
+        [requestId],
+      ),
+    );
+    expect(withoutIssue.rows[0].result).toMatchObject({ ok: false, code: "missing-issue" });
+
+    const sent = await asUser(client, owner, () =>
+      client.query<{ result: { ok: boolean } }>(
+        "select public.github_issue_complete($1, true, $2, 12, 'log_probe') as result",
+        [requestId, "https://github.com/acme/roadmap/issues/12"],
+      ),
+    );
+    expect(sent.rows[0].result.ok).toBe(true);
+
+    const row = await client.query<{ status: string; issue_number: number; issue_url: string }>(
+      "select status, issue_number, issue_url from public.github_issue_requests where id = $1",
+      [requestId],
+    );
+    expect(row.rows[0].status).toBe("sent");
+    expect(row.rows[0].issue_number).toBe(12);
+
+    let message = "";
+    try {
+      await client.query(
+        "update public.github_issue_requests set status = 'failed' where id = $1",
+        [requestId],
+      );
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain("a sent issue request is final");
+  });
+
+  it("refuses a duplicate fingerprint for the same record", async () => {
+    const recordId = randomUUID();
+    await asUser(client, owner, () =>
+      client.query(
+        `insert into public.github_issue_requests
+           (workspace_id, user_id, connection_id, project_id, record_kind, record_id,
+            repository, title, body, fingerprint, status)
+         values ($1,$2,$3,$4,'mission',$5,'acme/roadmap','Same content once',
+                 'The same body, recorded again.', $6, 'draft')`,
+        [workspaceId, owner, connectionId, projectId, recordId, "b".repeat(64)],
+      ),
+    );
+
+    let message = "";
+    try {
+      await asUser(client, owner, () =>
+        client.query(
+          `insert into public.github_issue_requests
+             (workspace_id, user_id, connection_id, project_id, record_kind, record_id,
+              repository, title, body, fingerprint, status)
+           values ($1,$2,$3,$4,'mission',$5,'acme/roadmap','Same content once',
+                   'The same body, recorded again.', $6, 'draft')`,
+          [workspaceId, owner, connectionId, projectId, recordId, "b".repeat(64)],
+        ),
+      );
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain("duplicate key value");
+  });
+
+  it("refuses a send when the connection is no longer active", async () => {
+    const inactiveRequest = await asUser(client, owner, () =>
+      client.query<{ id: string }>(
+        `insert into public.github_issue_requests
+           (workspace_id, user_id, connection_id, project_id, record_kind, record_id,
+            repository, title, body, fingerprint, status)
+         values ($1,$2,$3,$4,'mission',$5,'acme/roadmap','A request on a dead connection',
+                 'This should never be sent.', $6, 'draft')
+         returning id`,
+        [workspaceId, owner, connectionId, projectId, randomUUID(), "c".repeat(64)],
+      ),
+    );
+    const inactiveId = inactiveRequest.rows[0].id;
+
+    await asUser(client, owner, () =>
+      client.query("select public.github_issue_approve($1)", [inactiveId]),
+    );
+    await client.query(
+      "update public.app_composio_connections set status = 'revoked' where id = $1",
+      [connectionId],
+    );
+
+    const claim = await asUser(client, owner, () =>
+      client.query<{ result: { ok: boolean; code: string } }>(
+        "select public.github_issue_claim($1) as result",
+        [inactiveId],
+      ),
+    );
+    expect(claim.rows[0].result).toMatchObject({ ok: false, code: "connection-inactive" });
+  });
+
+  it("appends the audit trail instead of editing it", async () => {
+    const events = await client.query<{ kind: string }>(
+      "select kind from public.github_issue_events where request_id = $1 order by created_at",
+      [requestId],
+    );
+    const kinds = events.rows.map((row) => row.kind);
+    expect(kinds).toEqual(["drafted", "approved", "send_started", "sent"]);
+  });
+});
