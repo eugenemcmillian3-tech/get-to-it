@@ -3455,69 +3455,46 @@ describeKnowledge("improvement proposals", () => {
     expect(quiet).toMatchObject({ open_incident_count: 0, open_incidents: null });
   });
 
-  it("notifies each member once about an incident open for a day", async () => {
-    type Pass = { result: { ok: boolean; delivered: number } };
-    const pass = () =>
-      client.query<Pass>("select public.run_incident_notification_pass(now(), $1) as result", [
-        workspaceId,
-      ]);
+  it("notifies on a backoff schedule instead of every day forever", async () => {
+    type Pass = { result: { ok: boolean; delivered: number; escalated: number; day: string } };
+    const runAt = (offset: string) =>
+      client.query<Pass>(
+        `select public.run_incident_notification_pass(now() + interval '${offset}', $1) as result`,
+        [workspaceId],
+      );
 
     const release = await client.query<{ id: string }>(
       `insert into public.app_releases (project_id, user_id, version, deployment_id, source_digest)
-       values ($1,$2,902,$3,$4) returning id`,
-      [projectId, owner, deploymentIds.approved, "f".repeat(64)],
+       values ($1,$2,910,$3,$4) returning id`,
+      [projectId, owner, deploymentIds.approved, "a".repeat(63) + "1"],
     );
-    const stale = await client.query<{ id: string }>(
-      `insert into public.app_release_incidents
-         (project_id, release_id, deployment_id, user_id, title, trigger, severity, status,
-          evidence, created_at)
-       values ($1,$2,$3,$4,$5,$6,'high','diagnosed',
-               '[{"kind":"log","detail":"still failing"}]'::jsonb, now() - interval '2 days')
-       returning id`,
-      [
-        projectId,
-        release.rows[0].id,
-        deploymentIds.approved,
-        owner,
-        "Stale incident for the pass",
-        "The release check kept failing.",
-      ],
-    );
-    await client.query(
-      `insert into public.app_release_incidents
-         (project_id, release_id, deployment_id, user_id, title, trigger, severity, status, evidence)
-       values ($1,$2,$3,$4,$5,$6,'medium','diagnosed','[{"kind":"log","detail":"brand new"}]'::jsonb)`,
-      [
-        projectId,
-        release.rows[0].id,
-        deploymentIds.approved,
-        owner,
-        "Fresh incident, no notification yet",
-        "The release check just failed.",
-      ],
-    );
+    const incident = async (title: string, age: string) =>
+      (
+        await client.query<{ id: string }>(
+          `insert into public.app_release_incidents
+             (project_id, release_id, deployment_id, user_id, title, trigger, severity, status,
+              evidence, created_at)
+           values ($1,$2,$3,$4,$5,$6,'high','diagnosed',
+                   '[{"kind":"log","detail":"still failing"}]'::jsonb, now() - interval '${age}')
+           returning id`,
+          [
+            projectId,
+            release.rows[0].id,
+            deploymentIds.approved,
+            owner,
+            title,
+            "The release check kept failing.",
+          ],
+        )
+      ).rows[0].id;
 
-    const first = await pass();
-    expect(first.rows[0].result).toMatchObject({ ok: true, delivered: 2 });
+    await incident("Stale incident for the pass", "2 days");
+    await incident("Fresh incident, no notification yet", "1 hour");
 
-    const delivered = await client.query<{ user_id: string; kind: string; summary: string }>(
-      "select user_id, kind, summary from public.workspace_notifications where incident_id = $1 order by user_id",
-      [stale.rows[0].id],
-    );
-    expect(delivered.rowCount).toBe(2);
-    expect(delivered.rows.map((row) => row.user_id).sort()).toEqual([owner, reviewer].sort());
-    expect(delivered.rows[0].kind).toBe("incident_stale");
-    expect(delivered.rows[0].summary).toContain("Stale incident for the pass");
-    expect(delivered.rows[0].summary).toContain("open since");
-
-    const second = await pass();
-    expect(second.rows[0].result).toMatchObject({ ok: true, delivered: 0 });
-
-    const counted = await client.query<{ total: string }>(
-      "select count(*)::text as total from public.workspace_notifications where incident_id = $1",
-      [stale.rows[0].id],
-    );
-    expect(counted.rows[0].total).toBe("2");
+    const first = await runAt("0 seconds");
+    expect(first.rows[0].result).toMatchObject({ ok: true, delivered: 2, escalated: 0 });
+    const sameDay = await runAt("0 seconds");
+    expect(sameDay.rows[0].result).toMatchObject({ ok: true, delivered: 0 });
 
     // Opting out stops delivery for that member only.
     await client.query(
@@ -3526,58 +3503,9 @@ describeKnowledge("improvement proposals", () => {
        on conflict (workspace_id, user_id) do update set notify_incidents = false`,
       [workspaceId, owner],
     );
-    await client.query(
-      `insert into public.app_release_incidents
-         (project_id, release_id, deployment_id, user_id, title, trigger, severity, status,
-          evidence, created_at)
-       values ($1,$2,$3,$4,$5,$6,'critical','evidence_collected',
-               '[{"kind":"log","detail":"another one"}]'::jsonb, now() - interval '3 days')`,
-      [
-        projectId,
-        release.rows[0].id,
-        deploymentIds.approved,
-        owner,
-        "Second stale incident after the opt-out",
-        "The release check failed again.",
-      ],
-    );
-    const third = await pass();
-    expect(third.rows[0].result).toMatchObject({ ok: true, delivered: 1 });
-
-    // The next day it reminds both members again, once each, per incident.
-    await client.query(
-      "update public.workspace_notification_prefs set notify_incidents = true where workspace_id = $1",
-      [workspaceId],
-    );
-    const nextDay = () =>
-      client.query<Pass>(
-        "select public.run_incident_notification_pass(now() + interval '1 day', $1) as result",
-        [workspaceId],
-      );
-    // Three incidents are now a day old at least (the fresh one matured), two members.
-    const reminded = await nextDay();
-    expect(reminded.rows[0].result).toMatchObject({ ok: true, delivered: 6 });
-    const repeated = await nextDay();
-    expect(repeated.rows[0].result).toMatchObject({ ok: true, delivered: 0 });
-
-    const reminderSummary = await client.query<{ summary: string }>(
-      "select summary from public.workspace_notifications where incident_id = $1 and reminder_day = (now() + interval '1 day')::date limit 1",
-      [stale.rows[0].id],
-    );
-    expect(reminderSummary.rows[0].summary).toContain("now 3 days");
-
-    // Resolving stops the reminder on the following day.
-    await client.query(
-      `update public.app_release_incidents
-       set status = 'resolved', resolved_at = now()
-       where deployment_id = $1 and status not in ('resolved', 'dismissed')`,
-      [deploymentIds.approved],
-    );
-    const afterResolution = await client.query<Pass>(
-      "select public.run_incident_notification_pass(now() + interval '2 days', $1) as result",
-      [workspaceId],
-    );
-    expect(afterResolution.rows[0].result).toMatchObject({ ok: true, delivered: 0 });
+    await incident("Second stale incident after the opt-out", "2 days");
+    const optedOut = await runAt("0 seconds");
+    expect(optedOut.rows[0].result).toMatchObject({ ok: true, delivered: 1 });
 
     // Members cannot trigger the pass themselves.
     let refusal = "";
@@ -3589,5 +3517,45 @@ describeKnowledge("improvement proposals", () => {
       refusal = (error as Error).message;
     }
     expect(refusal).toContain("permission denied");
+
+    // Clear the board, re-enable the owner, and walk one incident through the schedule.
+    await client.query(
+      `update public.app_release_incidents
+       set status = 'resolved', resolved_at = now()
+       where deployment_id = $1 and status not in ('resolved', 'dismissed')`,
+      [deploymentIds.approved],
+    );
+    await client.query(
+      "update public.workspace_notification_prefs set notify_incidents = true where workspace_id = $1",
+      [workspaceId],
+    );
+    await incident("A rollout that keeps failing", "1 day");
+
+    const day1 = await runAt("0 seconds");
+    expect(day1.rows[0].result).toMatchObject({ ok: true, delivered: 2, escalated: 0 });
+    const day1Again = await runAt("0 seconds");
+    expect(day1Again.rows[0].result).toMatchObject({ delivered: 0 });
+
+    expect((await runAt("1 day")).rows[0].result).toMatchObject({ delivered: 2, escalated: 0 });
+    expect((await runAt("2 days")).rows[0].result).toMatchObject({ delivered: 2, escalated: 0 });
+    // Day 4 and beyond are silent until the one escalation.
+    expect((await runAt("3 days")).rows[0].result).toMatchObject({ delivered: 0 });
+    expect((await runAt("4 days")).rows[0].result).toMatchObject({ delivered: 0 });
+
+    const escalated = await runAt("6 days");
+    expect(escalated.rows[0].result).toMatchObject({ delivered: 2, escalated: 2 });
+    const escalation = await client.query<{ reminder_stage: string; summary: string }>(
+      `select reminder_stage, summary from public.workspace_notifications
+       where incident_id = (select id from public.app_release_incidents where title = $1)
+       and reminder_stage = 'escalation' order by user_id limit 1`,
+      ["A rollout that keeps failing"],
+    );
+    expect(escalation.rows[0].reminder_stage).toBe("escalation");
+    expect(escalation.rows[0].summary.startsWith("Escalation: ")).toBe(true);
+    expect(escalation.rows[0].summary).toContain("now 7 days");
+
+    // Nothing further, however long it stays open.
+    expect((await runAt("7 days")).rows[0].result).toMatchObject({ delivered: 0 });
+    expect((await runAt("30 days")).rows[0].result).toMatchObject({ delivered: 0 });
   });
 });
