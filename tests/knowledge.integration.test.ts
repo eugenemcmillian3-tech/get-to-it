@@ -1557,6 +1557,104 @@ describeKnowledge("phase 37 knowledge layer", () => {
     ).toMatch(/immutable/i);
   });
 
+  it("grades a machine-checkable task on a computed answer, not on named elements", async () => {
+    const owner = randomUUID();
+    const evalId = randomUUID();
+    const taskId = randomUUID();
+    await client.query("insert into auth.users (id, email) values ($1, $2)", [
+      owner,
+      `cap-authored-${owner}@example.test`,
+    ]);
+
+    await asUser(client, owner, async () => {
+      await client.query(
+        "insert into public.capability_evals (id, user_id, name, status) values ($1, $2, $3, 'active')",
+        [evalId, owner, "Phase 38 authored"],
+      );
+      await client.query(
+        `insert into public.capability_eval_tasks
+           (id, eval_id, user_id, domain, difficulty, split, title, task_spec, dataset_version,
+            permitted_tools, runtime_seconds, spend_limit_cents, scoring_rubric)
+         values ($1, $2, $3, 'quantitative_reasoning', 'medium', 'development', 'Budget remainder',
+           jsonb_build_object(
+             'mode', 'authored_answer',
+             'prompt', 'A job has a 240-minute budget. Setup takes 18 minutes. Each of the 6 failing checks is reproduced in 9 minutes and patched in 14 minutes. Verification takes 25 minutes once. How many minutes remain when the job is finished?',
+             'required_elements', 0,
+             'permitted_tools', '[]'::jsonb
+           ),
+           'dataset-v1', '[]'::jsonb, 120, 20,
+           '{"pass": "correct", "partial": "n/a", "fail": "wrong"}'::jsonb)`,
+        [taskId, evalId, owner],
+      );
+    });
+
+    // The expected answer is written once, by the owner, and never read back.
+    await asUser(client, owner, () =>
+      client.query("select public.capability_eval_seed_authored_key($1, 59, 0)", [taskId]),
+    );
+    expect(
+      await failure(() =>
+        asUser(client, owner, () =>
+          client.query("select public.capability_eval_seed_authored_key($1, 60, 0)", [taskId]),
+        ),
+      ),
+    ).toMatch(/already has an answer key/i);
+
+    const correct = await asUser(client, owner, () =>
+      client.query<{ result: { outcome: string; verified_success: boolean } }>(
+        `select public.capability_eval_score_answer($1, '{"answer": 59}'::jsonb) as result`,
+        [taskId],
+      ),
+    );
+    expect(correct.rows[0].result.outcome).toBe("verified_success");
+    expect(correct.rows[0].result.verified_success).toBe(true);
+
+    const wrong = await asUser(client, owner, () =>
+      client.query<{ result: { outcome: string; failure_category: string | null } }>(
+        `select public.capability_eval_score_answer($1, '{"answer": 58}'::jsonb) as result`,
+        [taskId],
+      ),
+    );
+    expect(wrong.rows[0].result.outcome).toBe("failed");
+    expect(wrong.rows[0].result.failure_category).toBe("wrong_answer");
+
+    const unreadable = await asUser(client, owner, () =>
+      client.query<{ result: { failure_category: string | null } }>(
+        `select public.capability_eval_score_answer($1, '{"answer": "59"}'::jsonb) as result`,
+        [taskId],
+      ),
+    );
+    expect(unreadable.rows[0].result.failure_category).toBe("unreadable_answer");
+
+    // Neither a right nor a wrong answer may echo the expected value back.
+    expect(JSON.stringify(correct.rows[0].result)).not.toContain("59");
+    expect(JSON.stringify(wrong.rows[0].result)).not.toContain("59");
+
+    // The element scorer must refuse this task: an empty element list would
+    // otherwise satisfy an empty key and report a pass.
+    expect(
+      await failure(() =>
+        asUser(client, owner, () =>
+          client.query(
+            `select public.capability_eval_score_task($1, '{"elements": []}'::jsonb)`,
+            [taskId],
+          ),
+        ),
+      ),
+    ).toMatch(/exact answer/i);
+
+    // Somebody else cannot grade it.
+    expect(
+      await failure(() =>
+        asB(() =>
+          client.query(`select public.capability_eval_score_answer($1, '{"answer": 59}'::jsonb)`, [
+            taskId,
+          ]),
+        ),
+      ),
+    ).toMatch(/unknown evaluation task/i);
+  });
+
   it("removes a deleted account's workspace and its knowledge", async () => {
     await client.query("delete from auth.users where id = $1", [userB]);
 

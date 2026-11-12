@@ -3,8 +3,12 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   HumanBaselineForm,
+  PrepareLiveTrialForm,
   RunCapabilityEvalForm,
+  RunLiveTrialForm,
 } from "@/components/capability-eval-forms";
+import { isAiModel } from "@/lib/ai/models";
+import { AUTHORED_TASK_MODE } from "@/lib/capability-eval-live";
 import { SetupNotice } from "@/components/setup-notice";
 import { SiteHeader } from "@/components/site-header";
 import { requireSession } from "@/lib/auth";
@@ -70,6 +74,12 @@ export default async function CapabilityEvalPage({
   const taskById = new Map(tasks.map((task) => [task.id, task]));
   const versionById = new Map(versions.map((version) => [version.id, version]));
   const heldOutTasks = tasks.filter((task) => task.split === "held_out").length;
+  const authoredTasks = tasks
+    .filter((task) => task.task_spec?.mode === AUTHORED_TASK_MODE)
+    .map((task) => ({ id: task.id, title: task.title }));
+  const liveVersions = versions
+    .filter((version) => isAiModel(version.model_version))
+    .map((version) => ({ id: version.id, label: version.label }));
 
   return (
     <div className="min-h-dvh">
@@ -340,6 +350,27 @@ export default async function CapabilityEvalPage({
           )}
           <p className="mt-2 text-xs leading-relaxed text-muted">{CAPABILITY_HUMAN_NOTE}</p>
           <HumanBaselineForm evalId={evaluation.id} />
+        </section>
+
+        <section aria-labelledby="live-heading" className={`${cardClass} mt-6`}>
+          <h2 id="live-heading" className="text-lg font-bold">
+            Machine-checkable live trial
+          </h2>
+          <p className="mt-1 text-sm text-muted">
+            The seeded tasks are graded by naming elements that appear in their own
+            prompt, so a model could pass them by repeating the prompt. A live trial
+            uses a task whose expected answer is stored only in the answer key, and
+            that answer is computed rather than quoted.
+          </p>
+          {authoredTasks.length === 0 || liveVersions.length === 0 ? (
+            <PrepareLiveTrialForm evalId={evaluation.id} />
+          ) : (
+            <RunLiveTrialForm
+              evalId={evaluation.id}
+              tasks={authoredTasks}
+              versions={liveVersions}
+            />
+          )}
         </section>
 
         <section aria-labelledby="matrix-heading" className="mt-10">

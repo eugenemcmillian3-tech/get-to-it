@@ -5,9 +5,17 @@ import { SubmitButton } from "@/components/submit-button";
 import { idleBuildState, type BuildState } from "@/lib/action-state";
 import {
   createCapabilityEvalAction,
+  prepareLiveCapabilityAction,
   recordHumanBaselineAction,
   runCapabilityEvalAction,
+  runLiveCapabilityTrialAction,
 } from "@/lib/actions/capability-eval";
+import { AI_MODELS } from "@/lib/ai/models";
+import {
+  LIVE_TRIAL_COST_CENTS,
+  LIVE_TRIAL_CREDIT_COST,
+  LIVE_TRIAL_LIMITS,
+} from "@/lib/capability-eval-live";
 import {
   CAPABILITY_DOMAINS,
   CAPABILITY_LIMITS,
@@ -179,6 +187,103 @@ export function HumanBaselineForm({ evalId }: { evalId: string }) {
       <p className="text-xs leading-relaxed text-muted">
         A baseline needs a documented protocol and at least one measured numeric
         result. Nothing is estimated or imputed if you have not collected it.
+      </p>
+      <Note state={state} />
+    </form>
+  );
+}
+
+export function PrepareLiveTrialForm({ evalId }: { evalId: string }) {
+  const [state, action] = useActionState(prepareLiveCapabilityAction, idleBuildState);
+  return (
+    <form action={action} className="mt-3 space-y-3">
+      <input type="hidden" name="eval_id" value={evalId} />
+      <div className="grid gap-3 sm:grid-cols-3">
+        <label className="block text-sm font-semibold">
+          Model
+          <select name="model" className={`${inputClass} mt-1`} defaultValue={AI_MODELS[0]?.id}>
+            {AI_MODELS.map((model) => (
+              <option key={model.id} value={model.id}>{model.label}</option>
+            ))}
+          </select>
+        </label>
+        <label className="block text-sm font-semibold">
+          Spend ceiling (cents)
+          <input
+            name="spend_limit_cents"
+            type="number"
+            required
+            min={LIVE_TRIAL_LIMITS.minSpendCents}
+            max={LIVE_TRIAL_LIMITS.maxSpendCents}
+            defaultValue={LIVE_TRIAL_COST_CENTS}
+            className={`${inputClass} mt-1`}
+          />
+        </label>
+        <label className="block text-sm font-semibold">
+          Runtime limit (seconds)
+          <input
+            name="runtime_seconds"
+            type="number"
+            required
+            min={LIVE_TRIAL_LIMITS.minRuntimeSeconds}
+            max={LIVE_TRIAL_LIMITS.maxRuntimeSeconds}
+            defaultValue={120}
+            className={`${inputClass} mt-1`}
+          />
+        </label>
+      </div>
+      <SubmitButton className={secondaryButton} pendingLabel="Adding the live task set…">
+        Add a machine-checkable task set
+      </SubmitButton>
+      <p className="text-xs leading-relaxed text-muted">
+        Adds one development and one held-out task whose expected answers are stored
+        only in the answer key, plus a paid configuration. Nothing is charged here.
+        A live trial costs {LIVE_TRIAL_CREDIT_COST} credits (
+        {LIVE_TRIAL_COST_CENTS} cents).
+      </p>
+      <Note state={state} />
+    </form>
+  );
+}
+
+export function RunLiveTrialForm({
+  evalId,
+  tasks,
+  versions,
+}: {
+  evalId: string;
+  tasks: { id: string; title: string }[];
+  versions: { id: string; label: string }[];
+}) {
+  const [state, action] = useActionState(runLiveCapabilityTrialAction, idleBuildState);
+  return (
+    <form action={action} className="mt-3 space-y-3">
+      <input type="hidden" name="eval_id" value={evalId} />
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="block text-sm font-semibold">
+          Machine-checkable task
+          <select name="task_id" className={`${inputClass} mt-1`}>
+            {tasks.map((task) => (
+              <option key={task.id} value={task.id}>{task.title}</option>
+            ))}
+          </select>
+        </label>
+        <label className="block text-sm font-semibold">
+          Configuration
+          <select name="version_id" className={`${inputClass} mt-1`}>
+            {versions.map((version) => (
+              <option key={version.id} value={version.id}>{version.label}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <SubmitButton className={primaryButton} pendingLabel="Calling the model…">
+        Run one live trial
+      </SubmitButton>
+      <p className="text-xs leading-relaxed text-muted">
+        This makes one paid model call of {LIVE_TRIAL_CREDIT_COST} credits (
+        {LIVE_TRIAL_COST_CENTS} cents) and records the real cost against the
+        configuration&apos;s ceiling. The expected answer is never sent to the model.
       </p>
       <Note state={state} />
     </form>
