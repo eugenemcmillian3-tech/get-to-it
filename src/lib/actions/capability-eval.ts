@@ -21,6 +21,7 @@ import {
 import {
   AUTHORED_TASK_MODE,
   AUTHORED_TASKS,
+  answerKind,
   LIVE_TRIAL_COST_CENTS,
   LIVE_TRIAL_CREDIT_COST,
   LIVE_TRIAL_KIND,
@@ -446,12 +447,13 @@ export async function prepareLiveCapabilityAction(
       AUTHORED_TASKS.map((task) => ({
         eval_id: evalId,
         user_id: session.user.id,
-        domain: "quantitative_reasoning",
+        domain: task.domain,
         difficulty: task.difficulty,
         split: task.split,
         title: task.title,
         task_spec: {
           mode: AUTHORED_TASK_MODE,
+          answer_kind: answerKind(task),
           prompt: task.problem,
           required_elements: 0,
           permitted_tools: [],
@@ -474,7 +476,8 @@ export async function prepareLiveCapabilityAction(
     const created = (insertedTasks as { id: string; title: string }[])[index];
     const { error: keyError } = await session.supabase.rpc("capability_eval_seed_authored_key", {
       p_task_id: created.id,
-      p_expected: authored.expected,
+      p_expected: authored.expected ?? null,
+      p_expected_text: authored.expectedText ?? null,
       p_tolerance: authored.tolerance,
     });
     if (keyError) {
@@ -599,6 +602,7 @@ export async function runLiveCapabilityTrialAction(
   });
   if (!readiness.ok) return fail(readiness.reason);
 
+  const kind = task.task_spec?.answer_kind === "text" ? "text" : "number";
   const model = version.model_version;
   const reserved = await reserveAiRequest(session, LIVE_TRIAL_KIND, model);
   if (!reserved.ok) return fail(reserved.message);
@@ -608,14 +612,14 @@ export async function runLiveCapabilityTrialAction(
   try {
     const reply = await chatWithOllama({
       model,
-      messages: liveTrialMessages(task),
+      messages: liveTrialMessages(task, kind),
       temperature: 0,
       format: "json",
       timeoutMs: liveTrialTimeoutMs(readiness.runtimeLimitSeconds),
     });
     const latencyMs = Date.now() - startedAt;
 
-    const parsed = parseLiveAnswer(reply.content);
+    const parsed = parseLiveAnswer(reply.content, kind);
     if (!parsed.ok) {
       await finishAiRequest(session, requestId, "failed", "unreadable-answer");
       return fail(
