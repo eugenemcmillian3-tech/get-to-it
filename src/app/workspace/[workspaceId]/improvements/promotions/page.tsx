@@ -65,7 +65,8 @@ export default async function PromotionAuditPage({
           that deployment means rolled back, a later successful deployment to the same target means
           superseded, and a succeeded deployment with neither is live. An incident opened against
           the deployment is shown next to that status until it is resolved or dismissed, because a
-          live rollout can still be shaky.
+          live rollout can still be shaky. Each one carries how long it has been open, and anything
+          open for a day or more is flagged.
         </p>
 
         <section aria-labelledby="promotions-heading" className="mt-8">
@@ -92,7 +93,13 @@ export default async function PromotionAuditPage({
                         {row.verdict ? VERDICT_LABELS[row.verdict as Verdict] : "no verdict"}
                       </span>
                       <span className={chipClass}>{row.state.label}</span>
-                      {row.openIncidents ? <span className={chipClass}>Open incident</span> : null}
+                      {row.openIncidents ? (
+                        <span className={chipClass}>
+                          {row.openIncidents.stale
+                            ? "Open incident, over a day"
+                            : "Open incident"}
+                        </span>
+                      ) : null}
                     </div>
                   </div>
 
@@ -108,10 +115,26 @@ export default async function PromotionAuditPage({
                       <div>
                         <dt className="font-semibold">Open incidents</dt>
                         <dd className="text-muted">
-                          {row.openIncidents.count} open · most severe{" "}
-                          {row.openIncidents.severity} · {row.openIncidents.title} (
-                          {row.openIncidents.status.replaceAll("_", " ")}, opened{" "}
-                          {when(row.openIncidents.opened_at)})
+                          {row.openIncidents.count} open
+                          {row.openIncidents.stale
+                            ? ", at least one unresolved for over a day"
+                            : ""}
+                          :
+                          <ul className="mt-1 grid gap-1">
+                            {row.openIncidents.items.map((incident) => (
+                              <li key={`${incident.title}-${incident.opened_at}`}>
+                                {incident.severity} · {incident.title} —{" "}
+                                {incident.status.replaceAll("_", " ")}, open{" "}
+                                {incident.age_label}
+                                {incident.stale ? " (unresolved for over a day)" : ""}
+                              </li>
+                            ))}
+                          </ul>
+                          {row.openIncidents.count > row.openIncidents.items.length ? (
+                            <span className="block text-xs">
+                              showing the {row.openIncidents.items.length} most severe
+                            </span>
+                          ) : null}
                         </dd>
                       </div>
                     ) : null}

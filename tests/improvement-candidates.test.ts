@@ -10,7 +10,7 @@ import {
   requestedAuthorityProblems,
   type CandidateDraft,
 } from "@/lib/improvement-candidates";
-import { promotionState } from "@/lib/promotion-state";
+import { incidentAge, promotionState } from "@/lib/promotion-state";
 import {
   BASELINE_POLICY,
   CHANNEL_LOOKUP_POLICY,
@@ -276,5 +276,45 @@ describe("promotion liveness", () => {
     const state = promotionState({ deployment: null });
     expect(state.state).toBe("unknown");
     expect(state.detail).toContain("cannot be confirmed");
+  });
+});
+
+describe("incident age", () => {
+  const now = new Date("2026-11-12T12:00:00.000Z");
+
+  it("says nothing when the incident is minutes old", () => {
+    expect(incidentAge("2026-11-12T11:45:00.000Z", now)).toMatchObject({
+      hours: 0,
+      label: "under an hour",
+      stale: false,
+    });
+  });
+
+  it("counts whole hours within the first day", () => {
+    expect(incidentAge("2026-11-12T05:30:00.000Z", now)).toMatchObject({
+      hours: 6,
+      label: "6 h",
+      stale: false,
+    });
+    expect(incidentAge("2026-11-11T13:00:00.000Z", now).stale).toBe(false);
+  });
+
+  it("flags an incident open for a full day", () => {
+    expect(incidentAge("2026-11-11T12:00:00.000Z", now)).toMatchObject({
+      label: "1 day",
+      stale: true,
+    });
+    expect(incidentAge("2026-11-09T12:00:00.000Z", now)).toMatchObject({
+      label: "3 days",
+      stale: true,
+    });
+  });
+
+  it("never reports a negative age for a clock that disagrees", () => {
+    expect(incidentAge("2026-11-13T12:00:00.000Z", now)).toMatchObject({
+      hours: 0,
+      stale: false,
+    });
+    expect(incidentAge("not a date", now).label).toBe("under an hour");
   });
 });

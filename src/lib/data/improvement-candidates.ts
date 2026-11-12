@@ -6,6 +6,7 @@ import type {
   Verdict,
 } from "@/lib/improvement-candidates";
 import {
+  incidentAge,
   promotionState,
   type PromotionLaterDeployment,
   type PromotionRollbackEvidence,
@@ -219,15 +220,23 @@ export type PromotionAuditRow = {
     created_at: string;
   } | null;
   state: PromotionState;
-  openIncidents: PromotionOpenIncident | null;
+  openIncidents: PromotionOpenIncidents | null;
 };
 
 export type PromotionOpenIncident = {
-  count: number;
   title: string;
   severity: "low" | "medium" | "high" | "critical";
   status: string;
   opened_at: string;
+  age_hours: number;
+  age_label: string;
+  stale: boolean;
+};
+
+export type PromotionOpenIncidents = {
+  count: number;
+  stale: boolean;
+  items: PromotionOpenIncident[];
 };
 
 export type PromotionAudit = {
@@ -329,10 +338,12 @@ export async function listPromotionAudit(
     later_target: string | null;
     later_created_at: string | null;
     open_incident_count: number | null;
-    open_incident_title: string | null;
-    open_incident_severity: string | null;
-    open_incident_status: string | null;
-    open_incident_opened_at: string | null;
+    open_incidents: {
+      title: string;
+      severity: string;
+      status: string;
+      opened_at: string;
+    }[] | null;
   };
   const evidenceRows =
     ((liveness.data ?? {}) as { deployments?: LivenessRow[] }).deployments ?? [];
@@ -357,18 +368,26 @@ export async function listPromotionAudit(
               resolved_at: evidence.rollback_resolved_at,
             }
           : null;
-      const openIncidents: PromotionOpenIncident | null =
-        evidence &&
-        (evidence.open_incident_count ?? 0) > 0 &&
-        evidence.open_incident_title &&
-        evidence.open_incident_severity &&
-        evidence.open_incident_opened_at
+      const now = new Date();
+      const openIncidents: PromotionOpenIncidents | null =
+        evidence && (evidence.open_incident_count ?? 0) > 0 && evidence.open_incidents
           ? {
-              count: evidence.open_incident_count ?? 1,
-              title: evidence.open_incident_title,
-              severity: evidence.open_incident_severity as PromotionOpenIncident["severity"],
-              status: evidence.open_incident_status ?? "open",
-              opened_at: evidence.open_incident_opened_at,
+              count: evidence.open_incident_count ?? evidence.open_incidents.length,
+              items: evidence.open_incidents.map((incident) => {
+                const age = incidentAge(incident.opened_at, now);
+                return {
+                  title: incident.title,
+                  severity: incident.severity as PromotionOpenIncident["severity"],
+                  status: incident.status,
+                  opened_at: incident.opened_at,
+                  age_hours: age.hours,
+                  age_label: age.label,
+                  stale: age.stale,
+                };
+              }),
+              stale: evidence.open_incidents.some(
+                (incident) => incidentAge(incident.opened_at, now).stale,
+              ),
             }
           : null;
       const laterDeployment: PromotionLaterDeployment | null =
