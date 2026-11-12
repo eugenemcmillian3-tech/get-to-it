@@ -2144,6 +2144,100 @@ describeKnowledge("phase 39 research missions", () => {
     expect(message).toContain("cannot be restarted");
   });
 
+  it("adds a research plan only while the orchestration can still be planned", async () => {
+    const draftOrchestration = randomUUID();
+    await client.query(
+      `insert into public.orchestrations
+         (id, workspace_id, created_by, origin_kind, experiment_id, goal, review_at, status)
+       values ($1,$2,$3,'experiment',$4,'Plan the research tasks for a draft run.',current_date + 14,'draft')`,
+      [draftOrchestration, workspaceId, owner, experimentId],
+    );
+
+    const planned = await asUser(client, owner, () =>
+      client.query<{ id: string }>(
+        `insert into public.research_missions
+           (workspace_id, created_by, orchestration_id, question, scope, required_source_tier,
+            allowed_tools, deliverables, task_budget, agent_budget, retry_budget,
+            spend_ceiling_cents, time_ceiling_minutes, stop_conditions, checkpoints, status)
+         values ($1,$2,$3,'Does the plan respect the contract budgets?',
+                 'A draft orchestration with room to plan.','reputable_secondary',
+                 array['read_workspace_records'], array['Sourced research brief'],
+                 4, 3, 1, 200, 120, array['Stop.'], array['A person reviews.'], 'ready')
+         returning id`,
+        [workspaceId, owner, draftOrchestration],
+      ),
+    );
+    const plannedMission = planned.rows[0].id;
+    expect(plannedMission).not.toBe("");
+
+    // Four tasks, exactly the contract's task budget, each with a real purpose.
+    await asUser(client, owner, () =>
+      client.query(
+        `insert into public.orchestration_tasks
+           (orchestration_id, workspace_id, task_key, position, title, purpose, capability,
+            depends_on, covers, input_refs, expected_output, verification_method,
+            credits_micros, permissions, retry_limit)
+         values
+           ($1,$2,'research-investigate',0,
+            'Collect sources for and against each hypothesis',
+            'Record supporting and contradicting material with provenance.',
+            'research','{}',array['sources'],'research_missions:' || $3,
+            'A recorded result with evidence.','document_review',5000000,
+            array['read_workspace_records'],1),
+           ($1,$2,'research-verify',1,
+            'Re-check each cited source against the original',
+            'Confirm each quotation says what it is claimed to say.',
+            'verification',array['research-investigate'],array['verification'],
+            'research_missions:' || $3,'A recorded result with evidence.','document_review',5000000,
+            array['read_workspace_records'],1),
+           ($1,$2,'research-competing',2,
+            'Argue the competing explanation',
+            'Look for evidence that separates the two explanations.',
+            'research',array['research-investigate'],array['alternatives'],
+            'research_missions:' || $3,'A recorded result with evidence.','human_review',5000000,
+            array['read_workspace_records'],1),
+           ($1,$2,'research-method',3,
+            'Check whether the method could produce the result',
+            'Name the confounds before anything is called a finding.',
+            'research',array['research-investigate'],array['limitations'],
+            'research_missions:' || $3,'A recorded result with evidence.','human_review',5000000,
+            array['read_workspace_records'],1)`,
+        [draftOrchestration, workspaceId, plannedMission],
+      ),
+    );
+
+    const taskCount = await client.query<{ count: string }>(
+      "select count(*)::text as count from public.orchestration_tasks where orchestration_id = $1",
+      [draftOrchestration],
+    );
+    expect(taskCount.rows[0].count).toBe("4");
+
+    const spend = await client.query<{ total: string }>(
+      "select coalesce(sum(credits_micros),0)::text as total from public.orchestration_tasks where orchestration_id = $1",
+      [draftOrchestration],
+    );
+    expect(Number(spend.rows[0].total)).toBeLessThanOrEqual(200 * 100_000);
+
+    // The cancelled orchestration can no longer be planned: the queue refuses it.
+    let message = "";
+    try {
+      await asUser(client, owner, () =>
+        client.query(
+          `insert into public.orchestration_tasks
+             (orchestration_id, workspace_id, task_key, position, title, purpose, capability,
+              expected_output, verification_method, credits_micros, permissions, retry_limit)
+           values ($1,$2,'research-late',9,'Late task',
+                   'A task added after the run was cancelled.',
+                   'research','A recorded result.','document_review',1000,array[]::text[],1)`,
+          [orchestrationId, workspaceId],
+        ),
+      );
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain("row-level security");
+  });
+
   it("links a proposed experiment as an ordinary Phase 35 record", async () => {
     await asUser(client, owner, () =>
       client.query("update public.research_missions set proposed_experiment_id = $2 where id = $1", [

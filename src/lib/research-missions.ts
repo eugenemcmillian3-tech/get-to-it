@@ -964,3 +964,168 @@ export function syntheticResearchMission(): SyntheticResearchMission {
     },
   };
 }
+
+// ---------------------------------------------------------------------------
+// Dispatching the mission into the Phase 36 task queue
+// ---------------------------------------------------------------------------
+
+/**
+ * The plan a research mission asks for, in priority order. Each entry becomes an
+ * ordinary orchestration task: the existing queue, guard and settlement rules
+ * apply, so this is dispatch into that layer rather than a second runtime.
+ */
+export const RESEARCH_PLAN_PRIORITY: {
+  fn: ResearchSpecialistFunction;
+  taskKey: string;
+  capability: "research" | "verification";
+  dependsOn: string[];
+  covers: string[];
+  title: string;
+  purpose: string;
+  expectedOutput: string;
+  verification: "document_review" | "human_review" | "direct_observation";
+}[] = [
+  {
+    fn: "investigator",
+    taskKey: "research-investigate",
+    capability: "research",
+    dependsOn: [],
+    covers: ["sources"],
+    title: "Collect sources for and against each hypothesis",
+    purpose:
+      "Search for supporting and contradicting material, record provenance, and separate quotations from observations, inferences and proposals.",
+    expectedOutput: "Recorded sources with provenance, stance and statement kind.",
+    verification: "document_review",
+  },
+  {
+    fn: "evidence_verifier",
+    taskKey: "research-verify",
+    capability: "verification",
+    dependsOn: ["research-investigate"],
+    covers: ["verification"],
+    title: "Re-check each cited source against the original",
+    purpose:
+      "Confirm that every quotation or observation says what it is claimed to say, and mark the ones that do not.",
+    expectedOutput: "Sources marked re-checked, with the ones that failed called out.",
+    verification: "document_review",
+  },
+  {
+    fn: "alternative_hypothesis_reviewer",
+    taskKey: "research-competing",
+    capability: "research",
+    dependsOn: ["research-investigate"],
+    covers: ["alternatives"],
+    title: "Argue the competing explanation",
+    purpose:
+      "Look for evidence that distinguishes the leading hypothesis from the competing one instead of confirming the first story.",
+    expectedOutput: "A written case for the competing hypothesis and what would settle it.",
+    verification: "human_review",
+  },
+  {
+    fn: "methodology_reviewer",
+    taskKey: "research-method",
+    capability: "research",
+    dependsOn: ["research-investigate"],
+    covers: ["limitations"],
+    title: "Check whether the method could produce the result by accident",
+    purpose:
+      "Name the confounds, the selection effects and the missing comparisons before anything is called a finding.",
+    expectedOutput: "A limitations list tied to the method actually used.",
+    verification: "human_review",
+  },
+  {
+    fn: "synthesis_writer",
+    taskKey: "research-synthesise",
+    capability: "research",
+    dependsOn: ["research-verify", "research-competing"],
+    covers: ["brief"],
+    title: "Write the brief from verified material",
+    purpose:
+      "Synthesise only what survived verification, keep unresolved questions open, and propose the smallest next experiment.",
+    expectedOutput: "A sourced brief with limitations, unresolved questions and one proposal.",
+    verification: "human_review",
+  },
+  {
+    fn: "prototype_builder",
+    taskKey: "research-prototype",
+    capability: "research",
+    dependsOn: ["research-synthesise"],
+    covers: ["prototype"],
+    title: "Build the smallest artefact the next experiment needs",
+    purpose:
+      "Build one screen or one recorded task inside an app project, subject to the existing sandbox rules.",
+    expectedOutput: "A sandbox prototype linked to the proposed experiment.",
+    verification: "direct_observation",
+  },
+];
+
+export type ResearchPlanTask = {
+  task_key: string;
+  title: string;
+  purpose: string;
+  capability: "research" | "verification";
+  depends_on: string[];
+  covers: string[];
+  input_refs: string;
+  expected_output: string;
+  verification_method: "document_review" | "human_review" | "direct_observation";
+  credits_micros: number;
+  permissions: string[];
+  retry_limit: number;
+  external_action_kind: null;
+  specialist: ResearchSpecialistFunction;
+};
+
+/** One cent is 100,000 micros when a credit is ten cents. */
+const MICROS_PER_CENT = 100_000;
+
+/**
+ * Builds the bounded plan. Task count, distinct agents and spend all come from
+ * the mission contract, and every task inherits the mission's tool allowlist so
+ * a plan cannot widen what the contract permitted.
+ */
+export function researchTaskPlan(
+  mission: Pick<
+    ResearchMission,
+    | "id"
+    | "task_budget"
+    | "agent_budget"
+    | "retry_budget"
+    | "allowed_tools"
+    | "spend_ceiling_cents"
+  >,
+): ResearchPlanTask[] {
+  const selected: typeof RESEARCH_PLAN_PRIORITY = [];
+  const roles = new Set<TeamRole>();
+
+  for (const spec of RESEARCH_PLAN_PRIORITY) {
+    if (selected.length >= mission.task_budget) break;
+    const role = RESEARCH_FUNCTION_ROLES[spec.fn];
+    const withRole = new Set(roles);
+    withRole.add(role);
+    if (withRole.size > mission.agent_budget) continue;
+    selected.push(spec);
+    roles.add(role);
+  }
+
+  const keys = new Set(selected.map((spec) => spec.taskKey));
+  const totalMicros = mission.spend_ceiling_cents * MICROS_PER_CENT;
+  const perTask = Math.max(1, Math.floor(totalMicros / Math.max(1, selected.length)));
+
+  return selected.map((spec) => ({
+    task_key: spec.taskKey,
+    title: spec.title,
+    purpose: spec.purpose,
+    capability: spec.capability,
+    depends_on: spec.dependsOn.filter((key) => keys.has(key)),
+    covers: spec.covers,
+    input_refs: `research_missions:${mission.id}`,
+    expected_output: spec.expectedOutput,
+    verification_method: spec.verification,
+    credits_micros: perTask,
+    permissions: [...mission.allowed_tools],
+    retry_limit: mission.retry_budget,
+    external_action_kind: null,
+    specialist: spec.fn,
+  }));
+}

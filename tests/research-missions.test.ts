@@ -6,6 +6,7 @@ import {
   buildResearchBrief,
   independenceProblems,
   proposeExperiment,
+  researchTaskPlan,
   syntheticResearchMission,
   validateResearchContract,
   type ResearchContractInput,
@@ -300,5 +301,62 @@ describe("research brief", () => {
       synthetic.unsupportedAttempt.author_role,
     );
     expect(synthetic.unsupportedAttempt.label).toBe("discovery");
+  });
+});
+
+describe("dispatching the plan", () => {
+  const mission = {
+    id: "m1",
+    task_budget: 4,
+    agent_budget: 3,
+    retry_budget: 1,
+    allowed_tools: ["read_workspace_records", "read_web_page"],
+    spend_ceiling_cents: 200,
+  };
+
+  it("never exceeds the task budget", () => {
+    expect(researchTaskPlan(mission)).toHaveLength(4);
+    expect(researchTaskPlan({ ...mission, task_budget: 1 })).toHaveLength(1);
+  });
+
+  it("never exceeds the agent budget with distinct roles", () => {
+    const plan = researchTaskPlan({ ...mission, agent_budget: 1 });
+    const roles = new Set(plan.map((task) => RESEARCH_FUNCTION_ROLES[task.specialist]));
+    expect(roles.size).toBe(1);
+    expect(plan).toHaveLength(1);
+  });
+
+  it("carries the mission's tools and retry limit, never more", () => {
+    for (const task of researchTaskPlan(mission)) {
+      expect(task.permissions).toEqual(mission.allowed_tools);
+      expect(task.retry_limit).toBe(1);
+      expect(task.external_action_kind).toBeNull();
+    }
+  });
+
+  it("keeps the spend inside the ceiling and the dependencies real", () => {
+    const plan = researchTaskPlan(mission);
+    const total = plan.reduce((sum, task) => sum + task.credits_micros, 0);
+    expect(total).toBeLessThanOrEqual(mission.spend_ceiling_cents * 100_000);
+
+    const keys = new Set(plan.map((task) => task.task_key));
+    for (const task of plan) {
+      for (const dependency of task.depends_on) {
+        expect(keys.has(dependency)).toBe(true);
+      }
+    }
+  });
+
+  it("puts verification before synthesis", () => {
+    const plan = researchTaskPlan({
+      ...mission,
+      task_budget: 6,
+      agent_budget: 6,
+      allowed_tools: ["read_web_page"],
+    });
+    const verify = plan.find((task) => task.task_key === "research-verify");
+    const synthesise = plan.find((task) => task.task_key === "research-synthesise");
+    expect(verify?.capability).toBe("verification");
+    expect(synthesise?.depends_on).toContain("research-verify");
   });
 });
