@@ -3544,6 +3544,41 @@ describeKnowledge("improvement proposals", () => {
     const third = await pass();
     expect(third.rows[0].result).toMatchObject({ ok: true, delivered: 1 });
 
+    // The next day it reminds both members again, once each, per incident.
+    await client.query(
+      "update public.workspace_notification_prefs set notify_incidents = true where workspace_id = $1",
+      [workspaceId],
+    );
+    const nextDay = () =>
+      client.query<Pass>(
+        "select public.run_incident_notification_pass(now() + interval '1 day', $1) as result",
+        [workspaceId],
+      );
+    // Three incidents are now a day old at least (the fresh one matured), two members.
+    const reminded = await nextDay();
+    expect(reminded.rows[0].result).toMatchObject({ ok: true, delivered: 6 });
+    const repeated = await nextDay();
+    expect(repeated.rows[0].result).toMatchObject({ ok: true, delivered: 0 });
+
+    const reminderSummary = await client.query<{ summary: string }>(
+      "select summary from public.workspace_notifications where incident_id = $1 and reminder_day = (now() + interval '1 day')::date limit 1",
+      [stale.rows[0].id],
+    );
+    expect(reminderSummary.rows[0].summary).toContain("now 3 days");
+
+    // Resolving stops the reminder on the following day.
+    await client.query(
+      `update public.app_release_incidents
+       set status = 'resolved', resolved_at = now()
+       where deployment_id = $1 and status not in ('resolved', 'dismissed')`,
+      [deploymentIds.approved],
+    );
+    const afterResolution = await client.query<Pass>(
+      "select public.run_incident_notification_pass(now() + interval '2 days', $1) as result",
+      [workspaceId],
+    );
+    expect(afterResolution.rows[0].result).toMatchObject({ ok: true, delivered: 0 });
+
     // Members cannot trigger the pass themselves.
     let refusal = "";
     try {

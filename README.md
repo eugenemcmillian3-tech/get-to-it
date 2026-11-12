@@ -2243,10 +2243,12 @@ one.
 Nobody should have to refresh that page to find out, so `/api/incidents/run` runs on
 a daily schedule (`CRON_SECRET` guarded, service role inside) and calls
 `run_incident_notification_pass`: one in-app notification per active member per
-incident once it has been open for a day, addressed to that member, deduplicated so
-a second run delivers nothing, and skipped for anyone who turned off
-`notify_incidents` in their workspace notification preferences. Delivery stays
-in-app; no email, SMS or push is sent.
+incident per UTC day, starting once it has been open for a day and repeating each
+day it stays open. Each one says how long the incident has been open (`now 3 days`),
+a repeated run the same day delivers nothing, delivery stops by itself as soon as
+the incident is resolved or dismissed, and anyone who turned off `notify_incidents`
+in their workspace notification preferences is skipped. Delivery stays in-app; no
+email, SMS or push is sent.
 
 Refused, by name and on the record: granting permissions, removing an approval
 gate, increasing spending authority, changing a billing price, disabling audit
