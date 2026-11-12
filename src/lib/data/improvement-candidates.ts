@@ -187,3 +187,151 @@ export async function listImprovementCandidates(
     blocks: (blocks.data ?? []) as ImprovementBlock[],
   };
 }
+
+export type PromotionAuditRow = {
+  id: string;
+  title: string;
+  kind: CandidateKind;
+  project_id: string | null;
+  verdict: Verdict | null;
+  promoted_at: string | null;
+  promotion_ref: string | null;
+  rollback_plan: string;
+  review_note: string | null;
+  approved_at: string | null;
+  approved_by: string | null;
+  approved_by_name: string | null;
+  promotion_approved_by: string | null;
+  promotion_approved_by_name: string | null;
+  deployment: {
+    id: string;
+    target: string;
+    status: string;
+    approval_at: string | null;
+    deployment_url: string | null;
+    external_deployment_id: string | null;
+  } | null;
+};
+
+export type PromotionAudit = {
+  workspace: Workspace;
+  myRole: WorkspaceRole;
+  rows: PromotionAuditRow[];
+};
+
+/**
+ * One place to answer "what did we promote, through which deployment, on whose
+ * decision, and how would we undo it".
+ */
+export async function listPromotionAudit(
+  session: Session,
+  workspaceId: string,
+): Promise<PromotionAudit | null> {
+  const { data: workspace, error } = await session.supabase
+    .from("workspaces")
+    .select("id, name, description, created_by, created_at, updated_at")
+    .eq("id", workspaceId)
+    .maybeSingle();
+  if (error) {
+    console.error("promotion audit workspace read failed:", error.message);
+    throw new DataError(LOAD_ERROR);
+  }
+  if (!workspace) return null;
+
+  const { data: member, error: memberError } = await session.supabase
+    .from("workspace_members")
+    .select("role")
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", session.user.id)
+    .eq("status", "active")
+    .maybeSingle();
+  if (memberError) {
+    console.error("promotion audit membership read failed:", memberError.message);
+    throw new DataError(LOAD_ERROR);
+  }
+  if (!member) return null;
+
+  const { data: promoted, error: promotedError } = await session.supabase
+    .from("improvement_candidates")
+    .select(
+      "id, title, kind, project_id, verdict, promoted_at, promotion_ref, rollback_plan, review_note, reviewed_at, reviewed_by, promotion_approved_by, deployment_id",
+    )
+    .eq("workspace_id", workspaceId)
+    .eq("status", "promoted")
+    .order("promoted_at", { ascending: false })
+    .limit(100);
+  if (promotedError) {
+    console.error("promotion audit read failed:", promotedError.message);
+    throw new DataError(LOAD_ERROR);
+  }
+
+  const rows = (promoted ?? []) as {
+    id: string;
+    title: string;
+    kind: CandidateKind;
+    project_id: string | null;
+    verdict: Verdict | null;
+    promoted_at: string | null;
+    promotion_ref: string | null;
+    rollback_plan: string;
+    review_note: string | null;
+    reviewed_at: string | null;
+    reviewed_by: string | null;
+    promotion_approved_by: string | null;
+    deployment_id: string | null;
+  }[];
+
+  const deploymentIds = rows.map((row) => row.deployment_id).filter((id): id is string => Boolean(id));
+
+  // Profiles are private to their owner, so names come from the workspace
+  // directory the app already uses; an approver who has left still shows up.
+  const [deployments, directory] = await Promise.all([
+    deploymentIds.length
+      ? session.supabase
+          .from("app_deployments")
+          .select("id, target, status, approval_at, deployment_url, external_deployment_id")
+          .in("id", deploymentIds)
+      : Promise.resolve({ data: [], error: null }),
+    session.supabase.rpc("workspace_member_directory", { p_workspace_id: workspaceId }),
+  ]);
+
+  if (deployments.error || directory.error) {
+    console.error(
+      "promotion audit detail read failed:",
+      deployments.error?.message ?? directory.error?.message,
+    );
+    throw new DataError(LOAD_ERROR);
+  }
+
+  const deploymentById = new Map(
+    ((deployments.data ?? []) as PromotionAuditRow["deployment"][]).map((row) => [row!.id, row]),
+  );
+  const members =
+    ((directory.data ?? {}) as { members?: { user_id: string; display_name: string | null }[] })
+      .members ?? [];
+  const nameById = new Map(members.map((row) => [row.user_id, row.display_name]));
+
+  return {
+    workspace: workspace as Workspace,
+    myRole: (member as { role: WorkspaceRole }).role,
+    rows: rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      kind: row.kind,
+      project_id: row.project_id,
+      verdict: row.verdict,
+      promoted_at: row.promoted_at,
+      promotion_ref: row.promotion_ref,
+      rollback_plan: row.rollback_plan,
+      review_note: row.review_note,
+      approved_at: row.reviewed_at,
+      approved_by: row.reviewed_by,
+      approved_by_name: row.reviewed_by ? (nameById.get(row.reviewed_by) ?? null) : null,
+      promotion_approved_by: row.promotion_approved_by,
+      promotion_approved_by_name: row.promotion_approved_by
+        ? (nameById.get(row.promotion_approved_by) ?? null)
+        : null,
+      deployment: row.deployment_id ? (deploymentById.get(row.deployment_id) ?? null) : null,
+    })),
+  };
+}

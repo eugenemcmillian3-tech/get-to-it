@@ -2219,6 +2219,13 @@ pipeline rather than through a string someone typed. A deployment that is still
 refused, and a promoted candidate cannot be repointed at a different deployment.
 This phase still never deploys anything itself.
 
+`/workspace/{workspaceId}/improvements/promotions` is the audit view: every
+promoted proposal with the deployment it rides on (target, status, approval
+date, external id and a link to the deployment page), the person who approved
+the change, the person who approved the promotion, the review note and the
+rollback plan — so the question "what did we ship, on whose decision, and how do
+we undo it" is answered in one place.
+
 Refused, by name and on the record: granting permissions, removing an approval
 gate, increasing spending authority, changing a billing price, disabling audit
 logging, altering held-out answers, rewriting success criteria after results,
