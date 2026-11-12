@@ -80,6 +80,11 @@ export default async function CapabilityEvalPage({
   const liveVersions = versions
     .filter((version) => isAiModel(version.model_version))
     .map((version) => ({ id: version.id, label: version.label }));
+  const authoredTaskIds = new Set(authoredTasks.map((task) => task.id));
+  const liveTrials = runs
+    .filter((run) => authoredTaskIds.has(run.task_id))
+    .slice(-5)
+    .reverse();
 
   return (
     <div className="min-h-dvh">
@@ -370,6 +375,45 @@ export default async function CapabilityEvalPage({
               tasks={authoredTasks}
               versions={liveVersions}
             />
+          )}
+          {liveTrials.length === 0 ? (
+            <p className="mt-3 text-sm text-muted">No live trial has been recorded yet.</p>
+          ) : (
+            <div className="mt-4 overflow-x-auto rounded-2xl border border-line bg-card">
+              <table className="w-full min-w-[40rem] border-collapse text-sm">
+                <thead className="bg-paper text-left text-xs uppercase tracking-wide text-muted">
+                  <tr>
+                    <th scope="col" className="px-3 py-2">Task</th>
+                    <th scope="col" className="px-3 py-2">Trial</th>
+                    <th scope="col" className="px-3 py-2">Answer</th>
+                    <th scope="col" className="px-3 py-2">Outcome</th>
+                    <th scope="col" className="px-3 py-2">Cost</th>
+                    <th scope="col" className="px-3 py-2">Latency</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {liveTrials.map((run) => (
+                    <tr key={run.id} className="border-t border-line">
+                      <th scope="row" className="px-3 py-2 text-left font-medium">
+                        {taskById.get(run.task_id)?.title ?? "Unknown task"}
+                      </th>
+                      <td className="px-3 py-2 text-muted">{run.trial}</td>
+                      <td className="px-3 py-2">
+                        {typeof run.submission?.answer === "number" ||
+                        typeof run.submission?.answer === "string"
+                          ? String(run.submission.answer)
+                          : "not kept"}
+                      </td>
+                      <td className="px-3 py-2 text-muted">
+                        {CAPABILITY_OUTCOME_LABELS[run.outcome]}
+                      </td>
+                      <td className="px-3 py-2 text-muted">{run.cost_cents} cents</td>
+                      <td className="px-3 py-2 text-muted">{run.latency_ms} ms</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </section>
 

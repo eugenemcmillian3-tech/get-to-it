@@ -387,6 +387,8 @@ export type CapabilityRunRecord = {
   latency_ms: number;
   failure_category: string | null;
   scoring_detail: Record<string, unknown>;
+  /** The parsed answer a live trial submitted, or null for fixture runs. */
+  submission?: { answer?: number | string; kind?: string } | null;
   exposure_count: number;
   contaminated: boolean;
   created_at: string;

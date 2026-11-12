@@ -665,6 +665,7 @@ export async function runLiveCapabilityTrialAction(
       recovery_succeeded: null,
       cost_cents: readiness.chargeCents,
       latency_ms: latencyMs,
+      submission: { answer: parsed.answer, kind },
       failure_category: result.failure_category,
       scoring_detail: result.scoring_detail,
     });
