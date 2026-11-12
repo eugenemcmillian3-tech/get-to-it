@@ -3228,6 +3228,76 @@ describeKnowledge("improvement proposals", () => {
     expect(message).toContain("verdict cannot be rewritten");
   });
 
+  it("disappears with its workspace instead of blocking the delete", async () => {
+    // A cascade has to be able to remove an evaluation; a direct delete still may not.
+    const doomedWorkspace = randomUUID();
+    await client.query("insert into public.workspaces (id, name, created_by) values ($1,$2,$3)", [
+      doomedWorkspace,
+      "Improvement cascade probe",
+      owner,
+    ]);
+    await client.query(
+      "insert into public.workspace_members (workspace_id, user_id, role, status) values ($1,$2,'owner','active')",
+      [doomedWorkspace, owner],
+    );
+    const doomed = await client.query<{ id: string }>(
+      `insert into public.improvement_candidates
+         (workspace_id, user_id, project_id, kind, title, problem, evidence, proposed_change,
+          expected_benefit, possible_regressions, affected_components, evaluation_plan,
+          cost_impact, security_implications, rollback_plan, base_ref, candidate_ref, status)
+       values ($1,$2,$3,'tool_policy','A candidate that goes away with its workspace',
+               'The workspace is deleted, and this record has to go with it cleanly.',
+               'Deleting a workspace that held an evaluated candidate used to fail.',
+               'Allow the cascade while keeping a direct delete refused.',
+               'Workspace deletion works again.', 'A direct delete could still sneak through.',
+               array['improvement workspace'], 'Run the twelve cases, then delete the workspace.',
+               'No cost.', 'No wider access.', 'Recreate the workspace from a backup if needed.',
+               'main', 'sandbox/cascade', 'draft')
+       returning id`,
+      [doomedWorkspace, owner, projectId],
+    );
+    const doomedId = doomed.rows[0].id;
+
+    await asUser(client, owner, () =>
+      client.query("select public.improvement_candidate_begin_evaluation($1,$2,$3,$4,$5)", [
+        doomedId,
+        EVAL_SUITE_NAME,
+        EVAL_SUITE_VERSION,
+        suiteDigest(),
+        "c".repeat(64),
+      ]),
+    );
+    const evaluation = evaluateCandidate({ policy: CHANNEL_LOOKUP_POLICY });
+    await asUser(client, owner, () =>
+      client.query("select public.improvement_candidate_record_evaluation($1,$2,$3,$4)", [
+        doomedId,
+        suiteDigest(),
+        JSON.stringify(evaluation.numbers),
+        JSON.stringify(evaluation.cases),
+      ]),
+    );
+
+    let directDelete = "";
+    try {
+      await client.query("delete from public.improvement_candidate_evaluations where candidate_id = $1", [
+        doomedId,
+      ]);
+    } catch (error) {
+      directDelete = (error as Error).message;
+    }
+    expect(directDelete).toContain("an evaluation is a record of what happened");
+
+    await client.query("delete from public.workspaces where id = $1", [doomedWorkspace]);
+
+    const left = await client.query<{ candidates: string; evaluations: string }>(
+      `select
+         (select count(*)::text from public.improvement_candidates where workspace_id = $1) as candidates,
+         (select count(*)::text from public.improvement_candidate_evaluations where workspace_id = $1) as evaluations`,
+      [doomedWorkspace],
+    );
+    expect(left.rows[0]).toEqual({ candidates: "0", evaluations: "0" });
+  });
+
   it("keeps the audit trail in order", async () => {
     const events = await client.query<{ kind: string }>(
       "select kind from public.improvement_candidate_events where candidate_id = $1 order by created_at",
