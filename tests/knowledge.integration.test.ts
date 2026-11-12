@@ -3392,8 +3392,7 @@ describeKnowledge("improvement proposals", () => {
         deployments: {
           candidate_id: string;
           open_incident_count: number | null;
-          open_incident_title: string | null;
-          open_incident_severity: string | null;
+          open_incidents: { title: string; severity: string; status: string; opened_at: string }[] | null;
         }[];
       };
     };
@@ -3432,27 +3431,27 @@ describeKnowledge("improvement proposals", () => {
     await incident("Sends are failing outright", "critical", "evidence_collected");
 
     const both = forCandidate((await read()).rows);
-    expect(both).toMatchObject({
-      open_incident_count: 2,
-      open_incident_title: "Sends are failing outright",
-      open_incident_severity: "critical",
-    });
+    expect(both?.open_incident_count).toBe(2);
+    expect(both?.open_incidents?.map((row) => row.title)).toEqual([
+      "Sends are failing outright",
+      "Sends are slow but succeeding",
+    ]);
+    expect(both?.open_incidents?.[0].severity).toBe("critical");
+    expect(both?.open_incidents?.[0].opened_at).toBeTruthy();
 
     await client.query(
       "update public.app_release_incidents set status = 'resolved', resolved_at = now() where title = $1",
       ["Sends are failing outright"],
     );
-    expect(forCandidate((await read()).rows)).toMatchObject({
-      open_incident_count: 1,
-      open_incident_title: "Sends are slow but succeeding",
-      open_incident_severity: "medium",
-    });
+    const remaining = forCandidate((await read()).rows);
+    expect(remaining?.open_incident_count).toBe(1);
+    expect(remaining?.open_incidents?.map((row) => row.severity)).toEqual(["medium"]);
 
     await client.query(
       "update public.app_release_incidents set status = 'dismissed' where title = $1",
       ["Sends are slow but succeeding"],
     );
     const quiet = forCandidate((await read()).rows);
-    expect(quiet).toMatchObject({ open_incident_count: 0, open_incident_title: null });
+    expect(quiet).toMatchObject({ open_incident_count: 0, open_incidents: null });
   });
 });

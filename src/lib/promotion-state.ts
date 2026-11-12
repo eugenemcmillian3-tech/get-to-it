@@ -114,3 +114,20 @@ export function promotionState(input: {
     detail: `the ${deployment.target} deployment succeeded and no rollback is recorded`,
   };
 }
+
+export type IncidentAge = { hours: number; label: string; stale: boolean };
+
+/**
+ * How long an incident has been open, in whole hours. An incident open for a
+ * day or more is stale: it means nobody has closed it in a working day.
+ */
+export function incidentAge(openedAt: string, now: Date = new Date()): IncidentAge {
+  const started = new Date(openedAt).getTime();
+  const hours = Number.isFinite(started)
+    ? Math.max(0, Math.floor((now.getTime() - started) / 3_600_000))
+    : 0;
+  if (hours < 1) return { hours, label: "under an hour", stale: false };
+  if (hours < 24) return { hours, label: `${hours} h`, stale: false };
+  const days = Math.floor(hours / 24);
+  return { hours, label: days === 1 ? "1 day" : `${days} days`, stale: true };
+}
