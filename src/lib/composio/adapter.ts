@@ -7,6 +7,8 @@ import {
   canCancelAction,
   completionForThrownError,
   composioToolkit,
+  composioRequiredScopes,
+  composioScopeProblem,
   composioUserId,
   isComposioToolkit,
   isValidConnectedAccountId,
@@ -27,6 +29,7 @@ import {
   isComposioConfigured,
   requireAppOrigin,
   sessionIdOf,
+  type ComposioClientLike,
   type ComposioConnectedAccountLike,
   type ComposioSessionLike,
 } from "@/lib/composio/sdk";
@@ -153,6 +156,112 @@ async function getOrCreateSession(
   return created;
 }
 
+const AUTH_CONFIG_SCAN_LIMIT = 50;
+
+/** Auth configs already resolved in this process, keyed by toolkit. */
+const scopedAuthConfigIds = new Map<string, string>();
+
+/**
+ * The auth config a toolkit's connect flow must use.
+ *
+ * Composio will happily authorize a user against a configuration that asks for
+ * every scope the toolkit advertises. This looks for an existing managed
+ * configuration whose scopes are exactly what the policy allows, creates one
+ * if there is none, and refuses to continue when the provider hands back a
+ * configuration that asks for more.
+ */
+async function resolveScopedAuthConfig(
+  client: ComposioClientLike,
+  toolkit: ComposioToolkit,
+): Promise<string> {
+  const required = composioRequiredScopes(toolkit);
+  if (!required) {
+    throw new ComposioOperationError(
+      "scope_policy_missing",
+      "That integration has no scope policy, so it cannot be connected.",
+    );
+  }
+
+  const cached = scopedAuthConfigIds.get(toolkit);
+  if (cached) return cached;
+
+  let listed: { items?: unknown[] } = {};
+  try {
+    listed = await client.authConfigs.list({ toolkit, limit: AUTH_CONFIG_SCAN_LIMIT });
+  } catch {
+    // An unreadable list is not a reason to widen access; try to create one.
+  }
+
+  for (const entry of listed.items ?? []) {
+    const config = entry as {
+      id?: unknown;
+      isComposioManaged?: unknown;
+      credentials?: { scopes?: unknown } | null;
+    };
+    const id = typeof config?.id === "string" ? config.id : "";
+    if (!id || config?.isComposioManaged !== true) continue;
+    if (composioScopeProblem(toolkit, config.credentials?.scopes) === null) {
+      scopedAuthConfigIds.set(toolkit, id);
+      return id;
+    }
+  }
+
+  const created = await client.authConfigs.create(toolkit, {
+    type: "use_composio_managed_auth",
+    name: `GET TO IT ${toolkit} (least privilege)`,
+    credentials: { scopes: required.join(",") },
+  });
+  const createdId = typeof created?.id === "string" ? created.id : "";
+  if (!createdId) {
+    throw new ComposioOperationError(
+      "auth_config_failed",
+      "Composio did not return an auth configuration for that integration.",
+    );
+  }
+
+  const detail = await client.authConfigs.get(createdId);
+  const problem = composioScopeProblem(toolkit, detail?.credentials?.scopes);
+  if (problem) {
+    throw new ComposioOperationError(
+      "scope_mismatch",
+      `That connection ${problem}, and this build only asks for ${required.join(", ")}.`,
+    );
+  }
+
+  scopedAuthConfigIds.set(toolkit, createdId);
+  return createdId;
+}
+
+/**
+ * The hosted authorization URL for a toolkit.
+ *
+ * A toolkit with a scope policy is linked against that exact auth config; the
+ * session is kept for execution, not for choosing permissions.
+ */
+async function authorizationUrl(
+  session: Session,
+  projectId: string,
+  toolkit: ComposioToolkit,
+  callbackUrl: string,
+): Promise<string> {
+  const client = await getComposioClient();
+  const required = composioRequiredScopes(toolkit);
+
+  if (required) {
+    const authConfigId = await resolveScopedAuthConfig(client, toolkit);
+    const link = await client.connectedAccounts.link(
+      composioUserId(session.user.id),
+      authConfigId,
+      { callbackUrl },
+    );
+    return typeof link?.redirectUrl === "string" ? link.redirectUrl : "";
+  }
+
+  const composioSession = await getOrCreateSession(session, projectId, toolkit);
+  const request = await composioSession.authorize(toolkit, { callbackUrl });
+  return typeof request.redirectUrl === "string" ? request.redirectUrl : "";
+}
+
 /**
  * Starts a hosted authorization. The return destination is stored server-side
  * and restricted to this project's connections page; no query parameter can
@@ -193,9 +302,7 @@ export async function beginConnection(
   const callbackUrl = `${origin}/api/composio/callback?attempt=${encodeURIComponent(attempt.id)}&state=${state}`;
 
   try {
-    const composioSession = await getOrCreateSession(session, projectId, toolkit);
-    const request = await composioSession.authorize(toolkit, { callbackUrl });
-    const redirectUrl = typeof request.redirectUrl === "string" ? request.redirectUrl : "";
+    const redirectUrl = await authorizationUrl(session, projectId, toolkit, callbackUrl);
     if (!/^https:\/\//.test(redirectUrl)) {
       throw new ComposioOperationError("authorization_failed", "Composio did not return a secure authorization link.");
     }
@@ -205,6 +312,12 @@ export async function beginConnection(
       throw new ComposioOperationError("not_configured", error.message);
     }
     if (error instanceof ComposioOperationError) throw error;
+    if (error instanceof Error && /multiple connected accounts/i.test(error.message)) {
+      throw new ComposioOperationError(
+        "already_connected",
+        "That account is already connected for this project. Revoke the existing connection before connecting again.",
+      );
+    }
     throw new ComposioOperationError(
       "authorization_failed",
       "The authorization link could not be created. Check the Composio project and try again.",
