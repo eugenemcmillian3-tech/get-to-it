@@ -1,33 +1,39 @@
 import crypto from "node:crypto";
+import { SAFE_TOOLS } from "@/lib/improvement-eval";
 import {
-  BASELINE_POLICY,
-  CHANNEL_LOOKUP_POLICY,
-  EVAL_CASES,
-  SAFE_TOOLS,
-  WIDENED_TOOLSET_POLICY,
-  suiteDigest,
-  type ToolPolicy,
-} from "@/lib/improvement-eval";
+  PERFORMANCE_FAMILIES,
+  TOOL_SELECTION_FAMILY,
+  familyOptions,
+  familySpec,
+  type FamilyOption,
+} from "@/lib/performance-families";
 
 /**
  * Phase 41 — the controlled performance research program.
  *
- * One narrow task family is installed: choosing the connector tool for a short
- * intent, over the twelve authored cases Phase 40 already measures. A program
- * registers what it will compare, and how, before any trial exists. The words
- * here are shared by the page, the actions and the report so the registered
- * claim and the supported claim cannot drift apart.
+ * Two narrowly defined families are installed, each a fixed authored
+ * distribution with its own baseline, candidate policies and pinned digest:
+ * tool selection (Phase 40's suite) and error recovery (what to do after a
+ * connector call fails). A program registers one family and the claim it could
+ * support, and the words here are shared by the page, the actions and the report
+ * so the registered claim and the supported claim cannot drift apart.
  */
 
-export const PERFORMANCE_FAMILY_KEY = "tool_selection";
-export const PERFORMANCE_FAMILY_VERSION = "2026-11-12.1";
+const PRIMARY_FAMILY = TOOL_SELECTION_FAMILY;
+
+export const PERFORMANCE_FAMILY_KEY = PRIMARY_FAMILY.key;
+export const PERFORMANCE_FAMILY_VERSION = PRIMARY_FAMILY.version;
 /**
  * Recomputed from the authored cases. The migration seeds the same digest, and a
  * unit test compares the two so a suite edit cannot leave a stale family behind.
  */
-export const PERFORMANCE_FAMILY_DIGEST = suiteDigest();
+export const PERFORMANCE_FAMILY_DIGEST = PRIMARY_FAMILY.digest;
+export const ERROR_RECOVERY_FAMILY_KEY = "error_recovery";
+export const ERROR_RECOVERY_FAMILY_VERSION = "2026-11-13.1";
 
-export const PERFORMANCE_TASK_KEYS = EVAL_CASES.map((entry) => entry.id);
+export const PERFORMANCE_TASK_KEYS = PRIMARY_FAMILY.taskKeys;
+export const PERFORMANCE_FAMILIES_LIST = PERFORMANCE_FAMILIES;
+export const PERFORMANCE_FAMILY_OPTIONS: FamilyOption[] = familyOptions();
 
 export const PERFORMANCE_LIMITS = {
   maxProgramsPerWorkspace: 20,
@@ -67,7 +73,7 @@ export const CLAIM_UNITS: Record<PerformanceClaim, string> = {
 
 export const CLAIM_NOTES: Record<PerformanceClaim, string> = {
   benchmark:
-    "A benchmark claim holds on these twelve authored cases, scored pass or fail. It says nothing about tasks that are not in the family.",
+    "A benchmark claim holds on the family's authored cases, scored pass or fail. It says nothing about tasks that are not in the family.",
   faster:
     "Speed needs measured latency for both configurations. If a trial has no latency, the report refuses the claim rather than inferring one.",
   lower_cost:
@@ -91,17 +97,27 @@ export const VERDICT_LABELS: Record<string, string> = {
   awaiting_evidence: "awaiting the registered trials",
 };
 
-/** Candidates a program may test. The baseline is fixed to the shipped policy. */
-export const PERFORMANCE_POLICIES: Record<string, { label: string; policy: ToolPolicy }> = {
-  "channel-lookup": { label: "Channel lookup policy", policy: CHANNEL_LOOKUP_POLICY },
-  "widened-toolset": { label: "Widened toolset policy", policy: WIDENED_TOOLSET_POLICY },
-};
+/** Candidates a program may test, keyed by family. A family fixes its baseline. */
+export const PERFORMANCE_POLICIES: Record<string, { label: string; policy: typeof PRIMARY_FAMILY.baseline.policy }> =
+  Object.fromEntries(
+    PRIMARY_FAMILY.candidates.map((candidate) => [
+      candidate.key,
+      { label: candidate.label, policy: candidate.policy },
+    ]),
+  );
 
-export const PERFORMANCE_BASELINE = {
-  key: "shipped",
-  label: "Shipped tool policy",
-  policy: BASELINE_POLICY,
-} as const;
+export const PERFORMANCE_BASELINE = PRIMARY_FAMILY.baseline;
+
+export function familyLabel(key: string): string {
+  return familySpec(key)?.label ?? key;
+}
+
+export function familyCandidate(key: string, policyKey: string) {
+  return familySpec(key)?.candidates.find((candidate) => candidate.key === policyKey) ?? null;
+}
+
+export { familySpec };
+export type { FamilyOption };
 
 export const PERFORMANCE_PERMITTED_TOOLS = [...SAFE_TOOLS];
 
@@ -199,19 +215,20 @@ export function programProblems(draft: PerformanceDraft): string[] {
 }
 
 /** The distribution is built from the installed family, never typed in. */
-export function familyDistribution(): {
+export function familyDistribution(familyKey: string = PERFORMANCE_FAMILY_KEY): {
   suite: string;
   version: string;
   digest: string;
   task_keys: string[];
   tasks: number;
 } {
+  const family = familySpec(familyKey) ?? PRIMARY_FAMILY;
   return {
-    suite: PERFORMANCE_FAMILY_KEY,
-    version: PERFORMANCE_FAMILY_VERSION,
-    digest: PERFORMANCE_FAMILY_DIGEST,
-    task_keys: PERFORMANCE_TASK_KEYS,
-    tasks: PERFORMANCE_TASK_KEYS.length,
+    suite: family.key,
+    version: family.version,
+    digest: family.digest,
+    task_keys: family.taskKeys,
+    tasks: family.taskKeys.length,
   };
 }
 
@@ -221,6 +238,7 @@ export function familyDistribution(): {
  * be recorded against a program whose distribution differs from the family.
  */
 export function protocolFingerprint(input: {
+  familyKey?: string;
   title: string;
   question: string;
   inclusionRules: string;
@@ -238,12 +256,13 @@ export function protocolFingerprint(input: {
   noninferiorityMargin: number;
   maxDisagreements: number;
 }): string {
+  const family = familySpec(input.familyKey ?? PERFORMANCE_FAMILY_KEY) ?? PRIMARY_FAMILY;
   const canonical = {
-    family: PERFORMANCE_FAMILY_KEY,
-    familyVersion: PERFORMANCE_FAMILY_VERSION,
-    digest: PERFORMANCE_FAMILY_DIGEST,
-    tasks: PERFORMANCE_TASK_KEYS,
-    baseline: PERFORMANCE_BASELINE.key,
+    family: family.key,
+    familyVersion: family.version,
+    digest: family.digest,
+    tasks: family.taskKeys,
+    baseline: family.baseline.key,
     candidate: input.candidatePolicy,
     title: input.title.trim(),
     question: input.question.trim(),

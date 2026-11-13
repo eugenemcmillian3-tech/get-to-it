@@ -13,9 +13,10 @@ import {
   replayMigrations,
 } from "./support/phase37-db";
 import {
-  PERFORMANCE_FAMILY_DIGEST,
-  PERFORMANCE_FAMILY_KEY,
-  PERFORMANCE_FAMILY_VERSION,
+  ERROR_RECOVERY_FAMILY,
+  TOOL_SELECTION_FAMILY,
+} from "@/lib/performance-families";
+import {
   PERFORMANCE_TASK_KEYS,
 } from "@/lib/performance-program";
 import {
@@ -3911,14 +3912,6 @@ describeKnowledge("performance research program", () => {
   const workspaceId = randomUUID();
   const otherWorkspace = randomUUID();
 
-  const distribution = {
-    suite: PERFORMANCE_FAMILY_KEY,
-    version: PERFORMANCE_FAMILY_VERSION,
-    digest: PERFORMANCE_FAMILY_DIGEST,
-    task_keys: PERFORMANCE_TASK_KEYS,
-    tasks: PERFORMANCE_TASK_KEYS.length,
-  };
-
   async function insertProgram(input: {
     claim?: "benchmark" | "faster" | "lower_cost" | "distribution";
     status?: "draft" | "registered";
@@ -3926,9 +3919,18 @@ describeKnowledge("performance research program", () => {
     trials?: number;
     maxDisagreements?: number;
     minimumEffect?: number;
+    family?: typeof TOOL_SELECTION_FAMILY;
   } = {}): Promise<string> {
     const id = randomUUID();
     const status = input.status ?? "registered";
+    const family = input.family ?? TOOL_SELECTION_FAMILY;
+    const familyDistribution = {
+      suite: family.key,
+      version: family.version,
+      digest: family.digest,
+      task_keys: family.taskKeys,
+      tasks: family.taskKeys.length,
+    };
     await asUser(client, owner, () =>
       client.query(
         `insert into public.performance_programs
@@ -3946,15 +3948,15 @@ describeKnowledge("performance research program", () => {
           owner,
           "Tool choice under two policies",
           "Does resolving a channel name before posting reach the expected tool more often than the shipped policy?",
-          PERFORMANCE_FAMILY_KEY,
-          JSON.stringify(distribution),
+          family.key,
+          JSON.stringify(familyDistribution),
           "The twelve authored intents in the installed tool-selection family.",
           "Anything outside tool selection, any paid model call and any other policy.",
           "One authored case is one trial: the chosen tool either matches the expected outcome or it does not.",
-          "Shipped tool policy",
-          JSON.stringify({ policy: "shipped" }),
-          "Channel lookup policy",
-          JSON.stringify({ policy: "channel-lookup" }),
+          family.baseline.label,
+          JSON.stringify({ policy: family.baseline.key }),
+          family.candidates[0].label,
+          JSON.stringify({ policy: family.candidates[0].key }),
           ["GITHUB_CREATE_AN_ISSUE", "SLACK_SEND_MESSAGE"],
           120,
           20,
@@ -3982,8 +3984,9 @@ describeKnowledge("performance research program", () => {
     config: "baseline" | "candidate",
     passes: number,
     duration: number | null = null,
+    family: typeof TOOL_SELECTION_FAMILY = TOOL_SELECTION_FAMILY,
   ): Promise<void> {
-    for (const [index, key] of PERFORMANCE_TASK_KEYS.entries()) {
+    for (const [index, key] of family.taskKeys.entries()) {
       const passed = index < passes;
       await asUser(client, runner, () =>
         client.query(
@@ -4242,5 +4245,154 @@ describeKnowledge("performance research program", () => {
     expect(reviews.disagreements).toBe(1);
     expect(claims.supported).toBe(false);
     expect(claims.reasons.join(" ")).toContain("Independent review disagrees");
+  });
+});
+
+describeKnowledge("performance research program on a second family", () => {
+  let client: Client;
+  const owner = randomUUID();
+  const workspaceId = randomUUID();
+
+  beforeAll(async () => {
+    client = new Client({ connectionString });
+    await client.connect();
+    await assertIsolatedDatabase(client);
+
+    await client.query("insert into auth.users (id, email) values ($1,$2)", [
+      owner,
+      `performance-second-${owner.slice(0, 8)}@example.test`,
+    ]);
+    await client.query("insert into public.workspaces (id, name, created_by) values ($1,$2,$3)", [
+      workspaceId,
+      "Second family probe",
+      owner,
+    ]);
+    await client.query(
+      "insert into public.workspace_members (workspace_id, user_id, role, status) values ($1,$2,'owner','active')",
+      [workspaceId, owner],
+    );
+  }, 120_000);
+
+  afterAll(async () => {
+    if (client) await client.end();
+  });
+
+  async function insertFamilyProgram(): Promise<string> {
+    const id = randomUUID();
+    const distribution = {
+      suite: ERROR_RECOVERY_FAMILY.key,
+      version: ERROR_RECOVERY_FAMILY.version,
+      digest: ERROR_RECOVERY_FAMILY.digest,
+      task_keys: ERROR_RECOVERY_FAMILY.taskKeys,
+      tasks: ERROR_RECOVERY_FAMILY.taskKeys.length,
+    };
+    await asUser(client, owner, () =>
+      client.query(
+        `insert into public.performance_programs
+           (id, workspace_id, user_id, title, question, task_family, distribution,
+            inclusion_rules, exclusion_rules, scoring_method, baseline_label, baseline_config,
+            candidate_label, candidate_config, permitted_tools, time_limit_seconds,
+            cost_limit_cents, trials, human_assistance_policy, failure_criteria,
+            supported_claim, claim_text, minimum_effect, noninferiority_margin,
+            max_disagreements, status, fingerprint, registered_at, registered_by)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
+                 $21,$22,$23,$24,$25,'registered',$26,now(),$3)`,
+        [
+          id,
+          workspaceId,
+          owner,
+          "Classify a failed call before retrying",
+          "Does classifying the failure before retrying reach the right next action more often than retrying everything?",
+          ERROR_RECOVERY_FAMILY.key,
+          JSON.stringify(distribution),
+          "The twelve authored failures in the installed error-recovery family.",
+          "Anything outside failure recovery and any paid model call.",
+          "One authored failure is one trial: the chosen next action either matches the expected action or it does not.",
+          ERROR_RECOVERY_FAMILY.baseline.label,
+          JSON.stringify({ policy: ERROR_RECOVERY_FAMILY.baseline.key }),
+          ERROR_RECOVERY_FAMILY.candidates[0].label,
+          JSON.stringify({ policy: ERROR_RECOVERY_FAMILY.candidates[0].key }),
+          ["SLACK_SEND_MESSAGE", "SLACK_LIST_ALL_CHANNELS", "GITHUB_CREATE_AN_ISSUE"],
+          120,
+          20,
+          1,
+          "A person may help, and any help is recorded on the trial.",
+          "Fewer correct next actions than the baseline, any changed refusal, or a review disagreement above the allowance.",
+          "benchmark",
+          "On these twelve authored failures the classified retry reaches the right next action at least twenty percent more often than retrying everything.",
+          0.2,
+          0,
+          0,
+          "e".repeat(64),
+        ],
+      ),
+    );
+    return id;
+  }
+
+  it("refuses a task from the other installed family", async () => {
+    const programId = await insertFamilyProgram();
+    let message = "";
+    try {
+      await asUser(client, owner, () =>
+        client.query(
+          `insert into public.performance_trials
+             (program_id, workspace_id, config, task_key, trial, outcome, score, recorded_by)
+           values ($1,$2,'baseline',$3,1,'pass',1,$4)`,
+          [programId, workspaceId, PERFORMANCE_TASK_KEYS[0], owner],
+        ),
+      );
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain("outside the registered distribution");
+  });
+
+  it("derives the claim on the second family's own numbers", async () => {
+    const programId = await insertFamilyProgram();
+
+    for (const [config, passes] of [
+      ["baseline" as const, 4],
+      ["candidate" as const, 12],
+    ] as const) {
+      for (const [index, key] of ERROR_RECOVERY_FAMILY.taskKeys.entries()) {
+        const passed = index < passes;
+        await asUser(client, owner, () =>
+          client.query(
+            `insert into public.performance_trials
+               (program_id, workspace_id, config, task_key, trial, outcome, score,
+                cost_cents, cost_units, duration_ms, human_assisted, source, recorded_by)
+             values ($1,$2,$3,$4,1,$5,$6,0,$7,null,false,'authored_suite',$8)`,
+            [
+              programId,
+              workspaceId,
+              config,
+              key,
+              passed ? "pass" : "fail",
+              passed ? 1 : 0,
+              passed ? 1 : 3,
+              owner,
+            ],
+          ),
+        );
+      }
+    }
+
+    const result = await asUser(client, owner, () =>
+      client.query<{ result: Record<string, unknown> }>(
+        "select public.workspace_performance_report($1) as result",
+        [programId],
+      ),
+    );
+    const report = result.rows[0].result;
+    const claims = report.claims as { supported: boolean; verdict: string };
+    const family = report.family as { key: string; task_keys: string[] };
+    const effect = report.effect as { score_gain: number };
+
+    expect(family.key).toBe("error_recovery");
+    expect(family.task_keys).toEqual(ERROR_RECOVERY_FAMILY.taskKeys);
+    expect(effect.score_gain).toBeCloseTo(0.6667, 3);
+    expect(claims.supported).toBe(true);
+    expect(claims.verdict).toBe("supported");
   });
 });

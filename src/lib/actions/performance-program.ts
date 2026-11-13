@@ -3,25 +3,16 @@
 import { revalidatePath } from "next/cache";
 import type { BuildState } from "@/lib/action-state";
 import { getSession, type Session } from "@/lib/auth";
+import { TOOL_COSTS, runPolicy, type EvalCase } from "@/lib/improvement-eval";
 import {
-  TOOL_COSTS,
-  evaluateCandidate,
-  type EvalCase,
-} from "@/lib/improvement-eval";
-import {
-  PERFORMANCE_BASELINE,
-  PERFORMANCE_FAMILY_DIGEST,
-  PERFORMANCE_FAMILY_KEY,
-  PERFORMANCE_FAMILY_VERSION,
   PERFORMANCE_LIMITS,
   PERFORMANCE_PERMITTED_TOOLS,
-  PERFORMANCE_POLICIES,
   familyDistribution,
+  familySpec,
   programProblems,
   protocolFingerprint,
   type PerformanceDraft,
 } from "@/lib/performance-program";
-import { EVAL_CASES } from "@/lib/improvement-eval";
 import { isUuid, readText } from "@/lib/validation";
 
 /**
@@ -80,6 +71,10 @@ export async function registerPerformanceProgramAction(
   if (!isUuid(workspaceId)) return fail(NOT_AVAILABLE);
   if (!(await memberRole(session, workspaceId))) return fail(NOT_AVAILABLE);
 
+  const familyKey = readText(formData, "familyKey");
+  const family = familySpec(familyKey);
+  if (!family) return fail("Choose one of the installed task families.");
+
   const draft: PerformanceDraft = {
     title: readText(formData, "title"),
     question: readText(formData, "question"),
@@ -102,8 +97,8 @@ export async function registerPerformanceProgramAction(
   const problems = programProblems(draft);
   if (problems.length > 0) return fail(problems.slice(0, 4).join(" "));
 
-  const candidate = PERFORMANCE_POLICIES[draft.candidatePolicy];
-  if (!candidate) return fail("Choose one of the installed candidate policies.");
+  const candidate = family.candidates.find((row) => row.key === draft.candidatePolicy);
+  if (!candidate) return fail("Choose one of the installed candidate policies for this family.");
 
   const { count } = await session.supabase
     .from("performance_programs")
@@ -115,9 +110,10 @@ export async function registerPerformanceProgramAction(
     );
   }
 
-  const distribution = familyDistribution();
+  const distribution = familyDistribution(family.key);
   const protocol = {
     ...draft,
+    familyKey: family.key,
     title: draft.title.trim(),
     question: draft.question.trim(),
     inclusionRules: draft.inclusionRules.trim(),
@@ -135,13 +131,13 @@ export async function registerPerformanceProgramAction(
       user_id: session.user.id,
       title: protocol.title,
       question: protocol.question,
-      task_family: PERFORMANCE_FAMILY_KEY,
+      task_family: family.key,
       distribution,
       inclusion_rules: protocol.inclusionRules,
       exclusion_rules: protocol.exclusionRules,
       scoring_method: protocol.scoringMethod,
-      baseline_label: PERFORMANCE_BASELINE.label,
-      baseline_config: { policy: PERFORMANCE_BASELINE.key },
+      baseline_label: family.baseline.label,
+      baseline_config: { policy: family.baseline.key },
       candidate_label: candidate.label,
       candidate_config: { policy: draft.candidatePolicy },
       permitted_tools: PERFORMANCE_PERMITTED_TOOLS,
@@ -156,7 +152,7 @@ export async function registerPerformanceProgramAction(
       noninferiority_margin: protocol.noninferiorityMargin,
       max_disagreements: protocol.maxDisagreements,
       status: "registered",
-      fingerprint: protocolFingerprint(protocol),
+      fingerprint: protocolFingerprint({ ...protocol, familyKey: family.key }),
       registered_at: new Date().toISOString(),
       registered_by: session.user.id,
     })
@@ -174,9 +170,9 @@ export async function registerPerformanceProgramAction(
   );
 }
 
-/** The registered task keys, in the suite's order, with the installed cases. */
-function registeredCases(taskKeys: string[]): EvalCase[] {
-  const byId = new Map(EVAL_CASES.map((entry) => [entry.id, entry]));
+/** The registered task keys, in the family's order, with the installed cases. */
+function registeredCases(cases: EvalCase[], taskKeys: string[]): EvalCase[] {
+  const byId = new Map(cases.map((entry) => [entry.id, entry]));
   return taskKeys.flatMap((key) => {
     const entry = byId.get(key);
     return entry ? [entry] : [];
@@ -226,21 +222,24 @@ export async function runPerformanceTrialsAction(
         : "This comparison is closed.",
     );
   }
+  const family = familySpec(program.task_family);
+  if (!family) return fail("This comparison names a task family that is not installed.");
   if (
-    program.task_family !== PERFORMANCE_FAMILY_KEY ||
-    program.distribution.digest !== PERFORMANCE_FAMILY_DIGEST ||
-    program.distribution.version !== PERFORMANCE_FAMILY_VERSION
+    program.distribution.digest !== family.digest ||
+    program.distribution.version !== family.version
   ) {
     return fail(
       "The installed task family no longer matches the one this program registered, so nothing was recorded.",
     );
   }
 
-  const candidatePolicy = PERFORMANCE_POLICIES[program.candidate_config?.policy ?? ""];
+  const candidatePolicy = family.candidates.find(
+    (row) => row.key === program.candidate_config?.policy,
+  );
   if (!candidatePolicy) return fail("This comparison names a policy that is not installed.");
 
   const taskKeys = program.distribution.task_keys ?? [];
-  const cases = registeredCases(taskKeys);
+  const cases = registeredCases(family.cases, taskKeys);
   if (cases.length !== taskKeys.length || cases.length === 0) {
     return fail("The registered task list does not match the installed suite, so nothing ran.");
   }
@@ -251,16 +250,14 @@ export async function runPerformanceTrialsAction(
     .eq("program_id", programId);
   if ((count ?? 0) > 0) return fail("This comparison already has trials recorded.");
 
-  const result = evaluateCandidate({ policy: candidatePolicy.policy, cases });
-  if (result.suiteIntegrity !== "verified") {
-    return fail("The suite does not match the registered digest, so nothing was recorded.");
-  }
+  const baselineRun = runPolicy(cases, family.baseline.policy);
+  const candidateRun = runPolicy(cases, candidatePolicy.policy);
 
   const rows = [];
   for (let trial = 1; trial <= program.trials; trial += 1) {
     for (const run of [
-      { config: "baseline" as const, results: result.baseline.results },
-      { config: "candidate" as const, results: result.candidate.results },
+      { config: "baseline" as const, results: baselineRun.results },
+      { config: "candidate" as const, results: candidateRun.results },
     ]) {
       for (const row of run.results) {
         const passed = row.chosen === row.expected;
@@ -299,7 +296,7 @@ export async function runPerformanceTrialsAction(
 
   refresh(workspaceId, programId);
   return done(
-    `Recorded ${rows.length} trials: ${result.candidate.passed} of ${cases.length} cases pass for the candidate versus ${result.baseline.passed} for the baseline. The claim verdict is derived from these rows.`,
+    `Recorded ${rows.length} trials on ${family.label}: ${candidateRun.passed} of ${cases.length} cases pass for the candidate versus ${baselineRun.passed} for the baseline. The claim verdict is derived from these rows.`,
   );
 }
 
