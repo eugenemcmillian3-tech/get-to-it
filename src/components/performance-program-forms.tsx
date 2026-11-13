@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { idleBuildState } from "@/lib/action-state";
 import {
   closePerformanceProgramAction,
@@ -15,7 +15,7 @@ import {
   CLAIM_NOTES,
   CLAIM_UNITS,
   PERFORMANCE_CLAIMS,
-  PERFORMANCE_POLICIES,
+  type FamilyOption,
 } from "@/lib/performance-program";
 import { cardClass, inputClass, labelClass, primaryButton, quietButton } from "@/lib/styles";
 
@@ -68,8 +68,21 @@ const PROTOCOL_FIELDS = [
   },
 ] as const;
 
-export function RegisterProgramForm({ workspaceId }: { workspaceId: string }) {
+export function RegisterProgramForm({
+  workspaceId,
+  families,
+}: {
+  workspaceId: string;
+  families: FamilyOption[];
+}) {
   const [state, action] = useActionState(registerPerformanceProgramAction, idleBuildState);
+  const [familyKey, setFamilyKey] = useState(families[0]?.key ?? "");
+  const family = families.find((row) => row.key === familyKey) ?? families[0];
+  const [candidatePolicy, setCandidatePolicy] = useState(family?.candidates[0]?.key ?? "");
+  const candidates = family?.candidates ?? [];
+  const selectedCandidate = candidates.some((row) => row.key === candidatePolicy)
+    ? candidatePolicy
+    : (candidates[0]?.key ?? "");
 
   return (
     <section aria-labelledby="register-program-heading" className={`${cardClass} mt-8`}>
@@ -102,10 +115,30 @@ export function RegisterProgramForm({ workspaceId }: { workspaceId: string }) {
           />
         </label>
 
-        <p className="rounded-xl border border-line bg-paper px-3 py-2 text-sm text-muted">
-          Task family: <strong>tool selection</strong>, twelve authored cases from Phase 40. The
-          distribution and its digest are built from the installed suite, not typed in here.
-        </p>
+        <label className="grid gap-1">
+          <span className={labelClass}>Task family</span>
+          <select
+            name="familyKey"
+            className={inputClass}
+            value={familyKey}
+            onChange={(event) => {
+              const next = event.target.value;
+              setFamilyKey(next);
+              const chosen = families.find((row) => row.key === next);
+              setCandidatePolicy(chosen?.candidates[0]?.key ?? "");
+            }}
+          >
+            {families.map((row) => (
+              <option key={row.key} value={row.key}>
+                {row.label} · {row.tasks} tasks
+              </option>
+            ))}
+          </select>
+          <span className="text-xs text-muted">
+            {family?.description} The distribution and its digest are built from the installed
+            family, not typed in here.
+          </span>
+        </label>
 
         {PROTOCOL_FIELDS.map((field) => (
           <label key={field.name} className="grid gap-1">
@@ -125,14 +158,19 @@ export function RegisterProgramForm({ workspaceId }: { workspaceId: string }) {
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="grid gap-1">
             <span className={labelClass}>Baseline</span>
-            <input value="Shipped tool policy" readOnly className={inputClass} />
+            <input value={family?.baselineLabel ?? ""} readOnly className={inputClass} />
           </label>
           <label className="grid gap-1">
             <span className={labelClass}>Candidate</span>
-            <select name="candidatePolicy" className={inputClass} defaultValue="channel-lookup">
-              {Object.entries(PERFORMANCE_POLICIES).map(([key, value]) => (
-                <option key={key} value={key}>
-                  {value.label}
+            <select
+              name="candidatePolicy"
+              className={inputClass}
+              value={selectedCandidate}
+              onChange={(event) => setCandidatePolicy(event.target.value)}
+            >
+              {candidates.map((row) => (
+                <option key={row.key} value={row.key}>
+                  {row.label}
                 </option>
               ))}
             </select>

@@ -21,6 +21,7 @@ import {
   PERFORMANCE_STATUS_LABELS,
   REFUSED_CLAIM_NOTE,
   VERDICT_LABELS,
+  familyLabel,
   formatCents,
   formatLatency,
   formatPercent,
@@ -95,6 +96,10 @@ export default async function PerformanceProgramDetailPage({
           <span className={chipClass}>{PERFORMANCE_STATUS_LABELS[report.program.status]}</span>
         </div>
         <p className="mt-2 max-w-2xl text-sm text-muted">{report.program.question}</p>
+        <p className="mt-1 text-xs text-muted">
+          Task family: {familyLabel(report.program.taskFamily)} · {report.plan.tasks} tasks ×{" "}
+          {report.plan.trials} {report.plan.trials === 1 ? "trial" : "trials"}
+        </p>
 
         <section
           aria-labelledby="verdict-heading"
@@ -211,7 +216,7 @@ export default async function PerformanceProgramDetailPage({
           </h2>
           <dl className="mt-2 grid gap-2 text-sm">
             {[
-              ["Task distribution", `${report.family.key} ${report.family.version}, ${report.plan.tasks} authored cases, digest ${report.family.suiteDigest.slice(0, 16)}…`],
+              ["Task distribution", `${familyLabel(report.family.key)} (${report.family.key} ${report.family.version}), ${report.plan.tasks} authored cases, digest ${report.family.suiteDigest.slice(0, 16)}…`],
               ["Tasks", report.family.taskKeys.join(", ")],
               ["Inclusion rules", report.program.inclusionRules],
               ["Exclusion rules", report.program.exclusionRules],

@@ -9,9 +9,12 @@ import { listPerformancePrograms } from "@/lib/data/performance-program";
 import { getIdentity } from "@/lib/identity";
 import {
   CLAIM_LABELS,
+  ERROR_RECOVERY_FAMILY_VERSION,
+  PERFORMANCE_FAMILY_OPTIONS,
   PERFORMANCE_FAMILY_VERSION,
   PERFORMANCE_STATUS_LABELS,
   REFUSED_CLAIM_NOTE,
+  familyLabel,
 } from "@/lib/performance-program";
 import { cardClass, chipClass } from "@/lib/styles";
 import { getSupabaseSettings } from "@/lib/supabase/config";
@@ -62,8 +65,10 @@ export default async function PerformanceProgramPage({
         </p>
         <ul className="mt-3 grid gap-1 text-sm text-muted">
           <li>
-            Family: choosing the connector tool for a short intent, {PERFORMANCE_FAMILY_VERSION},
-            twelve authored cases including the six refusals that must not move.
+            Two installed families: tool selection ({PERFORMANCE_FAMILY_VERSION}, twelve authored
+            intents including the six refusals that must not move) and error recovery
+            ({ERROR_RECOVERY_FAMILY_VERSION}, twelve authored failures to classify before
+            retrying). Each family fixes its own baseline, candidate policies and digest.
           </li>
           <li>
             Claims are not interchangeable. Faster, lower cost, better on this benchmark and better
@@ -78,7 +83,7 @@ export default async function PerformanceProgramPage({
           {withTrials.length} with recorded trials
         </p>
 
-        <RegisterProgramForm workspaceId={workspaceId} />
+        <RegisterProgramForm workspaceId={workspaceId} families={PERFORMANCE_FAMILY_OPTIONS} />
 
         <section aria-labelledby="programs-heading" className="mt-10">
           <h2 id="programs-heading" className="text-xl font-bold">
@@ -108,8 +113,8 @@ export default async function PerformanceProgramPage({
                           </Link>
                         </h3>
                         <p className="text-xs text-muted">
-                          {program.baselineLabel} vs {program.candidateLabel} ·{" "}
-                          {program.tasks} tasks × {program.trials}{" "}
+                          {familyLabel(program.taskFamily)} · {program.baselineLabel} vs{" "}
+                          {program.candidateLabel} · {program.tasks} tasks × {program.trials}{" "}
                           {program.trials === 1 ? "trial" : "trials"}
                         </p>
                       </div>

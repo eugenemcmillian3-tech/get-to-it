@@ -1,14 +1,24 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { EVAL_CASES, suiteDigest } from "@/lib/improvement-eval";
+import { EVAL_CASES, runPolicy, suiteDigest } from "@/lib/improvement-eval";
+import {
+  ERROR_RECOVERY_CASES,
+  ERROR_RECOVERY_FAMILY,
+  PERFORMANCE_FAMILIES,
+  TOOL_SELECTION_FAMILY,
+} from "@/lib/performance-families";
 import {
   CLAIM_LABELS,
   CLAIM_NOTES,
   CLAIM_UNITS,
   PERFORMANCE_CLAIMS,
+  ERROR_RECOVERY_FAMILY_KEY,
+  ERROR_RECOVERY_FAMILY_VERSION,
+  PERFORMANCE_FAMILIES_LIST,
   PERFORMANCE_FAMILY_DIGEST,
   PERFORMANCE_FAMILY_KEY,
+  PERFORMANCE_FAMILY_OPTIONS,
   PERFORMANCE_FAMILY_VERSION,
   PERFORMANCE_POLICIES,
   PERFORMANCE_TASK_KEYS,
@@ -80,6 +90,52 @@ describe("performance program registration", () => {
     expect(migration).toContain(PERFORMANCE_FAMILY_VERSION);
   });
 
+  it("installs a second, genuinely different family with its own pinned digest", () => {
+    expect(ERROR_RECOVERY_FAMILY.key).toBe(ERROR_RECOVERY_FAMILY_KEY);
+    expect(ERROR_RECOVERY_FAMILY.version).toBe(ERROR_RECOVERY_FAMILY_VERSION);
+    expect(ERROR_RECOVERY_FAMILY.digest).toBe(suiteDigest(ERROR_RECOVERY_CASES));
+    expect(ERROR_RECOVERY_FAMILY.digest).not.toBe(PERFORMANCE_FAMILY_DIGEST);
+    expect(ERROR_RECOVERY_FAMILY.taskKeys).toEqual(ERROR_RECOVERY_CASES.map((entry) => entry.id));
+    expect(ERROR_RECOVERY_FAMILY.taskKeys.some((key) => PERFORMANCE_TASK_KEYS.includes(key))).toBe(
+      false,
+    );
+
+    const migration = readFileSync(
+      path.join(process.cwd(), "supabase/migrations/0084_phase41_second_task_family.sql"),
+      "utf8",
+    );
+    expect(migration).toContain(ERROR_RECOVERY_FAMILY.digest);
+    expect(migration).toContain(ERROR_RECOVERY_FAMILY.version);
+    expect(migration).toContain("error_recovery");
+
+    expect(PERFORMANCE_FAMILIES.map((family) => family.key)).toEqual([
+      "tool_selection",
+      "error_recovery",
+    ]);
+    expect(PERFORMANCE_FAMILIES_LIST).toHaveLength(2);
+    expect(PERFORMANCE_FAMILY_OPTIONS.map((row) => row.tasks)).toEqual([12, 12]);
+  });
+
+  it("distinguishes the two distributions by their own baseline", () => {
+    const recoveryBaseline = runPolicy(
+      ERROR_RECOVERY_CASES,
+      ERROR_RECOVERY_FAMILY.baseline.policy,
+    );
+    const recoveryCandidate = runPolicy(
+      ERROR_RECOVERY_CASES,
+      ERROR_RECOVERY_FAMILY.candidates[0].policy,
+    );
+
+    // The retry-everything baseline gets the four transient retries right and
+    // retries the eight failures that must be stopped or resolved instead.
+    expect(recoveryBaseline.passed).toBe(4);
+    expect(recoveryCandidate.passed).toBe(12);
+
+    const toolBaseline = runPolicy(EVAL_CASES, TOOL_SELECTION_FAMILY.baseline.policy);
+    const toolCandidate = runPolicy(EVAL_CASES, TOOL_SELECTION_FAMILY.candidates[0].policy);
+    expect(toolCandidate.passed).toBeGreaterThan(toolBaseline.passed);
+  });
+
   it("builds the distribution from the installed family rather than the form", () => {
     const distribution = familyDistribution();
     expect(distribution.suite).toBe("tool_selection");
@@ -120,6 +176,31 @@ describe("performance program registration", () => {
     expect(problems.join(" ")).toContain("never an AGI");
   });
 
+  it("pins the protocol to the chosen family", () => {
+    const toolFingerprint = fingerprintOf();
+    const recoveryFingerprint = protocolFingerprint({
+      familyKey: ERROR_RECOVERY_FAMILY_KEY,
+      title: draft.title,
+      question: draft.question,
+      inclusionRules: draft.inclusionRules,
+      exclusionRules: draft.exclusionRules,
+      scoringMethod: draft.scoringMethod,
+      candidatePolicy: "classified-retry",
+      trials: draft.trials,
+      timeLimitSeconds: draft.timeLimitSeconds,
+      costLimitCents: draft.costLimitCents,
+      humanAssistancePolicy: draft.humanAssistancePolicy,
+      failureCriteria: draft.failureCriteria,
+      supportedClaim: draft.supportedClaim,
+      claimText: draft.claimText,
+      minimumEffect: draft.minimumEffect,
+      noninferiorityMargin: draft.noninferiorityMargin,
+      maxDisagreements: draft.maxDisagreements,
+    });
+    expect(recoveryFingerprint).toMatch(/^[0-9a-f]{64}$/);
+    expect(recoveryFingerprint).not.toBe(toolFingerprint);
+  });
+
   it("pins the protocol with a stable fingerprint", () => {
     const first = fingerprintOf();
     expect(first).toMatch(/^[0-9a-f]{64}$/);
@@ -141,10 +222,8 @@ describe("performance program registration", () => {
   });
 
   it("only offers installed candidate policies, and no general-capability claim", () => {
-    expect(Object.keys(PERFORMANCE_POLICIES).sort()).toEqual([
-      "channel-lookup",
-      "widened-toolset",
-    ]);
+    expect(Object.keys(PERFORMANCE_POLICIES).sort()).toEqual(["channel-lookup"]);
+    expect(ERROR_RECOVERY_FAMILY.candidates.map((row) => row.key)).toEqual(["classified-retry"]);
     expect(PERFORMANCE_CLAIMS).not.toContain("general_capability");
   });
 
