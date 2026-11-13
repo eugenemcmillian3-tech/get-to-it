@@ -52,6 +52,12 @@ export const HISTORY_PAGE_SIZE = 20;
 export const HISTORY_EXPORT_MAX = 5_000;
 /** Rows per read while walking an export; the read itself caps at 500. */
 export const HISTORY_EXPORT_PAGE = 500;
+/**
+ * Above this many notification rows an export is refused. Incidents are capped
+ * first, but one incident can produce several notifications, so this is the bound
+ * that actually keeps the file a spreadsheet can open.
+ */
+export const NOTIFICATION_EXPORT_MAX = 20_000;
 export const INCIDENT_SEVERITIES = ["low", "medium", "high", "critical"] as const;
 export const CLOSED_STATUSES = ["resolved", "dismissed"] as const;
 
@@ -152,6 +158,17 @@ export function exportHref(workspaceId: string, filters: IncidentHistoryFilters)
   if (filters.query) search.set("query", filters.query);
   const qs = search.toString();
   return `/workspace/${workspaceId}/improvements/incidents/export${qs ? `?${qs}` : ""}`;
+}
+
+/** The same filters, exported one row per notification instead of per incident. */
+export function notificationExportHref(
+  workspaceId: string,
+  filters: IncidentHistoryFilters,
+): string {
+  return exportHref(workspaceId, filters).replace(
+    "/incidents/export",
+    "/incidents/notifications/export",
+  );
 }
 
 /** Where the current page sits in the result set, for "showing 21-40 of 63". */
