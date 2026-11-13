@@ -46,3 +46,89 @@ export function recoveryKindLabel(kind: string | null): string {
       return "not recorded";
   }
 }
+
+export const HISTORY_PAGE_SIZE = 20;
+export const INCIDENT_SEVERITIES = ["low", "medium", "high", "critical"] as const;
+export const CLOSED_STATUSES = ["resolved", "dismissed"] as const;
+
+export type IncidentSeverity = (typeof INCIDENT_SEVERITIES)[number];
+export type ClosedStatus = (typeof CLOSED_STATUSES)[number];
+
+export type IncidentHistoryFilters = {
+  severity: IncidentSeverity | null;
+  status: ClosedStatus | null;
+  query: string | null;
+  page: number;
+};
+
+function firstValue(value: string | string[] | undefined): string | null {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+/**
+ * What the URL asked for, kept only where it means something. An unknown severity
+ * or status is dropped rather than passed on, so a hand-edited link cannot ask the
+ * read for a filter it does not support.
+ */
+export function historyFilters(params: {
+  severity?: string | string[];
+  status?: string | string[];
+  query?: string | string[];
+  page?: string | string[];
+}): IncidentHistoryFilters {
+  const severity = firstValue(params.severity);
+  const status = firstValue(params.status);
+  const query = firstValue(params.query);
+  const page = Number.parseInt(firstValue(params.page) ?? "", 10);
+
+  return {
+    severity: INCIDENT_SEVERITIES.includes(severity as IncidentSeverity)
+      ? (severity as IncidentSeverity)
+      : null,
+    status: CLOSED_STATUSES.includes(status as ClosedStatus) ? (status as ClosedStatus) : null,
+    query: query ? query.slice(0, 100) : null,
+    page: Number.isFinite(page) && page > 0 ? page : 1,
+  };
+}
+
+export function historyHref(
+  workspaceId: string,
+  filters: IncidentHistoryFilters,
+  page: number = filters.page,
+): string {
+  const search = new URLSearchParams();
+  if (filters.severity) search.set("severity", filters.severity);
+  if (filters.status) search.set("status", filters.status);
+  if (filters.query) search.set("query", filters.query);
+  if (page > 1) search.set("page", String(page));
+  const qs = search.toString();
+  return `/workspace/${workspaceId}/improvements/incidents${qs ? `?${qs}` : ""}`;
+}
+
+/** Where the current page sits in the result set, for "showing 21-40 of 63". */
+export function pageWindow(
+  total: number,
+  page: number,
+  size: number = HISTORY_PAGE_SIZE,
+): {
+  page: number;
+  pageCount: number;
+  first: number;
+  last: number;
+  hasPrevious: boolean;
+  hasNext: boolean;
+} {
+  const pageCount = Math.max(1, Math.ceil(Math.max(total, 0) / size));
+  const current = Math.min(Math.max(page, 1), pageCount);
+  return {
+    page: current,
+    pageCount,
+    first: total === 0 ? 0 : (current - 1) * size + 1,
+    last: Math.min(current * size, total),
+    hasPrevious: current > 1,
+    hasNext: current < pageCount,
+  };
+}

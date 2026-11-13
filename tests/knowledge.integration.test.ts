@@ -3581,6 +3581,73 @@ describeKnowledge("improvement proposals", () => {
     expect(outsider).toMatchObject({ ok: false, code: "no-workspace" });
   });
 
+  it("filters and pages the incident history", async () => {
+    type Paged = {
+      result: {
+        ok: boolean;
+        code?: string;
+        total: number;
+        limit: number;
+        offset: number;
+        incidents: { id: string; title: string; severity: string; status: string }[];
+      };
+    };
+    const read = async (
+      limit: number,
+      offset: number,
+      severity: string | null = null,
+      status: string | null = null,
+      query: string | null = null,
+    ) =>
+      (
+        await asUser(client, reviewer, () =>
+          client.query<Paged>(
+            "select public.workspace_incident_history($1,$2,$3,$4,$5,$6) as result",
+            [workspaceId, limit, offset, severity, status, query],
+          ),
+        )
+      ).rows[0].result;
+
+    const all = await read(20, 0);
+    expect(all.ok).toBe(true);
+    expect(all.total).toBeGreaterThanOrEqual(3);
+    expect(all.incidents.length).toBeLessThanOrEqual(20);
+
+    const high = await read(20, 0, "high");
+    expect(high.ok).toBe(true);
+    expect(high.incidents.length).toBeGreaterThan(0);
+    expect(high.incidents.every((row) => row.severity === "high")).toBe(true);
+    expect(high.total).toBeLessThanOrEqual(all.total);
+
+    const dismissed = await read(20, 0, null, "dismissed");
+    expect(dismissed.incidents.length).toBeGreaterThan(0);
+    expect(dismissed.incidents.every((row) => row.status === "dismissed")).toBe(true);
+    expect(dismissed.incidents.some((row) => row.title === "An incident that is dismissed")).toBe(
+      true,
+    );
+    expect(dismissed.incidents.some((row) => row.title === "An incident that gets fixed")).toBe(
+      false,
+    );
+
+    const searched = await read(20, 0, null, null, "DISMISSED");
+    expect(searched.total).toBe(1);
+    expect(searched.incidents.map((row) => row.title)).toEqual(["An incident that is dismissed"]);
+
+    // The search is literal text: a wildcard character matches nothing on its own.
+    expect((await read(20, 0, null, null, "%")).total).toBe(0);
+
+    const second = await read(1, 1);
+    expect(second.total).toBe(all.total);
+    expect(second.incidents).toHaveLength(1);
+    expect(second.incidents[0].id).not.toBe(all.incidents[0].id);
+
+    const clamped = await read(500, 0);
+    expect(clamped.limit).toBe(50);
+
+    const refused = await read(20, 0, "urgent");
+    expect(refused).toMatchObject({ ok: false, code: "bad-filter" });
+  });
+
   it("notifies on a backoff schedule instead of every day forever", async () => {
     type Pass = { result: { ok: boolean; delivered: number; escalated: number; day: string } };
     const runAt = (offset: string) =>

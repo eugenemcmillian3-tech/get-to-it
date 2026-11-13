@@ -1,5 +1,6 @@
 import type { Session } from "@/lib/auth";
 import { DataError } from "@/lib/data/goals";
+import { HISTORY_PAGE_SIZE, type IncidentHistoryFilters } from "@/lib/incident-history";
 
 const LOAD_ERROR =
   "We couldn't load the incident history just now. Refresh the page to try again.";
@@ -33,11 +34,17 @@ export type ClosedIncident = {
 export type IncidentHistory = {
   workspaceId: string;
   incidents: ClosedIncident[];
+  total: number;
+  limit: number;
+  offset: number;
 };
 
 type HistoryPayload = {
   ok?: boolean;
   code?: string;
+  total?: number;
+  limit?: number;
+  offset?: number;
   incidents?: {
     id: string;
     title: string;
@@ -70,6 +77,7 @@ type HistoryPayload = {
 export async function listIncidentHistory(
   session: Session,
   workspaceId: string,
+  filters: IncidentHistoryFilters,
 ): Promise<IncidentHistory | null> {
   const { data: workspace, error } = await session.supabase
     .from("workspaces")
@@ -96,7 +104,14 @@ export async function listIncidentHistory(
   if (!member) return null;
 
   const [history, directory] = await Promise.all([
-    session.supabase.rpc("workspace_incident_history", { p_workspace_id: workspaceId }),
+    session.supabase.rpc("workspace_incident_history", {
+      p_workspace_id: workspaceId,
+      p_limit: HISTORY_PAGE_SIZE,
+      p_offset: (filters.page - 1) * HISTORY_PAGE_SIZE,
+      p_severity: filters.severity,
+      p_status: filters.status,
+      p_query: filters.query,
+    }),
     session.supabase.rpc("workspace_member_directory", { p_workspace_id: workspaceId }),
   ]);
 
@@ -111,6 +126,7 @@ export async function listIncidentHistory(
   const payload = (history.data ?? {}) as HistoryPayload;
   if (!payload.ok) {
     if (payload.code === "no-workspace" || payload.code === "unauthenticated") return null;
+    console.error("incident history read refused:", payload.code);
     throw new DataError(LOAD_ERROR);
   }
 
@@ -121,6 +137,9 @@ export async function listIncidentHistory(
 
   return {
     workspaceId,
+    total: payload.total ?? 0,
+    limit: payload.limit ?? HISTORY_PAGE_SIZE,
+    offset: payload.offset ?? 0,
     incidents: (payload.incidents ?? []).map((incident) => ({
       id: incident.id,
       title: incident.title,
