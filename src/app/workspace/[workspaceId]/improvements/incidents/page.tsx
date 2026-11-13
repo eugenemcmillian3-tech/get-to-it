@@ -10,6 +10,7 @@ import {
   CLOSED_STATUSES,
   INCIDENT_SEVERITIES,
   formatIncidentMoment,
+  exportHref,
   historyFilters,
   historyHref,
   incidentDuration,
@@ -216,6 +217,16 @@ export default async function IncidentHistoryPage({
             ) : null}
           </div>
         </form>
+
+        <p className="mt-3 flex flex-wrap items-center gap-3 text-sm">
+          <Link href={exportHref(workspaceId, filters)} className="underline">
+            Export these filters as CSV
+          </Link>
+          <span className="text-xs text-muted">
+            Every matching incident, not just this page. Repeated filters are applied as they are
+            on screen.
+          </span>
+        </p>
 
         <section aria-labelledby="closed-heading" className="mt-8">
           <h2 id="closed-heading" className="text-xl font-bold">

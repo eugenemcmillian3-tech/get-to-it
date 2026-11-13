@@ -2267,6 +2267,15 @@ last page instead of showing nothing, and a range that starts after it ends says
 rather than silently swapping the ends or being read as a different question. It is
 a read: nothing on that page changes state.
 
+The same filters can be downloaded as CSV — every matching incident, not just the
+page on screen, one row per incident with its window, recovery, notification and
+escalation counts, recipients and first/last notification times, all in UTC. Cells
+go through the app's existing CSV writer, so commas, quotes and newlines stay inside
+their column and a leading `=`, `+`, `-` or `@` is prefixed with an apostrophe so a
+spreadsheet treats it as text. Above 5,000 matching incidents the export is refused
+with an explanation instead of being cut short, because a partial file would look
+complete.
+
 Refused, by name and on the record: granting permissions, removing an approval
 gate, increasing spending authority, changing a billing price, disabling audit
 logging, altering held-out answers, rewriting success criteria after results,

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import type { ClosedIncident } from "@/lib/data/incident-history";
 import {
   formatIncidentMoment,
+  exportHref,
   historyFilters,
   historyHref,
   incidentDuration,
@@ -8,6 +10,11 @@ import {
   pageWindow,
   recoveryKindLabel,
 } from "@/lib/incident-history";
+import {
+  INCIDENT_HISTORY_CSV_HEADERS,
+  incidentHistoryCsv,
+  incidentHistoryCsvFileName,
+} from "@/lib/incident-history-csv";
 
 describe("closed incident wording", () => {
   it("names each notification stage and admits a row from before the schedule", () => {
@@ -171,5 +178,148 @@ describe("history filters and pages", () => {
       hasPrevious: false,
       hasNext: false,
     });
+  });
+});
+
+function incident(overrides: Partial<ClosedIncident> = {}): ClosedIncident {
+  return {
+    id: "incident-1",
+    title: "Sends are timing out",
+    severity: "high",
+    status: "resolved",
+    trigger: "The release check saw timeouts.",
+    openedAt: "2026-11-05T09:00:00.000Z",
+    closedAt: "2026-11-06T11:00:00.000Z",
+    recoveryKind: "patch",
+    candidateId: "candidate-1",
+    candidateTitle: "Resolve the channel name first",
+    deploymentId: "deployment-1",
+    target: "preview",
+    notifications: [],
+    ...overrides,
+  };
+}
+
+describe("incident history CSV", () => {
+  it("writes a header row and one row per incident", () => {
+    const csv = incidentHistoryCsv([incident(), incident({ id: "incident-2", title: "Second" })]);
+    const lines = csv.trimEnd().split("\n");
+    expect(lines[0]).toBe(INCIDENT_HISTORY_CSV_HEADERS.join(","));
+    expect(lines).toHaveLength(3);
+    expect(lines[1]).toContain("Sends are timing out");
+    expect(lines[2]).toContain("Second");
+  });
+
+  it("computes the open hours and leaves empty fields for what never happened", () => {
+    const [header, row] = incidentHistoryCsv([incident()]).trimEnd().split("\n");
+    const cells = row.split(",");
+    const at = (name: string) => cells[header.split(",").indexOf(name)];
+    expect(at("open_hours")).toBe("26");
+    expect(at("notifications_sent")).toBe("0");
+    expect(at("escalations")).toBe("0");
+    expect(at("unread_notifications")).toBe("0");
+    expect(at("recipients")).toBe("");
+    expect(at("first_notification_at")).toBe("");
+    expect(at("last_notification_at")).toBe("");
+    expect(at("recovery")).toBe("patch");
+  });
+
+  it("counts what was delivered, including an escalation and anything still unread", () => {
+    const [header, row] = incidentHistoryCsv([
+      incident({
+        notifications: [
+          {
+            userId: "user-b",
+            recipient: "Bea",
+            stage: "first",
+            day: "2026-11-06",
+            sentAt: "2026-11-06T07:30:00.000Z",
+            readAt: "2026-11-06T07:35:00.000Z",
+            summary: "first",
+          },
+          {
+            userId: "user-a",
+            recipient: "Ada",
+            stage: "escalation",
+            day: "2026-11-12",
+            sentAt: "2026-11-12T07:30:00.000Z",
+            readAt: null,
+            summary: "escalation",
+          },
+        ],
+      }),
+    ])
+      .trimEnd()
+      .split("\n");
+    const cells = row.split(",");
+    const at = (name: string) => cells[header.split(",").indexOf(name)];
+    expect(at("notifications_sent")).toBe("2");
+    expect(at("escalations")).toBe("1");
+    expect(at("unread_notifications")).toBe("1");
+    expect(at("recipients")).toBe("Ada; Bea");
+    expect(at("first_notification_at")).toBe("2026-11-06T07:30:00.000Z");
+    expect(at("last_notification_at")).toBe("2026-11-12T07:30:00.000Z");
+  });
+
+  it("quotes commas, quotes and newlines instead of breaking the columns", () => {
+    const [header, row] = incidentHistoryCsv([
+      incident({
+        title: 'Sends, retries and "drops"\nacross lines',
+        trigger: "Because, reasons",
+      }),
+    ])
+      .trimEnd()
+      .split("\n");
+    expect(row).toContain('"Sends, retries and ""drops""');
+    expect(header.split(",")).toHaveLength(INCIDENT_HISTORY_CSV_HEADERS.length);
+    // The quoted newline keeps the record intact when read by a CSV parser.
+    expect(row.startsWith("resolved,high,")).toBe(true);
+  });
+
+  it("defuses a spreadsheet formula in an exported cell", () => {
+    const csv = incidentHistoryCsv([incident({ title: "=HYPERLINK(\"http://example.test\")" })]);
+    expect(csv).toContain("'=HYPERLINK");
+  });
+
+  it("names the file by the day it was exported", () => {
+    expect(incidentHistoryCsvFileName("2026-11-13T04:30:00.000Z")).toBe(
+      "incident-history-2026-11-13.csv",
+    );
+  });
+
+  it("links the export to the same filters, without the page", () => {
+    const href = exportHref("ws-1", {
+      severity: "high",
+      status: "resolved",
+      query: "timeout",
+      from: "2026-11-01",
+      to: "2026-11-30",
+      openFrom: "2026-10-01",
+      openTo: "2026-10-31",
+      page: 4,
+    });
+    const url = new URL(href, "https://example.test");
+    expect(url.pathname).toBe("/workspace/ws-1/improvements/incidents/export");
+    expect(url.searchParams.get("severity")).toBe("high");
+    expect(url.searchParams.get("status")).toBe("resolved");
+    expect(url.searchParams.get("query")).toBe("timeout");
+    expect(url.searchParams.get("from")).toBe("2026-11-01");
+    expect(url.searchParams.get("to")).toBe("2026-11-30");
+    expect(url.searchParams.get("open_from")).toBe("2026-10-01");
+    expect(url.searchParams.get("open_to")).toBe("2026-10-31");
+    expect(url.searchParams.get("page")).toBeNull();
+
+    expect(
+      exportHref("ws-1", {
+        severity: null,
+        status: null,
+        query: null,
+        from: null,
+        to: null,
+        openFrom: null,
+        openTo: null,
+        page: 1,
+      }),
+    ).toBe("/workspace/ws-1/improvements/incidents/export");
   });
 });

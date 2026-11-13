@@ -48,6 +48,10 @@ export function recoveryKindLabel(kind: string | null): string {
 }
 
 export const HISTORY_PAGE_SIZE = 20;
+/** Above this, an export is refused instead of being quietly truncated. */
+export const HISTORY_EXPORT_MAX = 5_000;
+/** Rows per read while walking an export; the read itself caps at 500. */
+export const HISTORY_EXPORT_PAGE = 500;
 export const INCIDENT_SEVERITIES = ["low", "medium", "high", "critical"] as const;
 export const CLOSED_STATUSES = ["resolved", "dismissed"] as const;
 
@@ -134,6 +138,20 @@ export function historyHref(
   if (page > 1) search.set("page", String(page));
   const qs = search.toString();
   return `/workspace/${workspaceId}/improvements/incidents${qs ? `?${qs}` : ""}`;
+}
+
+/** The same filters as the CSV export, without the page (it exports every match). */
+export function exportHref(workspaceId: string, filters: IncidentHistoryFilters): string {
+  const search = new URLSearchParams();
+  if (filters.severity) search.set("severity", filters.severity);
+  if (filters.status) search.set("status", filters.status);
+  if (filters.from) search.set("from", filters.from);
+  if (filters.to) search.set("to", filters.to);
+  if (filters.openFrom) search.set("open_from", filters.openFrom);
+  if (filters.openTo) search.set("open_to", filters.openTo);
+  if (filters.query) search.set("query", filters.query);
+  const qs = search.toString();
+  return `/workspace/${workspaceId}/improvements/incidents/export${qs ? `?${qs}` : ""}`;
 }
 
 /** Where the current page sits in the result set, for "showing 21-40 of 63". */

@@ -3666,8 +3666,10 @@ describeKnowledge("improvement proposals", () => {
     expect(second.incidents).toHaveLength(1);
     expect(second.incidents[0].id).not.toBe(all.incidents[0].id);
 
-    const clamped = await read(500, 0);
-    expect(clamped.limit).toBe(50);
+    // The read accepts up to 500 rows per call so an export can walk the set in
+    // a few requests; anything larger is clamped to that ceiling.
+    const clamped = await read(5_000, 0);
+    expect(clamped.limit).toBe(500);
 
     const refused = await read(20, 0, "urgent");
     expect(refused).toMatchObject({ ok: false, code: "bad-filter" });

@@ -1,6 +1,11 @@
 import type { Session } from "@/lib/auth";
 import { DataError } from "@/lib/data/goals";
-import { HISTORY_PAGE_SIZE, type IncidentHistoryFilters } from "@/lib/incident-history";
+import {
+  HISTORY_EXPORT_MAX,
+  HISTORY_EXPORT_PAGE,
+  HISTORY_PAGE_SIZE,
+  type IncidentHistoryFilters,
+} from "@/lib/incident-history";
 
 const LOAD_ERROR =
   "We couldn't load the incident history just now. Refresh the page to try again.";
@@ -74,10 +79,12 @@ type HistoryPayload = {
  * change's deployment, each with the notifications that were actually delivered
  * for it. Read-only, and only for members of the workspace.
  */
-export async function listIncidentHistory(
+async function readIncidentHistory(
   session: Session,
   workspaceId: string,
   filters: IncidentHistoryFilters,
+  limit: number,
+  offset: number,
 ): Promise<IncidentHistory | null> {
   const { data: workspace, error } = await session.supabase
     .from("workspaces")
@@ -106,8 +113,8 @@ export async function listIncidentHistory(
   const [history, directory] = await Promise.all([
     session.supabase.rpc("workspace_incident_history", {
       p_workspace_id: workspaceId,
-      p_limit: HISTORY_PAGE_SIZE,
-      p_offset: (filters.page - 1) * HISTORY_PAGE_SIZE,
+      p_limit: limit,
+      p_offset: offset,
       p_severity: filters.severity,
       p_status: filters.status,
       p_query: filters.query,
@@ -142,8 +149,8 @@ export async function listIncidentHistory(
   return {
     workspaceId,
     total: payload.total ?? 0,
-    limit: payload.limit ?? HISTORY_PAGE_SIZE,
-    offset: payload.offset ?? 0,
+    limit: payload.limit ?? limit,
+    offset: payload.offset ?? offset,
     incidents: (payload.incidents ?? []).map((incident) => ({
       id: incident.id,
       title: incident.title,
@@ -168,4 +175,54 @@ export async function listIncidentHistory(
       })),
     })),
   };
+}
+
+export async function listIncidentHistory(
+  session: Session,
+  workspaceId: string,
+  filters: IncidentHistoryFilters,
+): Promise<IncidentHistory | null> {
+  return readIncidentHistory(
+    session,
+    workspaceId,
+    filters,
+    HISTORY_PAGE_SIZE,
+    (filters.page - 1) * HISTORY_PAGE_SIZE,
+  );
+}
+
+export type IncidentHistoryExport =
+  | { tooLarge: true; total: number }
+  | { tooLarge: false; total: number; incidents: ClosedIncident[] };
+
+/**
+ * Every incident that matches the filters, not just the page on screen. The read
+ * is walked in pages so one huge review cannot be asked for in a single call, and
+ * a result larger than the export supports is refused rather than silently cut
+ * short: a partial CSV would look complete.
+ */
+export async function listIncidentHistoryForExport(
+  session: Session,
+  workspaceId: string,
+  filters: IncidentHistoryFilters,
+): Promise<IncidentHistoryExport | null> {
+  const first = await readIncidentHistory(session, workspaceId, filters, HISTORY_EXPORT_PAGE, 0);
+  if (!first) return null;
+  if (first.total > HISTORY_EXPORT_MAX) return { tooLarge: true, total: first.total };
+
+  const incidents = [...first.incidents];
+  while (incidents.length < first.total) {
+    const next = await readIncidentHistory(
+      session,
+      workspaceId,
+      filters,
+      HISTORY_EXPORT_PAGE,
+      incidents.length,
+    );
+    if (!next) return null;
+    if (next.incidents.length === 0) break;
+    incidents.push(...next.incidents);
+  }
+
+  return { tooLarge: false, total: first.total, incidents };
 }
