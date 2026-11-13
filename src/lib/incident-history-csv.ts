@@ -116,6 +116,23 @@ export function incidentNotificationCsv(incidents: ClosedIncident[]): string {
   );
 }
 
+/**
+ * Narrows the trail to one recipient's deliveries. Incidents with nothing left for
+ * that person are dropped rather than exported as empty rows, so a filtered file
+ * contains only deliveries that person actually received.
+ */
+export function filterIncidentNotificationsByRecipient(
+  incidents: ClosedIncident[],
+  recipientId: string,
+): ClosedIncident[] {
+  return incidents
+    .map((incident) => ({
+      ...incident,
+      notifications: incident.notifications.filter((row) => row.userId === recipientId),
+    }))
+    .filter((incident) => incident.notifications.length > 0);
+}
+
 export function incidentNotificationRowCount(incidents: ClosedIncident[]): number {
   return incidents.reduce((total, incident) => total + incident.notifications.length, 0);
 }

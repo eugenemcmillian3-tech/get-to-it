@@ -164,11 +164,14 @@ export function exportHref(workspaceId: string, filters: IncidentHistoryFilters)
 export function notificationExportHref(
   workspaceId: string,
   filters: IncidentHistoryFilters,
+  recipient: string | null = null,
 ): string {
-  return exportHref(workspaceId, filters).replace(
+  const href = exportHref(workspaceId, filters).replace(
     "/incidents/export",
     "/incidents/notifications/export",
   );
+  if (!recipient) return href;
+  return `${href}${href.includes("?") ? "&" : "?"}recipient=${encodeURIComponent(recipient)}`;
 }
 
 /** Where the current page sits in the result set, for "showing 21-40 of 63". */

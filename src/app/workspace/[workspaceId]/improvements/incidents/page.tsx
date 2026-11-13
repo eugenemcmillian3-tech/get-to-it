@@ -71,6 +71,14 @@ export default async function IncidentHistoryPage({
       total + incident.notifications.filter((row) => row.stage === "escalation").length,
     0,
   );
+  const recipients = [
+    ...new Map(
+      history.incidents
+        .flatMap((incident) => incident.notifications)
+        .map((row) => [row.userId, row.recipient ?? `member ${row.userId.slice(0, 8)}`]),
+    ).entries(),
+  ].sort((a, b) => a[1].localeCompare(b[1]));
+
   const filtered = Boolean(
     filters.severity ||
       filters.status ||
@@ -229,6 +237,22 @@ export default async function IncidentHistoryPage({
           <span className="text-xs text-muted">
             Both exports cover every matching incident, not just this page, with the filters as
             they are on screen. The notifications file has one row per delivery.
+            {recipients.length > 0 ? (
+              <span className="block">
+                One person&apos;s deliveries:{" "}
+                {recipients.map(([userId, name], index) => (
+                  <span key={userId}>
+                    {index > 0 ? ", " : ""}
+                    <Link
+                      href={notificationExportHref(workspaceId, filters, userId)}
+                      className="underline"
+                    >
+                      {name}
+                    </Link>
+                  </span>
+                ))}
+              </span>
+            ) : null}
           </span>
         </p>
 

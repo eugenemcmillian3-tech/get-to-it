@@ -6,6 +6,7 @@ import {
   historyFilters,
 } from "@/lib/incident-history";
 import {
+  filterIncidentNotificationsByRecipient,
   incidentNotificationCsv,
   incidentNotificationCsvFileName,
   incidentNotificationRowCount,
@@ -35,7 +36,12 @@ export async function GET(
     return new Response("Sign in to export the notification trail.", { status: 401 });
   }
 
-  const filters = historyFilters(Object.fromEntries(new URL(request.url).searchParams));
+  const search = new URL(request.url).searchParams;
+  const filters = historyFilters(Object.fromEntries(search));
+  const recipient = search.get("recipient");
+  if (recipient !== null && !isUuid(recipient)) {
+    return new Response("That recipient is not a member of this workspace.", { status: 400 });
+  }
   const result = await listIncidentHistoryForExport(session, workspaceId, filters);
   if (!result) {
     return new Response("Not found", { status: 404 });
@@ -47,7 +53,13 @@ export async function GET(
     );
   }
 
-  const rows = incidentNotificationRowCount(result.incidents);
+  // A recipient narrows the deliveries, not the incidents: the same filters decide
+  // which incidents are in scope, then only that person's rows are written.
+  const scoped = recipient
+    ? filterIncidentNotificationsByRecipient(result.incidents, recipient)
+    : result.incidents;
+
+  const rows = incidentNotificationRowCount(scoped);
   if (rows > NOTIFICATION_EXPORT_MAX) {
     return new Response(
       `Those filters cover ${rows} notifications, more than the ${NOTIFICATION_EXPORT_MAX} rows one export supports. Narrow the filters and try again.`,
@@ -57,7 +69,7 @@ export async function GET(
 
   const exportedAt = new Date().toISOString();
 
-  return new Response(incidentNotificationCsv(result.incidents), {
+  return new Response(incidentNotificationCsv(scoped), {
     status: 200,
     headers: {
       "Content-Type": "text/csv;charset=utf-8",

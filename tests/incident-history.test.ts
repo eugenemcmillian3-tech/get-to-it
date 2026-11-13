@@ -15,6 +15,7 @@ import {
   INCIDENT_HISTORY_CSV_HEADERS,
   INCIDENT_NOTIFICATION_CSV_HEADERS,
   incidentHistoryCsv,
+  filterIncidentNotificationsByRecipient,
   incidentHistoryCsvFileName,
   incidentNotificationCsv,
   incidentNotificationCsvFileName,
@@ -439,5 +440,84 @@ describe("notification trail CSV", () => {
     expect(url.searchParams.get("query")).toBe("timeout");
     expect(url.searchParams.get("from")).toBe("2026-11-01");
     expect(url.searchParams.get("page")).toBeNull();
+  });
+});
+
+describe("notification trail recipient filter", () => {
+  const trail = (): ClosedIncident =>
+    incident({
+      notifications: [
+        {
+          userId: "user-a",
+          recipient: "Ada",
+          stage: "first",
+          day: "2026-11-06",
+          sentAt: "2026-11-06T07:30:00.000Z",
+          readAt: null,
+          summary: "for Ada",
+        },
+        {
+          userId: "user-b",
+          recipient: "Bea",
+          stage: "first",
+          day: "2026-11-06",
+          sentAt: "2026-11-06T07:30:00.000Z",
+          readAt: null,
+          summary: "for Bea",
+        },
+      ],
+    });
+
+  it("keeps only the chosen person's deliveries and drops incidents left empty", () => {
+    const filtered = filterIncidentNotificationsByRecipient(
+      [trail(), incident({ id: "incident-2", notifications: [trail().notifications[1]] })],
+      "user-a",
+    );
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].id).toBe("incident-1");
+    expect(filtered[0].notifications.map((row) => row.recipient)).toEqual(["Ada"]);
+
+    const csv = incidentNotificationCsv(filtered);
+    expect(csv).toContain("for Ada");
+    expect(csv).not.toContain("for Bea");
+  });
+
+  it("leaves the incidents it was given untouched", () => {
+    const original = [trail()];
+    const filtered = filterIncidentNotificationsByRecipient(original, "user-a");
+    expect(original[0].notifications).toHaveLength(2);
+    expect(filtered[0]).not.toBe(original[0]);
+    expect(filtered[0].notifications).toHaveLength(1);
+  });
+
+  it("returns nothing for someone who was never notified", () => {
+    expect(filterIncidentNotificationsByRecipient([trail()], "user-c")).toEqual([]);
+    expect(incidentNotificationRowCount(filterIncidentNotificationsByRecipient([trail()], "user-c"))).toBe(0);
+  });
+
+  it("carries the recipient in the export link and leaves the plain link alone", () => {
+    const filters = {
+      severity: null,
+      status: null,
+      query: null,
+      from: null,
+      to: null,
+      openFrom: null,
+      openTo: null,
+      page: 1,
+    };
+    expect(notificationExportHref("ws-1", filters)).toBe(
+      "/workspace/ws-1/improvements/incidents/notifications/export",
+    );
+    const scoped = new URL(notificationExportHref("ws-1", filters, "user-a"), "https://example.test");
+    expect(scoped.searchParams.get("recipient")).toBe("user-a");
+
+    const withFilters = new URL(
+      notificationExportHref("ws-1", { ...filters, severity: "high" }, "user-a"),
+      "https://example.test",
+    );
+    expect(withFilters.searchParams.get("severity")).toBe("high");
+    expect(withFilters.searchParams.get("recipient")).toBe("user-a");
+    expect(withFilters.searchParams.get("page")).toBeNull();
   });
 });
