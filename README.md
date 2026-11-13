@@ -2286,3 +2286,64 @@ gate, increasing spending authority, changing a billing price, disabling audit
 logging, altering held-out answers, rewriting success criteria after results,
 deploying its own change and modifying production data without approval. An
 attempt is kept in `improvement_boundary_blocks` so the refusal is visible.
+
+## Controlled performance research (Phase 41)
+
+`/workspace/{workspaceId}/performance` is a pre-registered comparison program. It
+exists to answer one narrow question honestly: on twelve authored intents about
+which connector tool to use, does a candidate tool policy reach the expected tool
+more often than the shipped one? The task family is installed as a record with its
+version, its twelve task keys and a SHA-256 digest of the cases, so a program can
+only draw its tasks from that list.
+
+A comparison registers ten things before anything runs: the task distribution
+(family, version, digest, exact task keys), inclusion and exclusion rules, the
+scoring method, the baseline and candidate configuration, the permitted tools, a
+time limit and a cost limit per trial, the number of trials per task, the human
+assistance policy, the failure criteria, and the one claim it could support. A
+program is a draft until registration writes its fingerprint, the person and the
+time; from then on every protocol field is frozen by a trigger, and a trial cannot
+be recorded against a draft or a closed program. There is no path that records a
+trial first and writes the method afterwards.
+
+Four claims are distinct and only one may be registered: faster, lower cost, better
+on this authored benchmark, or better on a defined real-world task distribution. The
+minimum effect is read in that claim's own unit — score points for a benchmark or
+distribution claim, percentage points for speed or cost — and a non-inferiority
+margin states how much score a speed or cost claim may trade away. A broader
+general-capability claim is not registrable: the column's check refuses it, claim
+text containing AGI, artificial general intelligence, superintelligence or
+singularity wording is refused, and the report states that one task family cannot
+support a general-capability claim whatever the score on it.
+
+Trials are append-only. Each row names its configuration, task, trial number,
+outcome (pass, partial or fail), score, cost, latency, whether a person helped and
+who recorded it; a task outside the registered distribution, a trial number past
+the plan, a non-member recorder, or a suite whose digest no longer matches the
+installed family is refused. The runner evaluates both configurations over exactly
+the registered cases, so the two rows sets are comparable by construction.
+
+Human comparisons are documented, never invented. A human reference stores the
+participants' relevant expertise, their tool access, the working conditions, the
+consent and privacy basis, the collection method, and measured numbers. It is
+labelled as a reference and never merged into the machine baseline. Independent
+review is separated: the person who recorded a trial cannot review it, the person
+who registered the comparison cannot review any of its trials, and a disagreement
+above the registered allowance blocks the claim instead of being averaged away.
+
+The claim verdict is derived in Postgres on every read from the recorded rows and
+the registered conditions — completeness, the minimum effect, non-inferiority,
+assistance parity, the cost and time limits, and the disagreement allowance. A
+speed claim is refused when latency was never measured rather than estimated; a
+lower-cost claim is refused when neither side recorded a cost; a distribution claim
+stays a benchmark result until a documented human reference exists. The page and
+`/workspace/{workspaceId}/performance/{programId}/report` show the protocol, the
+numbers, the supported claim with its reasons, the claims that are explicitly not
+supported, and the conditions under which the result may not transfer. The report
+is generated from the rows at request time, names the digest and fingerprint so it
+can be recomputed, and is a Markdown download.
+
+Nothing in this phase calls a model, spends money, deploys anything or publishes a
+claim. The measured money cost is zero on both sides because no paid call is made;
+authored cost units are not a price. That is exactly why the engine refuses speed
+and cost claims it has no evidence for.

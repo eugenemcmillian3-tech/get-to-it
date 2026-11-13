@@ -2352,6 +2352,96 @@
       "check": ""
     },
     {
+      "key": "performance_human_references.members document human references",
+      "table": "performance_human_references",
+      "name": "members document human references",
+      "cmd": "INSERT",
+      "roles": "{authenticated}",
+      "qual": "",
+      "check": "((user_id = ( SELECT auth.uid() AS uid)) AND (workspace_role(workspace_id) IS NOT NULL))"
+    },
+    {
+      "key": "performance_human_references.members read human references",
+      "table": "performance_human_references",
+      "name": "members read human references",
+      "cmd": "SELECT",
+      "roles": "{authenticated}",
+      "qual": "(workspace_role(workspace_id) IS NOT NULL)",
+      "check": ""
+    },
+    {
+      "key": "performance_programs.members read performance programs",
+      "table": "performance_programs",
+      "name": "members read performance programs",
+      "cmd": "SELECT",
+      "roles": "{authenticated}",
+      "qual": "(workspace_role(workspace_id) IS NOT NULL)",
+      "check": ""
+    },
+    {
+      "key": "performance_programs.members register performance programs",
+      "table": "performance_programs",
+      "name": "members register performance programs",
+      "cmd": "INSERT",
+      "roles": "{authenticated}",
+      "qual": "",
+      "check": "((user_id = ( SELECT auth.uid() AS uid)) AND (workspace_role(workspace_id) IS NOT NULL))"
+    },
+    {
+      "key": "performance_programs.registrars update performance programs",
+      "table": "performance_programs",
+      "name": "registrars update performance programs",
+      "cmd": "UPDATE",
+      "roles": "{authenticated}",
+      "qual": "((user_id = ( SELECT auth.uid() AS uid)) AND (workspace_role(workspace_id) IS NOT NULL))",
+      "check": "((user_id = ( SELECT auth.uid() AS uid)) AND (workspace_role(workspace_id) IS NOT NULL))"
+    },
+    {
+      "key": "performance_review_marks.members mark reviews",
+      "table": "performance_review_marks",
+      "name": "members mark reviews",
+      "cmd": "INSERT",
+      "roles": "{authenticated}",
+      "qual": "",
+      "check": "((reviewer_id = ( SELECT auth.uid() AS uid)) AND (workspace_role(workspace_id) IS NOT NULL))"
+    },
+    {
+      "key": "performance_review_marks.members read review marks",
+      "table": "performance_review_marks",
+      "name": "members read review marks",
+      "cmd": "SELECT",
+      "roles": "{authenticated}",
+      "qual": "(workspace_role(workspace_id) IS NOT NULL)",
+      "check": ""
+    },
+    {
+      "key": "performance_task_families.members read task families",
+      "table": "performance_task_families",
+      "name": "members read task families",
+      "cmd": "SELECT",
+      "roles": "{authenticated}",
+      "qual": "true",
+      "check": ""
+    },
+    {
+      "key": "performance_trials.members read performance trials",
+      "table": "performance_trials",
+      "name": "members read performance trials",
+      "cmd": "SELECT",
+      "roles": "{authenticated}",
+      "qual": "(workspace_role(workspace_id) IS NOT NULL)",
+      "check": ""
+    },
+    {
+      "key": "performance_trials.members record performance trials",
+      "table": "performance_trials",
+      "name": "members record performance trials",
+      "cmd": "INSERT",
+      "roles": "{authenticated}",
+      "qual": "",
+      "check": "((recorded_by = ( SELECT auth.uid() AS uid)) AND (workspace_role(workspace_id) IS NOT NULL))"
+    },
+    {
       "key": "profiles.profiles are private to their owner",
       "table": "profiles",
       "name": "profiles are private to their owner",
@@ -14171,6 +14261,573 @@
       "definition": "CHECK (((char_length(type) >= 1) AND (char_length(type) <= 120)))"
     },
     {
+      "key": "performance_human_references.performance_human_references_check",
+      "table": "performance_human_references",
+      "name": "performance_human_references_check",
+      "type": "c",
+      "definition": "CHECK ((passed <= task_count))"
+    },
+    {
+      "key": "performance_human_references.performance_human_references_collection_method_check",
+      "table": "performance_human_references",
+      "name": "performance_human_references_collection_method_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(collection_method)) >= 30) AND (char_length(btrim(collection_method)) <= 2000)))"
+    },
+    {
+      "key": "performance_human_references.performance_human_references_conditions_check",
+      "table": "performance_human_references",
+      "name": "performance_human_references_conditions_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(conditions)) >= 20) AND (char_length(btrim(conditions)) <= 1000)))"
+    },
+    {
+      "key": "performance_human_references.performance_human_references_consent_basis_check",
+      "table": "performance_human_references",
+      "name": "performance_human_references_consent_basis_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(consent_basis)) >= 20) AND (char_length(btrim(consent_basis)) <= 1000)))"
+    },
+    {
+      "key": "performance_human_references.performance_human_references_expertise_check",
+      "table": "performance_human_references",
+      "name": "performance_human_references_expertise_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(expertise)) >= 20) AND (char_length(btrim(expertise)) <= 1000)))"
+    },
+    {
+      "key": "performance_human_references.performance_human_references_mean_score_check",
+      "table": "performance_human_references",
+      "name": "performance_human_references_mean_score_check",
+      "type": "c",
+      "definition": "CHECK (((mean_score >= (0)::numeric) AND (mean_score <= (1)::numeric)))"
+    },
+    {
+      "key": "performance_human_references.performance_human_references_notes_check",
+      "table": "performance_human_references",
+      "name": "performance_human_references_notes_check",
+      "type": "c",
+      "definition": "CHECK (((notes IS NULL) OR (char_length(notes) <= 1000)))"
+    },
+    {
+      "key": "performance_human_references.performance_human_references_participants_check",
+      "table": "performance_human_references",
+      "name": "performance_human_references_participants_check",
+      "type": "c",
+      "definition": "CHECK (((participants >= 1) AND (participants <= 1000)))"
+    },
+    {
+      "key": "performance_human_references.performance_human_references_passed_check",
+      "table": "performance_human_references",
+      "name": "performance_human_references_passed_check",
+      "type": "c",
+      "definition": "CHECK ((passed >= 0))"
+    },
+    {
+      "key": "performance_human_references.performance_human_references_pkey",
+      "table": "performance_human_references",
+      "name": "performance_human_references_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "performance_human_references.performance_human_references_program_id_fkey",
+      "table": "performance_human_references",
+      "name": "performance_human_references_program_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (program_id) REFERENCES performance_programs(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "performance_human_references.performance_human_references_task_count_check",
+      "table": "performance_human_references",
+      "name": "performance_human_references_task_count_check",
+      "type": "c",
+      "definition": "CHECK (((task_count >= 1) AND (task_count <= 1000)))"
+    },
+    {
+      "key": "performance_human_references.performance_human_references_tool_access_check",
+      "table": "performance_human_references",
+      "name": "performance_human_references_tool_access_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(tool_access)) >= 20) AND (char_length(btrim(tool_access)) <= 1000)))"
+    },
+    {
+      "key": "performance_human_references.performance_human_references_user_id_fkey",
+      "table": "performance_human_references",
+      "name": "performance_human_references_user_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "performance_human_references.performance_human_references_workspace_id_fkey",
+      "table": "performance_human_references",
+      "name": "performance_human_references_workspace_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "performance_programs.performance_programs_baseline_config_check",
+      "table": "performance_programs",
+      "name": "performance_programs_baseline_config_check",
+      "type": "c",
+      "definition": "CHECK ((jsonb_typeof(baseline_config) = 'object'::text))"
+    },
+    {
+      "key": "performance_programs.performance_programs_baseline_label_check",
+      "table": "performance_programs",
+      "name": "performance_programs_baseline_label_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(baseline_label)) >= 3) AND (char_length(btrim(baseline_label)) <= 160)))"
+    },
+    {
+      "key": "performance_programs.performance_programs_candidate_config_check",
+      "table": "performance_programs",
+      "name": "performance_programs_candidate_config_check",
+      "type": "c",
+      "definition": "CHECK ((jsonb_typeof(candidate_config) = 'object'::text))"
+    },
+    {
+      "key": "performance_programs.performance_programs_candidate_label_check",
+      "table": "performance_programs",
+      "name": "performance_programs_candidate_label_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(candidate_label)) >= 3) AND (char_length(btrim(candidate_label)) <= 160)))"
+    },
+    {
+      "key": "performance_programs.performance_programs_check",
+      "table": "performance_programs",
+      "name": "performance_programs_check",
+      "type": "c",
+      "definition": "CHECK (((distribution ->> 'suite'::text) = task_family))"
+    },
+    {
+      "key": "performance_programs.performance_programs_check1",
+      "table": "performance_programs",
+      "name": "performance_programs_check1",
+      "type": "c",
+      "definition": "CHECK (((status = 'draft'::text) OR ((fingerprint IS NOT NULL) AND (registered_at IS NOT NULL) AND (registered_by IS NOT NULL))))"
+    },
+    {
+      "key": "performance_programs.performance_programs_check2",
+      "table": "performance_programs",
+      "name": "performance_programs_check2",
+      "type": "c",
+      "definition": "CHECK (((status <> 'closed'::text) OR (closed_at IS NOT NULL)))"
+    },
+    {
+      "key": "performance_programs.performance_programs_claim_text_check",
+      "table": "performance_programs",
+      "name": "performance_programs_claim_text_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(claim_text)) >= 20) AND (char_length(btrim(claim_text)) <= 500)))"
+    },
+    {
+      "key": "performance_programs.performance_programs_claim_text_check1",
+      "table": "performance_programs",
+      "name": "performance_programs_claim_text_check1",
+      "type": "c",
+      "definition": "CHECK ((lower(claim_text) !~ '(^|[^a-z])(agi|artificial general intelligence|superintelligence|singularity)([^a-z]|$)'::text))"
+    },
+    {
+      "key": "performance_programs.performance_programs_cost_limit_cents_check",
+      "table": "performance_programs",
+      "name": "performance_programs_cost_limit_cents_check",
+      "type": "c",
+      "definition": "CHECK (((cost_limit_cents >= 0) AND (cost_limit_cents <= 100000)))"
+    },
+    {
+      "key": "performance_programs.performance_programs_distribution_check",
+      "table": "performance_programs",
+      "name": "performance_programs_distribution_check",
+      "type": "c",
+      "definition": "CHECK ((jsonb_typeof(distribution) = 'object'::text))"
+    },
+    {
+      "key": "performance_programs.performance_programs_distribution_check1",
+      "table": "performance_programs",
+      "name": "performance_programs_distribution_check1",
+      "type": "c",
+      "definition": "CHECK (((jsonb_array_length(COALESCE((distribution -> 'task_keys'::text), '[]'::jsonb)) >= 1) AND (jsonb_array_length(COALESCE((distribution -> 'task_keys'::text), '[]'::jsonb)) <= 200)))"
+    },
+    {
+      "key": "performance_programs.performance_programs_exclusion_rules_check",
+      "table": "performance_programs",
+      "name": "performance_programs_exclusion_rules_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(exclusion_rules)) >= 10) AND (char_length(btrim(exclusion_rules)) <= 2000)))"
+    },
+    {
+      "key": "performance_programs.performance_programs_failure_criteria_check",
+      "table": "performance_programs",
+      "name": "performance_programs_failure_criteria_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(failure_criteria)) >= 20) AND (char_length(btrim(failure_criteria)) <= 2000)))"
+    },
+    {
+      "key": "performance_programs.performance_programs_fingerprint_check",
+      "table": "performance_programs",
+      "name": "performance_programs_fingerprint_check",
+      "type": "c",
+      "definition": "CHECK ((fingerprint ~ '^[0-9a-f]{64}$'::text))"
+    },
+    {
+      "key": "performance_programs.performance_programs_human_assistance_policy_check",
+      "table": "performance_programs",
+      "name": "performance_programs_human_assistance_policy_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(human_assistance_policy)) >= 20) AND (char_length(btrim(human_assistance_policy)) <= 1000)))"
+    },
+    {
+      "key": "performance_programs.performance_programs_inclusion_rules_check",
+      "table": "performance_programs",
+      "name": "performance_programs_inclusion_rules_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(inclusion_rules)) >= 20) AND (char_length(btrim(inclusion_rules)) <= 2000)))"
+    },
+    {
+      "key": "performance_programs.performance_programs_max_disagreements_check",
+      "table": "performance_programs",
+      "name": "performance_programs_max_disagreements_check",
+      "type": "c",
+      "definition": "CHECK (((max_disagreements >= 0) AND (max_disagreements <= 100)))"
+    },
+    {
+      "key": "performance_programs.performance_programs_minimum_effect_check",
+      "table": "performance_programs",
+      "name": "performance_programs_minimum_effect_check",
+      "type": "c",
+      "definition": "CHECK (((minimum_effect >= (0)::numeric) AND (minimum_effect <= (100)::numeric)))"
+    },
+    {
+      "key": "performance_programs.performance_programs_noninferiority_margin_check",
+      "table": "performance_programs",
+      "name": "performance_programs_noninferiority_margin_check",
+      "type": "c",
+      "definition": "CHECK (((noninferiority_margin >= (0)::numeric) AND (noninferiority_margin <= (1)::numeric)))"
+    },
+    {
+      "key": "performance_programs.performance_programs_permitted_tools_check",
+      "table": "performance_programs",
+      "name": "performance_programs_permitted_tools_check",
+      "type": "c",
+      "definition": "CHECK (((cardinality(permitted_tools) >= 1) AND (cardinality(permitted_tools) <= 8)))"
+    },
+    {
+      "key": "performance_programs.performance_programs_pkey",
+      "table": "performance_programs",
+      "name": "performance_programs_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "performance_programs.performance_programs_project_id_fkey",
+      "table": "performance_programs",
+      "name": "performance_programs_project_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (project_id) REFERENCES app_projects(id) ON DELETE SET NULL"
+    },
+    {
+      "key": "performance_programs.performance_programs_question_check",
+      "table": "performance_programs",
+      "name": "performance_programs_question_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(question)) >= 20) AND (char_length(btrim(question)) <= 1000)))"
+    },
+    {
+      "key": "performance_programs.performance_programs_registered_by_fkey",
+      "table": "performance_programs",
+      "name": "performance_programs_registered_by_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (registered_by) REFERENCES auth.users(id) ON DELETE SET NULL"
+    },
+    {
+      "key": "performance_programs.performance_programs_scoring_method_check",
+      "table": "performance_programs",
+      "name": "performance_programs_scoring_method_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(scoring_method)) >= 20) AND (char_length(btrim(scoring_method)) <= 2000)))"
+    },
+    {
+      "key": "performance_programs.performance_programs_status_check",
+      "table": "performance_programs",
+      "name": "performance_programs_status_check",
+      "type": "c",
+      "definition": "CHECK ((status = ANY (ARRAY['draft'::text, 'registered'::text, 'closed'::text])))"
+    },
+    {
+      "key": "performance_programs.performance_programs_supported_claim_check",
+      "table": "performance_programs",
+      "name": "performance_programs_supported_claim_check",
+      "type": "c",
+      "definition": "CHECK ((supported_claim = ANY (ARRAY['faster'::text, 'lower_cost'::text, 'benchmark'::text, 'distribution'::text])))"
+    },
+    {
+      "key": "performance_programs.performance_programs_task_family_fkey",
+      "table": "performance_programs",
+      "name": "performance_programs_task_family_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (task_family) REFERENCES performance_task_families(key)"
+    },
+    {
+      "key": "performance_programs.performance_programs_time_limit_seconds_check",
+      "table": "performance_programs",
+      "name": "performance_programs_time_limit_seconds_check",
+      "type": "c",
+      "definition": "CHECK (((time_limit_seconds >= 10) AND (time_limit_seconds <= 3600)))"
+    },
+    {
+      "key": "performance_programs.performance_programs_title_check",
+      "table": "performance_programs",
+      "name": "performance_programs_title_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(title)) >= 5) AND (char_length(btrim(title)) <= 160)))"
+    },
+    {
+      "key": "performance_programs.performance_programs_trials_check",
+      "table": "performance_programs",
+      "name": "performance_programs_trials_check",
+      "type": "c",
+      "definition": "CHECK (((trials >= 1) AND (trials <= 20)))"
+    },
+    {
+      "key": "performance_programs.performance_programs_user_id_fkey",
+      "table": "performance_programs",
+      "name": "performance_programs_user_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "performance_programs.performance_programs_workspace_id_fkey",
+      "table": "performance_programs",
+      "name": "performance_programs_workspace_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "performance_review_marks.performance_review_marks_note_check",
+      "table": "performance_review_marks",
+      "name": "performance_review_marks_note_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(note)) >= 10) AND (char_length(btrim(note)) <= 500)))"
+    },
+    {
+      "key": "performance_review_marks.performance_review_marks_pkey",
+      "table": "performance_review_marks",
+      "name": "performance_review_marks_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "performance_review_marks.performance_review_marks_program_id_fkey",
+      "table": "performance_review_marks",
+      "name": "performance_review_marks_program_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (program_id) REFERENCES performance_programs(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "performance_review_marks.performance_review_marks_reviewer_id_fkey",
+      "table": "performance_review_marks",
+      "name": "performance_review_marks_reviewer_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (reviewer_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "performance_review_marks.performance_review_marks_trial_id_fkey",
+      "table": "performance_review_marks",
+      "name": "performance_review_marks_trial_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (trial_id) REFERENCES performance_trials(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "performance_review_marks.performance_review_marks_trial_id_reviewer_id_key",
+      "table": "performance_review_marks",
+      "name": "performance_review_marks_trial_id_reviewer_id_key",
+      "type": "u",
+      "definition": "UNIQUE (trial_id, reviewer_id)"
+    },
+    {
+      "key": "performance_review_marks.performance_review_marks_verdict_check",
+      "table": "performance_review_marks",
+      "name": "performance_review_marks_verdict_check",
+      "type": "c",
+      "definition": "CHECK ((verdict = ANY (ARRAY['agree'::text, 'disagree'::text])))"
+    },
+    {
+      "key": "performance_review_marks.performance_review_marks_workspace_id_fkey",
+      "table": "performance_review_marks",
+      "name": "performance_review_marks_workspace_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "performance_task_families.performance_task_families_description_check",
+      "table": "performance_task_families",
+      "name": "performance_task_families_description_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(description)) >= 20) AND (char_length(btrim(description)) <= 1000)))"
+    },
+    {
+      "key": "performance_task_families.performance_task_families_key_check",
+      "table": "performance_task_families",
+      "name": "performance_task_families_key_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(key)) >= 3) AND (char_length(btrim(key)) <= 60)))"
+    },
+    {
+      "key": "performance_task_families.performance_task_families_pkey",
+      "table": "performance_task_families",
+      "name": "performance_task_families_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (key)"
+    },
+    {
+      "key": "performance_task_families.performance_task_families_suite_digest_check",
+      "table": "performance_task_families",
+      "name": "performance_task_families_suite_digest_check",
+      "type": "c",
+      "definition": "CHECK ((suite_digest ~ '^[0-9a-f]{64}$'::text))"
+    },
+    {
+      "key": "performance_task_families.performance_task_families_task_keys_check",
+      "table": "performance_task_families",
+      "name": "performance_task_families_task_keys_check",
+      "type": "c",
+      "definition": "CHECK (((cardinality(task_keys) >= 1) AND (cardinality(task_keys) <= 200)))"
+    },
+    {
+      "key": "performance_task_families.performance_task_families_version_check",
+      "table": "performance_task_families",
+      "name": "performance_task_families_version_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(version)) >= 1) AND (char_length(btrim(version)) <= 40)))"
+    },
+    {
+      "key": "performance_trials.performance_trials_check",
+      "table": "performance_trials",
+      "name": "performance_trials_check",
+      "type": "c",
+      "definition": "CHECK ((((outcome = 'pass'::text) AND (score = (1)::numeric)) OR ((outcome = 'fail'::text) AND (score = (0)::numeric)) OR ((outcome = 'partial'::text) AND (score > (0)::numeric) AND (score < (1)::numeric))))"
+    },
+    {
+      "key": "performance_trials.performance_trials_check1",
+      "table": "performance_trials",
+      "name": "performance_trials_check1",
+      "type": "c",
+      "definition": "CHECK (((source <> 'authored_suite'::text) OR (source_id IS NULL)))"
+    },
+    {
+      "key": "performance_trials.performance_trials_check2",
+      "table": "performance_trials",
+      "name": "performance_trials_check2",
+      "type": "c",
+      "definition": "CHECK (((source <> 'capability_run'::text) OR (source_id IS NOT NULL)))"
+    },
+    {
+      "key": "performance_trials.performance_trials_config_check",
+      "table": "performance_trials",
+      "name": "performance_trials_config_check",
+      "type": "c",
+      "definition": "CHECK ((config = ANY (ARRAY['baseline'::text, 'candidate'::text])))"
+    },
+    {
+      "key": "performance_trials.performance_trials_cost_cents_check",
+      "table": "performance_trials",
+      "name": "performance_trials_cost_cents_check",
+      "type": "c",
+      "definition": "CHECK ((cost_cents >= 0))"
+    },
+    {
+      "key": "performance_trials.performance_trials_cost_units_check",
+      "table": "performance_trials",
+      "name": "performance_trials_cost_units_check",
+      "type": "c",
+      "definition": "CHECK ((cost_units >= 0))"
+    },
+    {
+      "key": "performance_trials.performance_trials_duration_ms_check",
+      "table": "performance_trials",
+      "name": "performance_trials_duration_ms_check",
+      "type": "c",
+      "definition": "CHECK (((duration_ms IS NULL) OR (duration_ms >= 0)))"
+    },
+    {
+      "key": "performance_trials.performance_trials_note_check",
+      "table": "performance_trials",
+      "name": "performance_trials_note_check",
+      "type": "c",
+      "definition": "CHECK (((note IS NULL) OR (char_length(note) <= 500)))"
+    },
+    {
+      "key": "performance_trials.performance_trials_outcome_check",
+      "table": "performance_trials",
+      "name": "performance_trials_outcome_check",
+      "type": "c",
+      "definition": "CHECK ((outcome = ANY (ARRAY['pass'::text, 'partial'::text, 'fail'::text])))"
+    },
+    {
+      "key": "performance_trials.performance_trials_pkey",
+      "table": "performance_trials",
+      "name": "performance_trials_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "performance_trials.performance_trials_program_id_config_task_key_trial_key",
+      "table": "performance_trials",
+      "name": "performance_trials_program_id_config_task_key_trial_key",
+      "type": "u",
+      "definition": "UNIQUE (program_id, config, task_key, trial)"
+    },
+    {
+      "key": "performance_trials.performance_trials_program_id_fkey",
+      "table": "performance_trials",
+      "name": "performance_trials_program_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (program_id) REFERENCES performance_programs(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "performance_trials.performance_trials_recorded_by_fkey",
+      "table": "performance_trials",
+      "name": "performance_trials_recorded_by_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (recorded_by) REFERENCES auth.users(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "performance_trials.performance_trials_score_check",
+      "table": "performance_trials",
+      "name": "performance_trials_score_check",
+      "type": "c",
+      "definition": "CHECK (((score >= (0)::numeric) AND (score <= (1)::numeric)))"
+    },
+    {
+      "key": "performance_trials.performance_trials_source_check",
+      "table": "performance_trials",
+      "name": "performance_trials_source_check",
+      "type": "c",
+      "definition": "CHECK ((source = ANY (ARRAY['authored_suite'::text, 'capability_run'::text, 'manual'::text])))"
+    },
+    {
+      "key": "performance_trials.performance_trials_task_key_check",
+      "table": "performance_trials",
+      "name": "performance_trials_task_key_check",
+      "type": "c",
+      "definition": "CHECK (((char_length(btrim(task_key)) >= 1) AND (char_length(btrim(task_key)) <= 80)))"
+    },
+    {
+      "key": "performance_trials.performance_trials_trial_check",
+      "table": "performance_trials",
+      "name": "performance_trials_trial_check",
+      "type": "c",
+      "definition": "CHECK (((trial >= 1) AND (trial <= 20)))"
+    },
+    {
+      "key": "performance_trials.performance_trials_workspace_id_fkey",
+      "table": "performance_trials",
+      "name": "performance_trials_workspace_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE"
+    },
+    {
       "key": "profiles.profiles_display_name_check",
       "table": "profiles",
       "name": "profiles_display_name_check",
@@ -18425,6 +19082,72 @@
       "table": "payment_events",
       "name": "payment_events_pkey",
       "definition": "CREATE UNIQUE INDEX payment_events_pkey ON public.payment_events USING btree (provider_event_id)"
+    },
+    {
+      "key": "performance_human_references.performance_human_references_pkey",
+      "table": "performance_human_references",
+      "name": "performance_human_references_pkey",
+      "definition": "CREATE UNIQUE INDEX performance_human_references_pkey ON public.performance_human_references USING btree (id)"
+    },
+    {
+      "key": "performance_human_references.performance_human_references_program_idx",
+      "table": "performance_human_references",
+      "name": "performance_human_references_program_idx",
+      "definition": "CREATE INDEX performance_human_references_program_idx ON public.performance_human_references USING btree (program_id, created_at DESC)"
+    },
+    {
+      "key": "performance_programs.performance_programs_pkey",
+      "table": "performance_programs",
+      "name": "performance_programs_pkey",
+      "definition": "CREATE UNIQUE INDEX performance_programs_pkey ON public.performance_programs USING btree (id)"
+    },
+    {
+      "key": "performance_programs.performance_programs_workspace_idx",
+      "table": "performance_programs",
+      "name": "performance_programs_workspace_idx",
+      "definition": "CREATE INDEX performance_programs_workspace_idx ON public.performance_programs USING btree (workspace_id, created_at DESC)"
+    },
+    {
+      "key": "performance_review_marks.performance_review_marks_pkey",
+      "table": "performance_review_marks",
+      "name": "performance_review_marks_pkey",
+      "definition": "CREATE UNIQUE INDEX performance_review_marks_pkey ON public.performance_review_marks USING btree (id)"
+    },
+    {
+      "key": "performance_review_marks.performance_review_marks_program_idx",
+      "table": "performance_review_marks",
+      "name": "performance_review_marks_program_idx",
+      "definition": "CREATE INDEX performance_review_marks_program_idx ON public.performance_review_marks USING btree (program_id, verdict)"
+    },
+    {
+      "key": "performance_review_marks.performance_review_marks_trial_id_reviewer_id_key",
+      "table": "performance_review_marks",
+      "name": "performance_review_marks_trial_id_reviewer_id_key",
+      "definition": "CREATE UNIQUE INDEX performance_review_marks_trial_id_reviewer_id_key ON public.performance_review_marks USING btree (trial_id, reviewer_id)"
+    },
+    {
+      "key": "performance_task_families.performance_task_families_pkey",
+      "table": "performance_task_families",
+      "name": "performance_task_families_pkey",
+      "definition": "CREATE UNIQUE INDEX performance_task_families_pkey ON public.performance_task_families USING btree (key)"
+    },
+    {
+      "key": "performance_trials.performance_trials_pkey",
+      "table": "performance_trials",
+      "name": "performance_trials_pkey",
+      "definition": "CREATE UNIQUE INDEX performance_trials_pkey ON public.performance_trials USING btree (id)"
+    },
+    {
+      "key": "performance_trials.performance_trials_program_id_config_task_key_trial_key",
+      "table": "performance_trials",
+      "name": "performance_trials_program_id_config_task_key_trial_key",
+      "definition": "CREATE UNIQUE INDEX performance_trials_program_id_config_task_key_trial_key ON public.performance_trials USING btree (program_id, config, task_key, trial)"
+    },
+    {
+      "key": "performance_trials.performance_trials_program_idx",
+      "table": "performance_trials",
+      "name": "performance_trials_program_idx",
+      "definition": "CREATE INDEX performance_trials_program_idx ON public.performance_trials USING btree (program_id, config, task_key, trial)"
     },
     {
       "key": "profiles.profiles_pkey",

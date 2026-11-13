@@ -13,6 +13,12 @@ import {
   replayMigrations,
 } from "./support/phase37-db";
 import {
+  PERFORMANCE_FAMILY_DIGEST,
+  PERFORMANCE_FAMILY_KEY,
+  PERFORMANCE_FAMILY_VERSION,
+  PERFORMANCE_TASK_KEYS,
+} from "@/lib/performance-program";
+import {
   CHANNEL_LOOKUP_POLICY,
   EVAL_SUITE_NAME,
   EVAL_SUITE_VERSION,
@@ -3883,5 +3889,358 @@ describeKnowledge("improvement proposals", () => {
     // Nothing further, however long it stays open.
     expect((await runAt("7 days")).rows[0].result).toMatchObject({ delivered: 0 });
     expect((await runAt("30 days")).rows[0].result).toMatchObject({ delivered: 0 });
+  });
+});
+
+/**
+ * Phase 41 — the controlled performance research program.
+ *
+ * These checks are the promises of the phase: a trial cannot exist before the
+ * comparison is registered, registration freezes the protocol, tasks come only
+ * from the installed family, the claim verdict is derived from the numbers, a
+ * speed claim is refused when latency was never measured, a real-world
+ * distribution claim needs a documented human reference, and a reviewer cannot
+ * mark their own work.
+ */
+describeKnowledge("performance research program", () => {
+  let client: Client;
+  const owner = randomUUID();
+  const runner = randomUUID();
+  const reviewer = randomUUID();
+  const outsider = randomUUID();
+  const workspaceId = randomUUID();
+  const otherWorkspace = randomUUID();
+
+  const distribution = {
+    suite: PERFORMANCE_FAMILY_KEY,
+    version: PERFORMANCE_FAMILY_VERSION,
+    digest: PERFORMANCE_FAMILY_DIGEST,
+    task_keys: PERFORMANCE_TASK_KEYS,
+    tasks: PERFORMANCE_TASK_KEYS.length,
+  };
+
+  async function insertProgram(input: {
+    claim?: "benchmark" | "faster" | "lower_cost" | "distribution";
+    status?: "draft" | "registered";
+    claimText?: string;
+    trials?: number;
+    maxDisagreements?: number;
+    minimumEffect?: number;
+  } = {}): Promise<string> {
+    const id = randomUUID();
+    const status = input.status ?? "registered";
+    await asUser(client, owner, () =>
+      client.query(
+        `insert into public.performance_programs
+           (id, workspace_id, user_id, title, question, task_family, distribution,
+            inclusion_rules, exclusion_rules, scoring_method, baseline_label, baseline_config,
+            candidate_label, candidate_config, permitted_tools, time_limit_seconds,
+            cost_limit_cents, trials, human_assistance_policy, failure_criteria,
+            supported_claim, claim_text, minimum_effect, noninferiority_margin,
+            max_disagreements, status, fingerprint, registered_at, registered_by)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
+                 $21,$22,$23,$24,$25,$26,$27,$28,$29)`,
+        [
+          id,
+          workspaceId,
+          owner,
+          "Tool choice under two policies",
+          "Does resolving a channel name before posting reach the expected tool more often than the shipped policy?",
+          PERFORMANCE_FAMILY_KEY,
+          JSON.stringify(distribution),
+          "The twelve authored intents in the installed tool-selection family.",
+          "Anything outside tool selection, any paid model call and any other policy.",
+          "One authored case is one trial: the chosen tool either matches the expected outcome or it does not.",
+          "Shipped tool policy",
+          JSON.stringify({ policy: "shipped" }),
+          "Channel lookup policy",
+          JSON.stringify({ policy: "channel-lookup" }),
+          ["GITHUB_CREATE_AN_ISSUE", "SLACK_SEND_MESSAGE"],
+          120,
+          20,
+          input.trials ?? 1,
+          "A person may help, and any help is recorded on the trial.",
+          "Fewer correct tool choices than the baseline, any changed refusal, or a review disagreement above the allowance.",
+          input.claim ?? "benchmark",
+          input.claimText ??
+            "On these twelve authored intents the candidate reaches the expected tool at least twenty percent more often than the shipped policy.",
+          input.minimumEffect ?? 0.2,
+          0,
+          input.maxDisagreements ?? 0,
+          status,
+          status === "registered" ? "c".repeat(64) : null,
+          status === "registered" ? new Date().toISOString() : null,
+          status === "registered" ? owner : null,
+        ],
+      ),
+    );
+    return id;
+  }
+
+  async function recordTrials(
+    programId: string,
+    config: "baseline" | "candidate",
+    passes: number,
+    duration: number | null = null,
+  ): Promise<void> {
+    for (const [index, key] of PERFORMANCE_TASK_KEYS.entries()) {
+      const passed = index < passes;
+      await asUser(client, runner, () =>
+        client.query(
+          `insert into public.performance_trials
+             (program_id, workspace_id, config, task_key, trial, outcome, score,
+              cost_cents, cost_units, duration_ms, human_assisted, source, recorded_by)
+           values ($1,$2,$3,$4,1,$5,$6,0,$7,$8,false,'authored_suite',$9)`,
+          [
+            programId,
+            workspaceId,
+            config,
+            key,
+            passed ? "pass" : "fail",
+            passed ? 1 : 0,
+            passed ? 1 : 3,
+            duration,
+            runner,
+          ],
+        ),
+      );
+    }
+  }
+
+  async function report(programId: string): Promise<Record<string, unknown>> {
+    const result = await asUser(client, owner, () =>
+      client.query<{ result: Record<string, unknown> }>(
+        "select public.workspace_performance_report($1) as result",
+        [programId],
+      ),
+    );
+    return result.rows[0].result;
+  }
+
+  async function failure(run: () => Promise<unknown>): Promise<string> {
+    try {
+      await run();
+    } catch (error) {
+      return (error as Error).message;
+    }
+    throw new Error("expected the statement to fail, but it succeeded");
+  }
+
+  beforeAll(async () => {
+    client = new Client({ connectionString });
+    await client.connect();
+    await assertIsolatedDatabase(client);
+
+    for (const userId of [owner, runner, reviewer, outsider]) {
+      await client.query("insert into auth.users (id, email) values ($1,$2)", [
+        userId,
+        `performance-${userId.slice(0, 8)}@example.test`,
+      ]);
+    }
+
+    for (const [workspace, name] of [
+      [workspaceId, "Performance program probe"],
+      [otherWorkspace, "Someone else's workspace"],
+    ] as const) {
+      await client.query("insert into public.workspaces (id, name, created_by) values ($1,$2,$3)", [
+        workspace,
+        name,
+        owner,
+      ]);
+    }
+
+    for (const [userId, role] of [
+      [owner, "owner"],
+      [runner, "member"],
+      [reviewer, "member"],
+    ] as const) {
+      await client.query(
+        "insert into public.workspace_members (workspace_id, user_id, role, status) values ($1,$2,$3,'active')",
+        [workspaceId, userId, role],
+      );
+    }
+    await client.query(
+      "insert into public.workspace_members (workspace_id, user_id, role, status) values ($1,$2,'owner','active')",
+      [otherWorkspace, outsider],
+    );
+  }, 120_000);
+
+  afterAll(async () => {
+    if (client) await client.end();
+  });
+
+  it("refuses a trial before registration and freezes the protocol afterwards", async () => {
+    const draftId = await insertProgram({ status: "draft" });
+
+    const early = await failure(() =>
+      asUser(client, runner, () =>
+        client.query(
+          `insert into public.performance_trials
+             (program_id, workspace_id, config, task_key, trial, outcome, score, recorded_by)
+           values ($1,$2,'baseline',$3,1,'pass',1,$4)`,
+          [draftId, workspaceId, PERFORMANCE_TASK_KEYS[0], runner],
+        ),
+      ),
+    );
+    expect(early).toContain("register the comparison before recording a trial");
+
+    await asUser(client, owner, () =>
+      client.query(
+        "update public.performance_programs set status = 'registered', fingerprint = $2, registered_at = now(), registered_by = $3 where id = $1",
+        [draftId, "d".repeat(64), owner],
+      ),
+    );
+
+    const frozen = await failure(() =>
+      asUser(client, owner, () =>
+        client.query(
+          "update public.performance_programs set inclusion_rules = $2 where id = $1",
+          [draftId, "A wider set of tasks that would make the candidate look better."],
+        ),
+      ),
+    );
+    expect(frozen).toContain("frozen");
+
+    const outsiderReport = await asUser(client, outsider, () =>
+      client.query<{ result: { ok: boolean; code?: string } }>(
+        "select public.workspace_performance_report($1) as result",
+        [draftId],
+      ),
+    );
+    expect(outsiderReport.rows[0].result).toMatchObject({ ok: false, code: "no-workspace" });
+  });
+
+  it("refuses a task outside the registered family and a claim that names AGI", async () => {
+    const programId = await insertProgram();
+    const outside = await failure(() =>
+      asUser(client, runner, () =>
+        client.query(
+          `insert into public.performance_trials
+             (program_id, workspace_id, config, task_key, trial, outcome, score, recorded_by)
+           values ($1,$2,'baseline','solve-anything',1,'pass',1,$3)`,
+          [programId, workspaceId, runner],
+        ),
+      ),
+    );
+    expect(outside).toContain("outside the registered distribution");
+
+    const agi = await failure(() =>
+      insertProgram({ claimText: "This program shows we built AGI and it is ready." }),
+    );
+    expect(agi).toContain("performance_programs_claim_text_check");
+  });
+
+  it("derives a benchmark claim from the recorded rows", async () => {
+    const programId = await insertProgram();
+    await recordTrials(programId, "baseline", 8);
+    await recordTrials(programId, "candidate", 11);
+
+    const result = await report(programId);
+    const claims = result.claims as { supported: boolean; verdict: string; reasons: string[] };
+    const effect = result.effect as { score_gain: number };
+    expect(effect.score_gain).toBeCloseTo(0.25, 4);
+    expect(claims.reasons).toEqual([]);
+    expect(claims.supported).toBe(true);
+    expect(claims.verdict).toBe("supported");
+  });
+
+  it("refuses a speed claim when no latency was recorded", async () => {
+    const programId = await insertProgram({ claim: "faster", minimumEffect: 20 });
+    await recordTrials(programId, "baseline", 8);
+    await recordTrials(programId, "candidate", 11);
+
+    const result = await report(programId);
+    const claims = result.claims as { supported: boolean; verdict: string; reasons: string[] };
+    expect(claims.supported).toBe(false);
+    expect(claims.verdict).toBe("not_supported");
+    expect(claims.reasons.join(" ")).toContain("Latency was not recorded");
+  });
+
+  it("keeps a distribution claim unsupported until a human reference is documented", async () => {
+    const programId = await insertProgram({ claim: "distribution" });
+    await recordTrials(programId, "baseline", 8);
+    await recordTrials(programId, "candidate", 11);
+
+    const before = await report(programId);
+    const beforeClaims = before.claims as { supported: boolean; reasons: string[] };
+    expect(beforeClaims.supported).toBe(false);
+    expect(beforeClaims.reasons.join(" ")).toContain("human reference");
+
+    await asUser(client, owner, () =>
+      client.query(
+        `insert into public.performance_human_references
+           (program_id, workspace_id, user_id, expertise, tool_access, conditions,
+            consent_basis, collection_method, participants, task_count, passed, mean_score)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,3,12,9,0.75)`,
+        [
+          programId,
+          workspaceId,
+          owner,
+          "Three support engineers who triage connector requests daily.",
+          "The connector documentation and the same twelve intents, no model.",
+          "Each participant worked alone for forty minutes with no hints.",
+          "Written consent collected before the session; no personal data retained.",
+          "Each participant classified all twelve intents in a single timed session, scored against the same expected tools.",
+        ],
+      ),
+    );
+
+    const after = await report(programId);
+    const afterClaims = after.claims as { supported: boolean; verdict: string };
+    expect(afterClaims.supported).toBe(true);
+    expect(afterClaims.verdict).toBe("supported");
+  });
+
+  it("separates review from the people who recorded and registered, and blocks a disputed claim", async () => {
+    const programId = await insertProgram();
+    await recordTrials(programId, "baseline", 8);
+    await recordTrials(programId, "candidate", 11);
+
+    const trial = await client.query<{ id: string }>(
+      "select id from public.performance_trials where program_id = $1 and config = 'candidate' order by task_key limit 1",
+      [programId],
+    );
+    const trialId = trial.rows[0].id;
+
+    const registrarMark = await failure(() =>
+      asUser(client, owner, () =>
+        client.query(
+          `insert into public.performance_review_marks
+             (program_id, trial_id, workspace_id, reviewer_id, verdict, note)
+           values ($1,$2,$3,$4,'agree','I rescored this case myself and agree.')`,
+          [programId, trialId, workspaceId, owner],
+        ),
+      ),
+    );
+    expect(registrarMark).toContain("cannot independently review");
+
+    const recorderMark = await failure(() =>
+      asUser(client, runner, () =>
+        client.query(
+          `insert into public.performance_review_marks
+             (program_id, trial_id, workspace_id, reviewer_id, verdict, note)
+           values ($1,$2,$3,$4,'agree','I recorded it so I am marking my own work.')`,
+          [programId, trialId, workspaceId, runner],
+        ),
+      ),
+    );
+    expect(recorderMark).toContain("cannot review it");
+
+    await asUser(client, reviewer, () =>
+      client.query(
+        `insert into public.performance_review_marks
+           (program_id, trial_id, workspace_id, reviewer_id, verdict, note)
+         values ($1,$2,$3,$4,'disagree','The intent names a channel id, so the send rule is right.')`,
+        [programId, trialId, workspaceId, reviewer],
+      ),
+    );
+
+    const result = await report(programId);
+    const claims = result.claims as { supported: boolean; reasons: string[] };
+    const reviews = result.reviews as { reviewed: number; disagreements: number };
+    expect(reviews.reviewed).toBe(1);
+    expect(reviews.disagreements).toBe(1);
+    expect(claims.supported).toBe(false);
+    expect(claims.reasons.join(" ")).toContain("Independent review disagrees");
   });
 });

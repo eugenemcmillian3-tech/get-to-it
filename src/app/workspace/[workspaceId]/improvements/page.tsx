@@ -77,6 +77,9 @@ export default async function ImprovementsPage({
             <Link href={`/workspace/${workspaceId}/improvements/incidents`} className="underline">
               Incident history
             </Link>
+            <Link href={`/workspace/${workspaceId}/performance`} className="underline">
+              Performance program
+            </Link>
           </span>
         </div>
         <p className="mt-2 max-w-2xl text-sm text-muted">
