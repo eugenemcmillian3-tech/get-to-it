@@ -12,6 +12,7 @@ import { requireSession } from "@/lib/auth";
 import {
   listReviewableTrials,
   readPerformanceReport,
+  type PerformanceFamilyResult,
   type PerformanceTrialStat,
 } from "@/lib/data/performance-program";
 import { getIdentity } from "@/lib/identity";
@@ -55,6 +56,68 @@ function statCells(stat: PerformanceTrialStat) {
   };
 }
 
+function FamilyNumbers({
+  entry,
+  minimumEffect,
+  claimUnit,
+}: {
+  entry: PerformanceFamilyResult;
+  minimumEffect: number;
+  claimUnit: string;
+}) {
+  const baseline = statCells(entry.baseline);
+  const candidate = statCells(entry.candidate);
+  return (
+    <div className="rounded-2xl border border-line p-4">
+      <h3 className="text-base font-bold">{familyLabel(entry.key)}</h3>
+      <p className="mt-0.5 text-xs text-muted">
+        {entry.key} {entry.version} · {entry.tasks} tasks · digest {entry.suiteDigest.slice(0, 16)}…
+      </p>
+      <div className="mt-2 overflow-x-auto">
+        <table className="w-full min-w-[32rem] text-sm">
+          <caption className="sr-only">
+            Baseline and candidate results for {familyLabel(entry.key)}
+          </caption>
+          <thead>
+            <tr className="text-left">
+              <th scope="col" className="pb-1 pr-3 font-semibold">Measure</th>
+              <th scope="col" className="pb-1 pr-3 font-semibold">Baseline</th>
+              <th scope="col" className="pb-1 font-semibold">Candidate</th>
+            </tr>
+          </thead>
+          <tbody>
+            <StatRow label="Trials" baseline={baseline.rows} candidate={candidate.rows} />
+            <StatRow label="Outcomes" baseline={baseline.outcome} candidate={candidate.outcome} />
+            <StatRow label="Mean score" baseline={baseline.mean} candidate={candidate.mean} />
+            <StatRow label="Mean cost" baseline={baseline.cost} candidate={candidate.cost} />
+            <StatRow label="Median latency" baseline={baseline.latency} candidate={candidate.latency} />
+            <StatRow label="Human-assisted" baseline={baseline.assistance} candidate={candidate.assistance} />
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-2 text-sm">
+        <strong>{VERDICT_LABELS[entry.claim.verdict] ?? entry.claim.verdict}</strong> — {entry.claim.supported ? "this family supports the registered claim." : "this family does not support the registered claim."}
+      </p>
+      {entry.claim.reasons.length > 0 ? (
+        <ul className="mt-1 grid gap-1 text-sm text-muted">
+          {entry.claim.reasons.map((reason) => (
+            <li key={reason}>{reason}</li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-1 text-sm text-muted">
+          Score difference {formatScore(entry.effect.scoreGain)} points against a minimum effect of{" "}
+          {minimumEffect} {claimUnit}; cost {formatPercent(entry.effect.costReductionPct)} lower;
+          latency {formatPercent(entry.effect.latencyReductionPct)} lower; within non-inferiority{" "}
+          {entry.effect.withinNoninferiority ? "yes" : "no"}; assistance matched{" "}
+          {entry.effect.assistanceMatched ? "yes" : "no"}; within limits{" "}
+          {entry.effect.withinLimits ? "yes" : "no"}.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default async function PerformanceProgramDetailPage({
   params,
 }: {
@@ -81,6 +144,22 @@ export default async function PerformanceProgramDetailPage({
   const baseline = statCells(report.baseline);
   const candidate = statCells(report.candidate);
   const complete = report.claims.complete;
+  const allFamilies = report.program.scope === "all_families";
+  const distributionRows: [string, string][] = allFamilies
+    ? report.families.flatMap((entry) => [
+        [
+          `Task distribution — ${familyLabel(entry.key)}`,
+          `${entry.key} ${entry.version}, ${entry.tasks} authored cases, digest ${entry.suiteDigest.slice(0, 16)}…`,
+        ],
+        [`Tasks — ${familyLabel(entry.key)}`, entry.taskKeys.join(", ")],
+      ])
+    : [
+        [
+          "Task distribution",
+          `${familyLabel(report.family.key)} (${report.family.key} ${report.family.version}), ${report.plan.tasks} authored cases, digest ${report.family.suiteDigest.slice(0, 16)}…`,
+        ],
+        ["Tasks", report.family.taskKeys.join(", ")],
+      ];
 
   return (
     <div className="min-h-dvh">
@@ -97,8 +176,11 @@ export default async function PerformanceProgramDetailPage({
         </div>
         <p className="mt-2 max-w-2xl text-sm text-muted">{report.program.question}</p>
         <p className="mt-1 text-xs text-muted">
-          Task family: {familyLabel(report.program.taskFamily)} · {report.plan.tasks} tasks ×{" "}
-          {report.plan.trials} {report.plan.trials === 1 ? "trial" : "trials"}
+          {allFamilies
+            ? `Task families: ${report.families.map((entry) => familyLabel(entry.key)).join(", ")}`
+            : `Task family: ${familyLabel(report.program.taskFamily)}`}{" "}
+          · {report.plan.tasks} tasks × {report.plan.trials}{" "}
+          {report.plan.trials === 1 ? "trial" : "trials"}
         </p>
 
         <section
@@ -121,6 +203,16 @@ export default async function PerformanceProgramDetailPage({
           <p className="mt-2 text-sm font-semibold">
             {VERDICT_LABELS[report.claims.verdict] ?? report.claims.verdict}
           </p>
+          {allFamilies ? (
+            <ul className="mt-2 grid gap-1 text-sm">
+              {report.families.map((entry) => (
+                <li key={entry.key}>
+                  <strong>{familyLabel(entry.key)}:</strong>{" "}
+                  {VERDICT_LABELS[entry.claim.verdict] ?? entry.claim.verdict}
+                </li>
+              ))}
+            </ul>
+          ) : null}
           {report.claims.reasons.length > 0 ? (
             <ul className="mt-2 grid gap-1 text-sm text-muted">
               {report.claims.reasons.map((reason) => (
@@ -129,9 +221,11 @@ export default async function PerformanceProgramDetailPage({
             </ul>
           ) : null}
           <p className="mt-2 text-xs text-muted">
-            {complete
-              ? "Every planned trial is recorded. The verdict is recomputed from the rows below each time this page or the report is read."
-              : `${report.baseline.rows} baseline and ${report.candidate.rows} candidate rows are recorded of ${report.plan.expectedRows} planned each.`}
+            {allFamilies
+              ? "Across every family, the claim is supported only when each family supports it on its own rows. No pooled score is computed or shown."
+              : complete
+                ? "Every planned trial is recorded. The verdict is recomputed from the rows below each time this page or the report is read."
+                : `${report.baseline.rows} baseline and ${report.candidate.rows} candidate rows are recorded of ${report.plan.expectedRows} planned each.`}
           </p>
 
           <h3 className="mt-4 text-sm font-semibold">Claims this does not support</h3>
@@ -156,6 +250,25 @@ export default async function PerformanceProgramDetailPage({
           <h2 id="numbers-heading" className="text-xl font-bold">
             Recorded numbers
           </h2>
+          {allFamilies ? (
+            <>
+              <p className="mt-1 text-sm text-muted">
+                Each family is reported on its own rows below. There is no combined score: one
+                number across different task families would hide which family actually moved.
+              </p>
+              <div className="mt-4 grid gap-4">
+                {report.families.map((entry) => (
+                  <FamilyNumbers
+                    key={entry.key}
+                    entry={entry}
+                    minimumEffect={report.program.minimumEffect}
+                    claimUnit={CLAIM_UNITS[report.claims.registered]}
+                  />
+                ))}
+              </div>
+            </>
+          ) : (
+            <>
           <div className="mt-3 overflow-x-auto">
             <table className="w-full min-w-[36rem] text-sm">
               <caption className="sr-only">
@@ -208,6 +321,8 @@ export default async function PerformanceProgramDetailPage({
               </dd>
             </div>
           </dl>
+            </>
+          )}
         </section>
 
         <section aria-labelledby="protocol-heading" className={`${cardClass} mt-8`}>
@@ -216,8 +331,7 @@ export default async function PerformanceProgramDetailPage({
           </h2>
           <dl className="mt-2 grid gap-2 text-sm">
             {[
-              ["Task distribution", `${familyLabel(report.family.key)} (${report.family.key} ${report.family.version}), ${report.plan.tasks} authored cases, digest ${report.family.suiteDigest.slice(0, 16)}…`],
-              ["Tasks", report.family.taskKeys.join(", ")],
+              ...distributionRows,
               ["Inclusion rules", report.program.inclusionRules],
               ["Exclusion rules", report.program.exclusionRules],
               ["Scoring method", report.program.scoringMethod],

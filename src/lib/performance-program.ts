@@ -29,6 +29,10 @@ export const PERFORMANCE_FAMILY_VERSION = PRIMARY_FAMILY.version;
  */
 export const PERFORMANCE_FAMILY_DIGEST = PRIMARY_FAMILY.digest;
 export const ERROR_RECOVERY_FAMILY_KEY = "error_recovery";
+export const ALL_FAMILIES_SCOPE = "all_families";
+export const ALL_FAMILIES_VERSION = "2026-11-13.2";
+/** The suite label a program registers when it covers every installed family. */
+export const ALL_FAMILIES_LABEL = "All installed families";
 export const ERROR_RECOVERY_FAMILY_VERSION = "2026-11-13.1";
 
 export const PERFORMANCE_TASK_KEYS = PRIMARY_FAMILY.taskKeys;
@@ -108,6 +112,55 @@ export const PERFORMANCE_POLICIES: Record<string, { label: string; policy: typeo
 
 export const PERFORMANCE_BASELINE = PRIMARY_FAMILY.baseline;
 
+/**
+ * The combined distribution for a program that tests every installed family.
+ * Each entry keeps its own baseline, candidate and digest; the combined digest is
+ * a hash over those entries, so adding or changing a family changes it.
+ */
+export function allFamiliesDistribution(): {
+  suite: string;
+  version: string;
+  digest: string;
+  task_keys: string[];
+  tasks: number;
+  families: {
+    key: string;
+    version: string;
+    digest: string;
+    task_keys: string[];
+    tasks: number;
+    baseline_label: string;
+    baseline_policy: string;
+    candidate_label: string;
+    candidate_policy: string;
+  }[];
+} {
+  const families = PERFORMANCE_FAMILIES.map((family) => ({
+    key: family.key,
+    version: family.version,
+    digest: family.digest,
+    task_keys: family.taskKeys,
+    tasks: family.taskKeys.length,
+    baseline_label: family.baseline.label,
+    baseline_policy: family.baseline.key,
+    candidate_label: family.candidates[0].label,
+    candidate_policy: family.candidates[0].key,
+  }));
+  const digest = crypto
+    .createHash("sha256")
+    .update(families.map((family) => `${family.key}:${family.version}:${family.digest}`).join("\n"))
+    .digest("hex");
+
+  return {
+    suite: "all",
+    version: ALL_FAMILIES_VERSION,
+    digest,
+    task_keys: families.flatMap((family) => family.task_keys),
+    tasks: families.reduce((total, family) => total + family.tasks, 0),
+    families,
+  };
+}
+
 export function familyLabel(key: string): string {
   return familySpec(key)?.label ?? key;
 }
@@ -122,6 +175,7 @@ export type { FamilyOption };
 export const PERFORMANCE_PERMITTED_TOOLS = [...SAFE_TOOLS];
 
 export type PerformanceDraft = {
+  scope?: string;
   title: string;
   question: string;
   inclusionRules: string;
@@ -180,7 +234,10 @@ export function programProblems(draft: PerformanceDraft): string[] {
     );
   }
 
-  if (!PERFORMANCE_POLICIES[draft.candidatePolicy]) {
+  if (
+    (draft.scope ?? "one_family") !== ALL_FAMILIES_SCOPE &&
+    !PERFORMANCE_POLICIES[draft.candidatePolicy]
+  ) {
     problems.push("Choose the candidate policy this program compares with the shipped policy.");
   }
 
@@ -239,6 +296,8 @@ export function familyDistribution(familyKey: string = PERFORMANCE_FAMILY_KEY): 
  */
 export function protocolFingerprint(input: {
   familyKey?: string;
+  scope?: string;
+  families?: { key: string; version: string; digest: string }[];
   title: string;
   question: string;
   inclusionRules: string;
@@ -257,13 +316,26 @@ export function protocolFingerprint(input: {
   maxDisagreements: number;
 }): string {
   const family = familySpec(input.familyKey ?? PERFORMANCE_FAMILY_KEY) ?? PRIMARY_FAMILY;
+  const scope = input.scope ?? "one_family";
   const canonical = {
+    scope,
+    families:
+      scope === ALL_FAMILIES_SCOPE
+        ? (input.families ?? PERFORMANCE_FAMILIES.map((row) => ({
+            key: row.key,
+            version: row.version,
+            digest: row.digest,
+          })))
+        : [{ key: family.key, version: family.version, digest: family.digest }],
     family: family.key,
     familyVersion: family.version,
     digest: family.digest,
-    tasks: family.taskKeys,
+    tasks:
+      scope === ALL_FAMILIES_SCOPE
+        ? PERFORMANCE_FAMILIES.flatMap((row) => row.taskKeys)
+        : family.taskKeys,
     baseline: family.baseline.key,
-    candidate: input.candidatePolicy,
+    candidate: scope === ALL_FAMILIES_SCOPE ? "per-family candidates" : input.candidatePolicy,
     title: input.title.trim(),
     question: input.question.trim(),
     inclusionRules: input.inclusionRules.trim(),

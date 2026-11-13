@@ -5,8 +5,11 @@ import type { BuildState } from "@/lib/action-state";
 import { getSession, type Session } from "@/lib/auth";
 import { TOOL_COSTS, runPolicy, type EvalCase } from "@/lib/improvement-eval";
 import {
+  ALL_FAMILIES_SCOPE,
+  PERFORMANCE_FAMILIES_LIST,
   PERFORMANCE_LIMITS,
   PERFORMANCE_PERMITTED_TOOLS,
+  allFamiliesDistribution,
   familyDistribution,
   familySpec,
   programProblems,
@@ -71,11 +74,19 @@ export async function registerPerformanceProgramAction(
   if (!isUuid(workspaceId)) return fail(NOT_AVAILABLE);
   if (!(await memberRole(session, workspaceId))) return fail(NOT_AVAILABLE);
 
+  const scope =
+    readText(formData, "scope") === ALL_FAMILIES_SCOPE ? ALL_FAMILIES_SCOPE : "one_family";
   const familyKey = readText(formData, "familyKey");
   const family = familySpec(familyKey);
-  if (!family) return fail("Choose one of the installed task families.");
+  if (scope === "one_family" && !family) {
+    return fail("Choose one of the installed task families.");
+  }
+  if (scope === ALL_FAMILIES_SCOPE && PERFORMANCE_FAMILIES_LIST.length === 0) {
+    return fail("No task family is installed, so there is nothing to compare.");
+  }
 
   const draft: PerformanceDraft = {
+    scope,
     title: readText(formData, "title"),
     question: readText(formData, "question"),
     inclusionRules: readText(formData, "inclusionRules"),
@@ -97,8 +108,13 @@ export async function registerPerformanceProgramAction(
   const problems = programProblems(draft);
   if (problems.length > 0) return fail(problems.slice(0, 4).join(" "));
 
-  const candidate = family.candidates.find((row) => row.key === draft.candidatePolicy);
-  if (!candidate) return fail("Choose one of the installed candidate policies for this family.");
+  const candidate =
+    scope === "one_family"
+      ? family!.candidates.find((row) => row.key === draft.candidatePolicy)
+      : null;
+  if (scope === "one_family" && !candidate) {
+    return fail("Choose one of the installed candidate policies for this family.");
+  }
 
   const { count } = await session.supabase
     .from("performance_programs")
@@ -110,10 +126,25 @@ export async function registerPerformanceProgramAction(
     );
   }
 
-  const distribution = familyDistribution(family.key);
+  const combined = scope === ALL_FAMILIES_SCOPE ? allFamiliesDistribution() : null;
+  const distribution = combined ?? familyDistribution(family!.key);
+  const registeredKeys = combined ? combined.families.map((row) => row.key) : [family!.key];
+  const baselineLabel = combined
+    ? "Each family's installed baseline policy"
+    : family!.baseline.label;
+  const baselineConfig = combined
+    ? { policies: Object.fromEntries(combined.families.map((row) => [row.key, row.baseline_policy])) }
+    : { policy: family!.baseline.key };
+  const candidateLabel = combined
+    ? "Each family's installed candidate policy"
+    : candidate!.label;
+  const candidateConfig = combined
+    ? { policies: Object.fromEntries(combined.families.map((row) => [row.key, row.candidate_policy])) }
+    : { policy: draft.candidatePolicy };
+
   const protocol = {
     ...draft,
-    familyKey: family.key,
+    familyKey: combined ? combined.families[0].key : family!.key,
     title: draft.title.trim(),
     question: draft.question.trim(),
     inclusionRules: draft.inclusionRules.trim(),
@@ -131,15 +162,17 @@ export async function registerPerformanceProgramAction(
       user_id: session.user.id,
       title: protocol.title,
       question: protocol.question,
-      task_family: family.key,
+      task_family: combined ? combined.families[0].key : family!.key,
+      scope,
+      family_keys: registeredKeys,
       distribution,
       inclusion_rules: protocol.inclusionRules,
       exclusion_rules: protocol.exclusionRules,
       scoring_method: protocol.scoringMethod,
-      baseline_label: family.baseline.label,
-      baseline_config: { policy: family.baseline.key },
-      candidate_label: candidate.label,
-      candidate_config: { policy: draft.candidatePolicy },
+      baseline_label: baselineLabel,
+      baseline_config: baselineConfig,
+      candidate_label: candidateLabel,
+      candidate_config: candidateConfig,
       permitted_tools: PERFORMANCE_PERMITTED_TOOLS,
       time_limit_seconds: protocol.timeLimitSeconds,
       cost_limit_cents: protocol.costLimitCents,
@@ -152,7 +185,11 @@ export async function registerPerformanceProgramAction(
       noninferiority_margin: protocol.noninferiorityMargin,
       max_disagreements: protocol.maxDisagreements,
       status: "registered",
-      fingerprint: protocolFingerprint({ ...protocol, familyKey: family.key }),
+      fingerprint: protocolFingerprint({
+        ...protocol,
+        familyKey: combined ? combined.families[0].key : family!.key,
+        families: combined?.families,
+      }),
       registered_at: new Date().toISOString(),
       registered_by: session.user.id,
     })
@@ -166,7 +203,9 @@ export async function registerPerformanceProgramAction(
 
   refresh(workspaceId, (data as { id: string }).id);
   return done(
-    "Comparison registered and frozen. Recording trials now uses the task family and limits above.",
+    combined
+      ? `Comparison registered across ${registeredKeys.length} installed families and frozen. Each family is run and reported on its own; nothing is pooled into one score.`
+      : "Comparison registered and frozen. Recording trials now uses the task family and limits above.",
   );
 }
 
@@ -200,7 +239,9 @@ export async function runPerformanceTrialsAction(
 
   const { data, error } = await session.supabase
     .from("performance_programs")
-    .select("id, workspace_id, status, task_family, distribution, trials, candidate_config")
+    .select(
+      "id, workspace_id, status, scope, task_family, family_keys, distribution, trials, candidate_config",
+    )
     .eq("id", programId)
     .eq("workspace_id", workspaceId)
     .maybeSingle();
@@ -209,10 +250,25 @@ export async function runPerformanceTrialsAction(
   const program = data as {
     workspace_id: string;
     status: string;
+    scope?: string;
     task_family: string;
-    distribution: { suite?: string; version?: string; digest?: string; task_keys?: string[] };
+    family_keys?: string[] | null;
+    distribution: {
+      suite?: string;
+      version?: string;
+      digest?: string;
+      task_keys?: string[];
+      families?: {
+        key: string;
+        version: string;
+        digest: string;
+        task_keys?: string[];
+        baseline_policy?: string;
+        candidate_policy?: string;
+      }[];
+    };
     trials: number;
-    candidate_config: { policy?: string } | null;
+    candidate_config: { policy?: string; policies?: Record<string, string> } | null;
   };
 
   if (program.status !== "registered") {
@@ -222,26 +278,70 @@ export async function runPerformanceTrialsAction(
         : "This comparison is closed.",
     );
   }
-  const family = familySpec(program.task_family);
-  if (!family) return fail("This comparison names a task family that is not installed.");
-  if (
-    program.distribution.digest !== family.digest ||
-    program.distribution.version !== family.version
-  ) {
-    return fail(
-      "The installed task family no longer matches the one this program registered, so nothing was recorded.",
+  const registered = program.distribution.families ?? [];
+  const plans: {
+    family: NonNullable<ReturnType<typeof familySpec>>;
+    cases: EvalCase[];
+    baselineRun: ReturnType<typeof runPolicy>;
+    candidateRun: ReturnType<typeof runPolicy>;
+  }[] = [];
+
+  if (program.scope === ALL_FAMILIES_SCOPE) {
+    if (registered.length === 0 || registered.length !== (program.family_keys ?? []).length) {
+      return fail("The registered families do not match the installed families, so nothing ran.");
+    }
+    for (const entry of registered) {
+      const family = familySpec(entry.key);
+      if (!family) return fail("This comparison names a task family that is not installed.");
+      if (entry.version !== family.version || entry.digest !== family.digest) {
+        return fail(
+          "An installed task family no longer matches the one this program registered, so nothing was recorded.",
+        );
+      }
+      const policyKey =
+        entry.candidate_policy ?? program.candidate_config?.policies?.[entry.key];
+      const candidatePolicy = family.candidates.find((row) => row.key === policyKey);
+      if (!candidatePolicy) return fail("This comparison names a policy that is not installed.");
+      const taskKeys = entry.task_keys ?? family.taskKeys;
+      const cases = registeredCases(family.cases, taskKeys);
+      if (cases.length !== taskKeys.length || cases.length === 0) {
+        return fail("The registered task list does not match the installed suite, so nothing ran.");
+      }
+      plans.push({
+        family,
+        cases,
+        baselineRun: runPolicy(cases, family.baseline.policy),
+        candidateRun: runPolicy(cases, candidatePolicy.policy),
+      });
+    }
+  } else {
+    const family = familySpec(program.task_family);
+    if (!family) return fail("This comparison names a task family that is not installed.");
+    if (
+      program.distribution.digest !== family.digest ||
+      program.distribution.version !== family.version
+    ) {
+      return fail(
+        "The installed task family no longer matches the one this program registered, so nothing was recorded.",
+      );
+    }
+
+    const candidatePolicy = family.candidates.find(
+      (row) => row.key === program.candidate_config?.policy,
     );
-  }
+    if (!candidatePolicy) return fail("This comparison names a policy that is not installed.");
 
-  const candidatePolicy = family.candidates.find(
-    (row) => row.key === program.candidate_config?.policy,
-  );
-  if (!candidatePolicy) return fail("This comparison names a policy that is not installed.");
-
-  const taskKeys = program.distribution.task_keys ?? [];
-  const cases = registeredCases(family.cases, taskKeys);
-  if (cases.length !== taskKeys.length || cases.length === 0) {
-    return fail("The registered task list does not match the installed suite, so nothing ran.");
+    const taskKeys = program.distribution.task_keys ?? [];
+    const cases = registeredCases(family.cases, taskKeys);
+    if (cases.length !== taskKeys.length || cases.length === 0) {
+      return fail("The registered task list does not match the installed suite, so nothing ran.");
+    }
+    plans.push({
+      family,
+      cases,
+      baselineRun: runPolicy(cases, family.baseline.policy),
+      candidateRun: runPolicy(cases, candidatePolicy.policy),
+    });
   }
 
   const { count } = await session.supabase
@@ -250,32 +350,32 @@ export async function runPerformanceTrialsAction(
     .eq("program_id", programId);
   if ((count ?? 0) > 0) return fail("This comparison already has trials recorded.");
 
-  const baselineRun = runPolicy(cases, family.baseline.policy);
-  const candidateRun = runPolicy(cases, candidatePolicy.policy);
-
   const rows = [];
-  for (let trial = 1; trial <= program.trials; trial += 1) {
-    for (const run of [
-      { config: "baseline" as const, results: baselineRun.results },
-      { config: "candidate" as const, results: candidateRun.results },
-    ]) {
-      for (const row of run.results) {
-        const passed = row.chosen === row.expected;
-        rows.push({
-          program_id: programId,
-          workspace_id: workspaceId,
-          config: run.config,
-          task_key: row.id,
-          trial,
-          outcome: passed ? "pass" : "fail",
-          score: passed ? 1 : 0,
-          cost_cents: 0,
-          cost_units: TOOL_COSTS[row.chosen] ?? 0,
-          duration_ms: null,
-          human_assisted: false,
-          source: "authored_suite" as const,
-          recorded_by: session.user.id,
-        });
+  for (const plan of plans) {
+    for (let trial = 1; trial <= program.trials; trial += 1) {
+      for (const run of [
+        { config: "baseline" as const, results: plan.baselineRun.results },
+        { config: "candidate" as const, results: plan.candidateRun.results },
+      ]) {
+        for (const row of run.results) {
+          const passed = row.chosen === row.expected;
+          rows.push({
+            program_id: programId,
+            workspace_id: workspaceId,
+            family_key: plan.family.key,
+            config: run.config,
+            task_key: row.id,
+            trial,
+            outcome: passed ? "pass" : "fail",
+            score: passed ? 1 : 0,
+            cost_cents: 0,
+            cost_units: TOOL_COSTS[row.chosen] ?? 0,
+            duration_ms: null,
+            human_assisted: false,
+            source: "authored_suite" as const,
+            recorded_by: session.user.id,
+          });
+        }
       }
     }
   }
@@ -295,8 +395,14 @@ export async function runPerformanceTrialsAction(
   }
 
   refresh(workspaceId, programId);
+  const summary = plans
+    .map(
+      (plan) =>
+        `${plan.family.label}: ${plan.candidateRun.passed} of ${plan.cases.length} cases pass for the candidate versus ${plan.baselineRun.passed} for the baseline`,
+    )
+    .join("; ");
   return done(
-    `Recorded ${rows.length} trials on ${family.label}: ${candidateRun.passed} of ${cases.length} cases pass for the candidate versus ${baselineRun.passed} for the baseline. The claim verdict is derived from these rows.`,
+    `Recorded ${rows.length} trials across ${plans.length} ${plans.length === 1 ? "family" : "families"} — ${summary}. Each family's verdict is derived from its own rows; no pooled score is computed.`,
   );
 }
 

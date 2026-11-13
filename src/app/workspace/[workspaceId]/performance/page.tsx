@@ -56,12 +56,13 @@ export default async function PerformanceProgramPage({
 
         <h1 className="mt-3 text-3xl font-black tracking-tight">Performance program</h1>
         <p className="mt-2 max-w-2xl text-sm text-muted">
-          One narrow task family, compared under rules that are written down before anything runs.
-          A comparison registers its task distribution, inclusion and exclusion rules, scoring
-          method, baseline, permitted tools, limits, trial count, human assistance policy, failure
-          criteria and the single claim it could support. Registration freezes those fields; trials
-          can only be recorded afterwards, and the claim verdict is re-derived from the recorded
-          rows on every read.
+          One narrow task family, or every installed family at once, compared under rules that are
+          written down before anything runs. A comparison registers its task distribution,
+          inclusion and exclusion rules, scoring method, baseline, permitted tools, limits, trial
+          count, human assistance policy, failure criteria and the single claim it could support.
+          Registration freezes those fields; trials can only be recorded afterwards, and the claim
+          verdict is re-derived from the recorded rows on every read. A program across every family
+          reports each family separately and never pools them into one score.
         </p>
         <ul className="mt-3 grid gap-1 text-sm text-muted">
           <li>
@@ -113,8 +114,11 @@ export default async function PerformanceProgramPage({
                           </Link>
                         </h3>
                         <p className="text-xs text-muted">
-                          {familyLabel(program.taskFamily)} · {program.baselineLabel} vs{" "}
-                          {program.candidateLabel} · {program.tasks} tasks × {program.trials}{" "}
+                          {program.scope === "all_families"
+                            ? `All installed families (${program.familyKeys.length})`
+                            : familyLabel(program.taskFamily)}{" "}
+                          · {program.baselineLabel} vs {program.candidateLabel} · {program.tasks}{" "}
+                          tasks × {program.trials}{" "}
                           {program.trials === 1 ? "trial" : "trials"}
                         </p>
                       </div>

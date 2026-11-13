@@ -9,7 +9,9 @@ export type PerformanceProgramSummary = {
   id: string;
   title: string;
   status: "draft" | "registered" | "closed";
+  scope: "one_family" | "all_families";
   taskFamily: string;
+  familyKeys: string[];
   supportedClaim: PerformanceClaim;
   claimText: string;
   baselineLabel: string;
@@ -46,6 +48,8 @@ export type PerformanceProgram = {
   workspaceId: string;
   title: string;
   question: string;
+  scope: "one_family" | "all_families";
+  familyKeys: string[];
   taskFamily: string;
   status: "draft" | "registered" | "closed";
   inclusionRules: string;
@@ -79,9 +83,28 @@ export type PerformanceProgram = {
   };
 };
 
+export type PerformanceFamilyResult = {
+  key: string;
+  version: string;
+  suiteDigest: string;
+  taskKeys: string[];
+  tasks: number;
+  expectedRows: number;
+  baseline: PerformanceTrialStat;
+  candidate: PerformanceTrialStat;
+  effect: PerformanceReport["effect"];
+  claim: {
+    supported: boolean;
+    verdict: PerformanceReport["claims"]["verdict"];
+    complete: boolean;
+    reasons: string[];
+  };
+};
+
 export type PerformanceReport = {
   program: PerformanceProgram;
   family: { key: string; version: string; suiteDigest: string; taskKeys: string[]; description: string };
+  families: PerformanceFamilyResult[];
   plan: { tasks: number; trials: number; expectedRows: number };
   baseline: PerformanceTrialStat;
   candidate: PerformanceTrialStat;
@@ -98,6 +121,7 @@ export type PerformanceReport = {
   claims: {
     registered: PerformanceClaim;
     supported: boolean;
+    pooled: boolean;
     verdict: "supported" | "not_supported" | "awaiting_evidence";
     complete: boolean;
     reasons: string[];
@@ -123,6 +147,30 @@ type ReportPayload = {
     task_keys: string[];
     description: string;
   };
+  families?: {
+    key: string;
+    version: string;
+    digest: string;
+    task_keys: string[];
+    tasks: number;
+    expected_rows: number;
+    baseline: Record<string, unknown>;
+    candidate: Record<string, unknown>;
+    effect: {
+      score_gain: number;
+      cost_reduction_pct: number | null;
+      latency_reduction_pct: number | null;
+      within_noninferiority: boolean;
+      assistance_matched: boolean;
+      within_limits: boolean;
+    };
+    claim: {
+      supported: boolean;
+      verdict: PerformanceReport["claims"]["verdict"];
+      complete: boolean;
+      reasons: string[];
+    };
+  }[];
   plan?: { tasks: number; trials: number; expected_rows: number };
   baseline?: Record<string, unknown>;
   candidate?: Record<string, unknown>;
@@ -143,6 +191,7 @@ type ReportPayload = {
   claims?: {
     registered: PerformanceClaim;
     supported: boolean;
+    pooled?: boolean;
     verdict: PerformanceReport["claims"]["verdict"];
     complete: boolean;
     reasons: string[];
@@ -179,6 +228,30 @@ function trialStat(value: Record<string, unknown> | undefined): PerformanceTrial
   };
 }
 
+function effectOf(
+  value:
+    | {
+        score_gain?: number;
+        cost_reduction_pct?: number | null;
+        latency_reduction_pct?: number | null;
+        within_noninferiority?: boolean;
+        assistance_matched?: boolean;
+        within_limits?: boolean;
+      }
+    | undefined,
+): PerformanceReport["effect"] {
+  return {
+    scoreGain: number(value?.score_gain),
+    costReductionPct:
+      typeof value?.cost_reduction_pct === "number" ? value.cost_reduction_pct : null,
+    latencyReductionPct:
+      typeof value?.latency_reduction_pct === "number" ? value.latency_reduction_pct : null,
+    withinNoninferiority: Boolean(value?.within_noninferiority),
+    assistanceMatched: Boolean(value?.assistance_matched),
+    withinLimits: Boolean(value?.within_limits),
+  };
+}
+
 function programOf(row: Record<string, unknown>): PerformanceProgram {
   const distribution = (row.distribution ?? {}) as {
     suite?: string;
@@ -191,6 +264,8 @@ function programOf(row: Record<string, unknown>): PerformanceProgram {
     workspaceId: String(row.workspace_id),
     title: String(row.title),
     question: String(row.question),
+    scope: row.scope === "all_families" ? "all_families" : "one_family",
+    familyKeys: (row.family_keys as string[] | null) ?? [String(row.task_family)],
     taskFamily: String(row.task_family),
     status: row.status as PerformanceProgram["status"],
     inclusionRules: String(row.inclusion_rules),
@@ -265,7 +340,9 @@ export async function listPerformancePrograms(
       id: String(row.id),
       title: String(row.title),
       status: row.status as PerformanceProgramSummary["status"],
+      scope: row.scope === "all_families" ? "all_families" : "one_family",
       taskFamily: String(row.task_family),
+      familyKeys: (row.family_keys as string[] | null) ?? [String(row.task_family)],
       supportedClaim: claimOf(row.supported_claim),
       claimText: String(row.claim_text),
       baselineLabel: String(row.baseline_label),
@@ -322,6 +399,23 @@ export async function readPerformanceReport(
       taskKeys: payload.family.task_keys,
       description: payload.family.description,
     },
+    families: (payload.families ?? []).map((row) => ({
+      key: row.key,
+      version: row.version,
+      suiteDigest: row.digest,
+      taskKeys: row.task_keys ?? [],
+      tasks: number(row.tasks),
+      expectedRows: number(row.expected_rows),
+      baseline: trialStat(row.baseline),
+      candidate: trialStat(row.candidate),
+      effect: effectOf(row.effect),
+      claim: {
+        supported: Boolean(row.claim?.supported),
+        verdict: row.claim?.verdict ?? "awaiting_evidence",
+        complete: Boolean(row.claim?.complete),
+        reasons: row.claim?.reasons ?? [],
+      },
+    })),
     plan: {
       tasks: payload.plan?.tasks ?? 0,
       trials: payload.plan?.trials ?? 0,
@@ -329,20 +423,7 @@ export async function readPerformanceReport(
     },
     baseline: trialStat(payload.baseline),
     candidate: trialStat(payload.candidate),
-    effect: {
-      scoreGain: number(payload.effect.score_gain),
-      costReductionPct:
-        typeof payload.effect.cost_reduction_pct === "number"
-          ? payload.effect.cost_reduction_pct
-          : null,
-      latencyReductionPct:
-        typeof payload.effect.latency_reduction_pct === "number"
-          ? payload.effect.latency_reduction_pct
-          : null,
-      withinNoninferiority: Boolean(payload.effect.within_noninferiority),
-      assistanceMatched: Boolean(payload.effect.assistance_matched),
-      withinLimits: Boolean(payload.effect.within_limits),
-    },
+    effect: effectOf(payload.effect),
     reviews: {
       reviewed: payload.reviews?.reviewed ?? 0,
       disagreements: payload.reviews?.disagreements ?? 0,
@@ -355,6 +436,7 @@ export async function readPerformanceReport(
     claims: {
       registered: payload.claims.registered,
       supported: Boolean(payload.claims.supported),
+      pooled: Boolean(payload.claims.pooled),
       verdict: payload.claims.verdict,
       complete: Boolean(payload.claims.complete),
       reasons: payload.claims.reasons ?? [],
