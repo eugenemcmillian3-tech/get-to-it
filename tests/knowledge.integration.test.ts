@@ -3519,6 +3519,68 @@ describeKnowledge("improvement proposals", () => {
     expect(kept.rows[0].total).toBe("2");
   });
 
+  it("keeps a closed incident and the notifications it produced in the history", async () => {
+    type History = {
+      result: {
+        ok: boolean;
+        code?: string;
+        incidents: {
+          id: string;
+          title: string;
+          status: string;
+          candidate_title: string;
+          target: string;
+          opened_at: string;
+          closed_at: string;
+          recovery_kind: string | null;
+          notifications: {
+            user_id: string;
+            stage: string | null;
+            sent_at: string;
+            read_at: string | null;
+            summary: string;
+          }[];
+        }[];
+      };
+    };
+
+    const readHistory = (user: string) =>
+      asUser(client, user, () =>
+        client.query<History>("select public.workspace_incident_history($1) as result", [
+          workspaceId,
+        ]),
+      );
+
+    const asReviewer = (await readHistory(reviewer)).rows[0].result;
+    expect(asReviewer.ok).toBe(true);
+
+    const resolved = asReviewer.incidents.find((row) => row.title === "An incident that gets fixed");
+    expect(resolved).toMatchObject({ status: "resolved", target: "preview" });
+    expect(resolved?.candidate_title).toBeTruthy();
+    expect(resolved?.notifications).toHaveLength(2);
+    expect(resolved?.notifications.map((row) => row.stage)).toEqual(["first", "first"]);
+    expect(resolved?.notifications.every((row) => row.read_at)).toBe(true);
+    expect(resolved?.notifications[0].summary).toContain("has been open since");
+
+    const dismissed = asReviewer.incidents.find(
+      (row) => row.title === "An incident that is dismissed",
+    );
+    expect(dismissed?.status).toBe("dismissed");
+    expect(dismissed?.notifications).toHaveLength(2);
+
+    // An incident that is still open is on the audit page, not in the history.
+    expect(asReviewer.incidents.some((row) => row.title === "A rollout that keeps failing")).toBe(
+      false,
+    );
+
+    // Closed with nothing delivered: present, and honest about the empty list.
+    const rollback = asReviewer.incidents.find((row) => row.recovery_kind === "code_rollback");
+    expect(rollback?.notifications).toHaveLength(0);
+
+    const outsider = (await readHistory(randomUUID())).rows[0].result;
+    expect(outsider).toMatchObject({ ok: false, code: "no-workspace" });
+  });
+
   it("notifies on a backoff schedule instead of every day forever", async () => {
     type Pass = { result: { ok: boolean; delivered: number; escalated: number; day: string } };
     const runAt = (offset: string) =>

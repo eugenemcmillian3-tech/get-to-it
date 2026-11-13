@@ -68,6 +68,14 @@ export default async function PromotionAuditPage({
           live rollout can still be shaky. Each one carries how long it has been open, and anything
           open for a day or more is flagged.
         </p>
+        <p className="mt-2 text-sm">
+          <Link
+            href={`/workspace/${workspaceId}/improvements/incidents`}
+            className="underline"
+          >
+            Closed incident history
+          </Link>
+        </p>
 
         <section aria-labelledby="promotions-heading" className="mt-8">
           <h2 id="promotions-heading" className="text-xl font-bold">
