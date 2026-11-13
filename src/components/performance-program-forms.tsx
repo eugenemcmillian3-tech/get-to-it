@@ -76,6 +76,7 @@ export function RegisterProgramForm({
   families: FamilyOption[];
 }) {
   const [state, action] = useActionState(registerPerformanceProgramAction, idleBuildState);
+  const [allFamilies, setAllFamilies] = useState(false);
   const [familyKey, setFamilyKey] = useState(families[0]?.key ?? "");
   const family = families.find((row) => row.key === familyKey) ?? families[0];
   const [candidatePolicy, setCandidatePolicy] = useState(family?.candidates[0]?.key ?? "");
@@ -97,6 +98,11 @@ export function RegisterProgramForm({
 
       <form action={action} className="mt-4 grid gap-4">
         <input type="hidden" name="workspaceId" value={workspaceId} />
+        <input
+          type="hidden"
+          name="scope"
+          value={allFamilies ? "all_families" : "one_family"}
+        />
 
         <label className="grid gap-1">
           <span className={labelClass}>Title</span>
@@ -115,30 +121,50 @@ export function RegisterProgramForm({
           />
         </label>
 
-        <label className="grid gap-1">
-          <span className={labelClass}>Task family</span>
-          <select
-            name="familyKey"
-            className={inputClass}
-            value={familyKey}
-            onChange={(event) => {
-              const next = event.target.value;
-              setFamilyKey(next);
-              const chosen = families.find((row) => row.key === next);
-              setCandidatePolicy(chosen?.candidates[0]?.key ?? "");
-            }}
-          >
-            {families.map((row) => (
-              <option key={row.key} value={row.key}>
-                {row.label} · {row.tasks} tasks
-              </option>
-            ))}
-          </select>
-          <span className="text-xs text-muted">
-            {family?.description} The distribution and its digest are built from the installed
-            family, not typed in here.
+        <label className="flex items-start gap-2 rounded-xl border border-line p-3">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={allFamilies}
+            onChange={(event) => setAllFamilies(event.target.checked)}
+          />
+          <span>
+            <span className="text-sm font-semibold">Compare every installed family</span>
+            <span className="block text-xs text-muted">
+              Registers every family installed right now, each with its own tasks, baseline and
+              candidate. Results are reported per family and never pooled into one score.
+            </span>
           </span>
         </label>
+
+        {allFamilies ? (
+          <input type="hidden" name="familyKey" value={families[0]?.key ?? ""} />
+        ) : (
+          <label className="grid gap-1">
+            <span className={labelClass}>Task family</span>
+            <select
+              name="familyKey"
+              className={inputClass}
+              value={familyKey}
+              onChange={(event) => {
+                const next = event.target.value;
+                setFamilyKey(next);
+                const chosen = families.find((row) => row.key === next);
+                setCandidatePolicy(chosen?.candidates[0]?.key ?? "");
+              }}
+            >
+              {families.map((row) => (
+                <option key={row.key} value={row.key}>
+                  {row.label} · {row.tasks} tasks
+                </option>
+              ))}
+            </select>
+            <span className="text-xs text-muted">
+              {family?.description} The distribution and its digest are built from the installed
+              family, not typed in here.
+            </span>
+          </label>
+        )}
 
         {PROTOCOL_FIELDS.map((field) => (
           <label key={field.name} className="grid gap-1">
@@ -156,25 +182,34 @@ export function RegisterProgramForm({
         ))}
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <label className="grid gap-1">
-            <span className={labelClass}>Baseline</span>
-            <input value={family?.baselineLabel ?? ""} readOnly className={inputClass} />
-          </label>
-          <label className="grid gap-1">
-            <span className={labelClass}>Candidate</span>
-            <select
-              name="candidatePolicy"
-              className={inputClass}
-              value={selectedCandidate}
-              onChange={(event) => setCandidatePolicy(event.target.value)}
-            >
-              {candidates.map((row) => (
-                <option key={row.key} value={row.key}>
-                  {row.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          {allFamilies ? (
+            <p className="text-sm text-muted sm:col-span-2">
+              Baseline and candidate: each installed family&apos;s own shipped and candidate policy.
+              {families.map((row) => ` ${row.label}: ${row.baselineLabel} → ${row.candidates[0]?.label ?? ""}.`)}
+            </p>
+          ) : (
+            <>
+              <label className="grid gap-1">
+                <span className={labelClass}>Baseline</span>
+                <input value={family?.baselineLabel ?? ""} readOnly className={inputClass} />
+              </label>
+              <label className="grid gap-1">
+                <span className={labelClass}>Candidate</span>
+                <select
+                  name="candidatePolicy"
+                  className={inputClass}
+                  value={selectedCandidate}
+                  onChange={(event) => setCandidatePolicy(event.target.value)}
+                >
+                  {candidates.map((row) => (
+                    <option key={row.key} value={row.key}>
+                      {row.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </>
+          )}
           <label className="grid gap-1">
             <span className={labelClass}>Trials per task</span>
             <input

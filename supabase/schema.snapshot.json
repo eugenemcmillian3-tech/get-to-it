@@ -14394,13 +14394,6 @@
       "definition": "CHECK (((char_length(btrim(candidate_label)) >= 3) AND (char_length(btrim(candidate_label)) <= 160)))"
     },
     {
-      "key": "performance_programs.performance_programs_check",
-      "table": "performance_programs",
-      "name": "performance_programs_check",
-      "type": "c",
-      "definition": "CHECK (((distribution ->> 'suite'::text) = task_family))"
-    },
-    {
       "key": "performance_programs.performance_programs_check1",
       "table": "performance_programs",
       "name": "performance_programs_check1",
@@ -14462,6 +14455,13 @@
       "name": "performance_programs_failure_criteria_check",
       "type": "c",
       "definition": "CHECK (((char_length(btrim(failure_criteria)) >= 20) AND (char_length(btrim(failure_criteria)) <= 2000)))"
+    },
+    {
+      "key": "performance_programs.performance_programs_family_keys_check",
+      "table": "performance_programs",
+      "name": "performance_programs_family_keys_check",
+      "type": "c",
+      "definition": "CHECK (((cardinality(family_keys) >= 1) AND (cardinality(family_keys) <= 8)))"
     },
     {
       "key": "performance_programs.performance_programs_fingerprint_check",
@@ -14539,6 +14539,20 @@
       "name": "performance_programs_registered_by_fkey",
       "type": "f",
       "definition": "FOREIGN KEY (registered_by) REFERENCES auth.users(id) ON DELETE SET NULL"
+    },
+    {
+      "key": "performance_programs.performance_programs_scope_check",
+      "table": "performance_programs",
+      "name": "performance_programs_scope_check",
+      "type": "c",
+      "definition": "CHECK ((scope = ANY (ARRAY['one_family'::text, 'all_families'::text])))"
+    },
+    {
+      "key": "performance_programs.performance_programs_scope_suite_check",
+      "table": "performance_programs",
+      "name": "performance_programs_scope_suite_check",
+      "type": "c",
+      "definition": "CHECK ((((scope = 'all_families'::text) AND ((distribution ->> 'suite'::text) = 'all'::text)) OR ((scope = 'one_family'::text) AND ((distribution ->> 'suite'::text) = task_family))))"
     },
     {
       "key": "performance_programs.performance_programs_scoring_method_check",
@@ -14749,6 +14763,13 @@
       "name": "performance_trials_duration_ms_check",
       "type": "c",
       "definition": "CHECK (((duration_ms IS NULL) OR (duration_ms >= 0)))"
+    },
+    {
+      "key": "performance_trials.performance_trials_family_key_fkey",
+      "table": "performance_trials",
+      "name": "performance_trials_family_key_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (family_key) REFERENCES performance_task_families(key)"
     },
     {
       "key": "performance_trials.performance_trials_note_check",
@@ -19130,6 +19151,12 @@
       "table": "performance_task_families",
       "name": "performance_task_families_pkey",
       "definition": "CREATE UNIQUE INDEX performance_task_families_pkey ON public.performance_task_families USING btree (key)"
+    },
+    {
+      "key": "performance_trials.performance_trials_family_idx",
+      "table": "performance_trials",
+      "name": "performance_trials_family_idx",
+      "definition": "CREATE INDEX performance_trials_family_idx ON public.performance_trials USING btree (program_id, family_key)"
     },
     {
       "key": "performance_trials.performance_trials_pkey",

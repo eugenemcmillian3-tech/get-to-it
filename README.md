@@ -2300,6 +2300,16 @@ only draw its tasks from one of those lists. A family also fixes its own baselin
 and the candidate policies that may be tested against it, so the two comparisons
 are not interchangeable.
 
+A program may cover one installed family or every family installed at registration
+time. The all-family scope builds one combined distribution whose entries keep each
+family's own version, digest, task keys, baseline and candidate, and it refuses to
+register unless it lists every installed family exactly once. Running it records
+each family's trials under that family's key. The report returns a per-family
+result, effect and verdict and marks `claims.pooled` true so no page or export can
+show a single blended score; the program-level claim is supported only when every
+family supports the claim on its own rows. A family installed after registration is
+not added silently: the program keeps the families it registered.
+
 A comparison registers ten things before anything runs: the task distribution
 (family, version, digest, exact task keys), inclusion and exclusion rules, the
 scoring method, the baseline and candidate configuration, the permitted tools, a

@@ -4156,7 +4156,7 @@ describeKnowledge("performance research program", () => {
     const claims = result.claims as { supported: boolean; verdict: string; reasons: string[] };
     expect(claims.supported).toBe(false);
     expect(claims.verdict).toBe("not_supported");
-    expect(claims.reasons.join(" ")).toContain("Latency was not recorded");
+    expect(claims.reasons.join(" ").toLowerCase()).toContain("latency was not recorded");
   });
 
   it("keeps a distribution claim unsupported until a human reference is documented", async () => {
@@ -4244,7 +4244,7 @@ describeKnowledge("performance research program", () => {
     expect(reviews.reviewed).toBe(1);
     expect(reviews.disagreements).toBe(1);
     expect(claims.supported).toBe(false);
-    expect(claims.reasons.join(" ")).toContain("Independent review disagrees");
+    expect(claims.reasons.join(" ").toLowerCase()).toContain("independent review disagrees");
   });
 });
 
@@ -4345,7 +4345,7 @@ describeKnowledge("performance research program on a second family", () => {
     } catch (error) {
       message = (error as Error).message;
     }
-    expect(message).toContain("outside the registered distribution");
+    expect(message).toContain("belongs to a family this comparison did not register");
   });
 
   it("derives the claim on the second family's own numbers", async () => {
@@ -4394,5 +4394,199 @@ describeKnowledge("performance research program on a second family", () => {
     expect(effect.score_gain).toBeCloseTo(0.6667, 3);
     expect(claims.supported).toBe(true);
     expect(claims.verdict).toBe("supported");
+  });
+});
+
+describeKnowledge("performance research program across every family", () => {
+  let client: Client;
+  const owner = randomUUID();
+  const workspaceId = randomUUID();
+
+  beforeAll(async () => {
+    client = new Client({ connectionString });
+    await client.connect();
+    await assertIsolatedDatabase(client);
+
+    await client.query("insert into auth.users (id, email) values ($1,$2)", [
+      owner,
+      `performance-all-${owner.slice(0, 8)}@example.test`,
+    ]);
+    await client.query("insert into public.workspaces (id, name, created_by) values ($1,$2,$3)", [
+      workspaceId,
+      "All family probe",
+      owner,
+    ]);
+    await client.query(
+      "insert into public.workspace_members (workspace_id, user_id, role, status) values ($1,$2,'owner','active')",
+      [workspaceId, owner],
+    );
+  }, 120_000);
+
+  afterAll(async () => {
+    if (client) await client.end();
+  });
+
+  function familyEntries() {
+    return [TOOL_SELECTION_FAMILY, ERROR_RECOVERY_FAMILY].map((family) => ({
+      key: family.key,
+      version: family.version,
+      digest: family.digest,
+      task_keys: family.taskKeys,
+      tasks: family.taskKeys.length,
+      baseline_label: family.baseline.label,
+      baseline_policy: family.baseline.key,
+      candidate_label: family.candidates[0].label,
+      candidate_policy: family.candidates[0].key,
+    }));
+  }
+
+  async function insertProgram(entries = familyEntries()): Promise<string> {
+    const id = randomUUID();
+    const distribution = {
+      suite: "all",
+      version: "2026-11-13.2",
+      digest: "a".repeat(64),
+      task_keys: entries.flatMap((entry) => entry.task_keys),
+      tasks: entries.reduce((total, entry) => total + entry.tasks, 0),
+      families: entries,
+    };
+    await asUser(client, owner, () =>
+      client.query(
+        `insert into public.performance_programs
+           (id, workspace_id, user_id, title, question, task_family, scope, distribution,
+            inclusion_rules, exclusion_rules, scoring_method, baseline_label, baseline_config,
+            candidate_label, candidate_config, permitted_tools, time_limit_seconds,
+            cost_limit_cents, trials, human_assistance_policy, failure_criteria,
+            supported_claim, claim_text, minimum_effect, noninferiority_margin,
+            max_disagreements, status, fingerprint, registered_at, registered_by)
+         values ($1,$2,$3,$4,$5,$6,'all_families',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
+                 $21,$22,$23,$24,$25,'registered',$26,now(),$3)`,
+        [
+          id,
+          workspaceId,
+          owner,
+          "Every family, each reported on its own",
+          "Does each installed family improve under its own candidate, without one family standing in for another?",
+          entries[0].key,
+          JSON.stringify(distribution),
+          "Every authored case in the families installed at registration.",
+          "Anything outside the installed families and any paid model call.",
+          "One authored case is one trial: the chosen action either matches the expected action or it does not.",
+          "Each family's installed baseline policy",
+          JSON.stringify({
+            policies: Object.fromEntries(entries.map((entry) => [entry.key, entry.baseline_policy])),
+          }),
+          "Each family's installed candidate policy",
+          JSON.stringify({
+            policies: Object.fromEntries(entries.map((entry) => [entry.key, entry.candidate_policy])),
+          }),
+          ["SLACK_SEND_MESSAGE", "SLACK_LIST_ALL_CHANNELS", "GITHUB_CREATE_AN_ISSUE"],
+          120,
+          20,
+          1,
+          "A person may help, and any help is recorded on the trial.",
+          "Any family failing its own claim, or a review disagreement above the allowance.",
+          "benchmark",
+          "On these authored cases each family's candidate reaches the expected action at least twenty percent more often than its own baseline.",
+          0.2,
+          0,
+          0,
+          "a".repeat(64),
+        ],
+      ),
+    );
+    return id;
+  }
+
+  async function record(
+    programId: string,
+    family: { key: string; taskKeys: string[] },
+    baselinePasses: number,
+    candidatePasses: number,
+  ) {
+    for (const [config, passes] of [
+      ["baseline" as const, baselinePasses],
+      ["candidate" as const, candidatePasses],
+    ] as const) {
+      for (const [index, key] of family.taskKeys.entries()) {
+        const passed = index < passes;
+        await asUser(client, owner, () =>
+          client.query(
+            `insert into public.performance_trials
+               (program_id, workspace_id, config, task_key, trial, outcome, score,
+                cost_cents, cost_units, duration_ms, human_assisted, source, recorded_by)
+             values ($1,$2,$3,$4,1,$5,$6,0,$7,null,false,'authored_suite',$8)`,
+            [
+              programId,
+              workspaceId,
+              config,
+              key,
+              passed ? "pass" : "fail",
+              passed ? 1 : 0,
+              passed ? 1 : 3,
+              owner,
+            ],
+          ),
+        );
+      }
+    }
+  }
+
+  async function readReport(programId: string) {
+    const result = await asUser(client, owner, () =>
+      client.query<{ result: Record<string, unknown> }>(
+        "select public.workspace_performance_report($1) as result",
+        [programId],
+      ),
+    );
+    return result.rows[0].result as {
+      claims: { supported: boolean; pooled: boolean; verdict: string };
+      families: {
+        key: string;
+        effect: { score_gain: number };
+        claim: { supported: boolean; verdict: string };
+      }[];
+    };
+  }
+
+  it("reports each family on its own rows and keeps no blended score", async () => {
+    const programId = await insertProgram();
+    await record(programId, TOOL_SELECTION_FAMILY, 6, 12);
+    await record(programId, ERROR_RECOVERY_FAMILY, 4, 12);
+
+    const report = await readReport(programId);
+
+    expect(report.families.map((row) => row.key)).toEqual(["tool_selection", "error_recovery"]);
+    expect(report.families[0].effect.score_gain).toBeCloseTo(0.5, 3);
+    expect(report.families[1].effect.score_gain).toBeCloseTo(0.6667, 3);
+    expect(report.families.every((row) => row.claim.supported)).toBe(true);
+    expect(report.claims.supported).toBe(true);
+    expect(report.claims.verdict).toBe("supported");
+    expect(report.claims.pooled).toBe(true);
+  });
+
+  it("does not let one family carry a program claim the other family fails", async () => {
+    const programId = await insertProgram();
+    // The pooled mean gain (0.4167) would clear the 0.2 minimum; tool selection alone does not.
+    await record(programId, TOOL_SELECTION_FAMILY, 10, 12);
+    await record(programId, ERROR_RECOVERY_FAMILY, 4, 12);
+
+    const report = await readReport(programId);
+
+    expect(report.families[0].claim.supported).toBe(false);
+    expect(report.families[1].claim.supported).toBe(true);
+    expect(report.claims.supported).toBe(false);
+    expect(report.claims.verdict).toBe("not_supported");
+    expect(report.claims.pooled).toBe(true);
+  });
+
+  it("refuses a program that registers only one of the installed families", async () => {
+    let message = "";
+    try {
+      await insertProgram(familyEntries().slice(0, 1));
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain("must register all 2 installed families");
   });
 });

@@ -23,7 +23,9 @@ import {
   PERFORMANCE_POLICIES,
   PERFORMANCE_TASK_KEYS,
   bannedClaimPhrase,
+  allFamiliesDistribution,
   familyDistribution,
+  familySpec,
   formatLatency,
   formatPercent,
   programProblems,
@@ -232,5 +234,59 @@ describe("performance program registration", () => {
     expect(formatPercent(null)).toBe("not measured");
     expect(formatLatency(120.4)).toBe("120 ms");
     expect(formatPercent(25)).toBe("25.00%");
+  });
+
+  it("builds one combined distribution that keeps every family separate", () => {
+    const combined = allFamiliesDistribution();
+
+    expect(combined.suite).toBe("all");
+    expect(combined.families.map((row) => row.key)).toEqual(
+      PERFORMANCE_FAMILIES.map((row) => row.key),
+    );
+    expect(combined.task_keys).toEqual([
+      ...TOOL_SELECTION_FAMILY.taskKeys,
+      ...ERROR_RECOVERY_FAMILY.taskKeys,
+    ]);
+    expect(combined.tasks).toBe(24);
+    expect(combined.digest).toMatch(/^[0-9a-f]{64}$/);
+    expect(combined.digest).not.toBe(PERFORMANCE_FAMILY_DIGEST);
+    expect(combined.digest).not.toBe(ERROR_RECOVERY_FAMILY.digest);
+
+    for (const entry of combined.families) {
+      const installed = familySpec(entry.key);
+      expect(installed).not.toBeNull();
+      expect(entry.version).toBe(installed!.version);
+      expect(entry.digest).toBe(installed!.digest);
+      expect(entry.task_keys).toEqual(installed!.taskKeys);
+      expect(entry.baseline_policy).toBe(installed!.baseline.key);
+      expect(entry.candidate_policy).toBe(installed!.candidates[0].key);
+    }
+
+    const migration = readFileSync(
+      path.join(process.cwd(), "supabase/migrations/0085_phase41_all_families.sql"),
+      "utf8",
+    );
+    expect(migration).toContain("all_families");
+    expect(migration).toContain("family_keys");
+    expect(migration).toContain("'families'");
+  });
+
+  it("fingerprints the all-family scope apart from a single family", () => {
+    const combined = allFamiliesDistribution();
+    const fingerprint = protocolFingerprint({
+      ...draft,
+      scope: "all_families",
+      families: combined.families,
+      candidatePolicy: "per-family",
+    });
+
+    expect(fingerprint).toMatch(/^[0-9a-f]{64}$/);
+    expect(fingerprint).not.toBe(fingerprintOf());
+    expect(
+      programProblems({ ...draft, scope: "all_families", candidatePolicy: "per-family" }),
+    ).toEqual([]);
+    expect(programProblems({ ...draft, candidatePolicy: "per-family" }).join(" ")).toContain(
+      "Choose the candidate policy",
+    );
   });
 });

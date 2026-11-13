@@ -5,6 +5,7 @@ import {
   CLAIM_UNITS,
   REFUSED_CLAIM_NOTE,
   VERDICT_LABELS,
+  familyLabel,
   formatCents,
   formatLatency,
   formatPercent,
@@ -21,41 +22,66 @@ function line(label: string, value: string): string {
   return `- **${label}:** ${value}`;
 }
 
-function statTable(report: PerformanceReport): string {
+function statTable(
+  baseline: PerformanceReport["baseline"],
+  candidate: PerformanceReport["candidate"],
+  baselineLabel: string,
+  candidateLabel: string,
+): string {
   const rows = [
-    [
-      "Trials recorded",
-      String(report.baseline.rows),
-      String(report.candidate.rows),
-    ],
+    ["Trials recorded", String(baseline.rows), String(candidate.rows)],
     [
       "Outcomes",
-      `${report.baseline.passes} pass, ${report.baseline.partials} partial, ${report.baseline.fails} fail`,
-      `${report.candidate.passes} pass, ${report.candidate.partials} partial, ${report.candidate.fails} fail`,
+      `${baseline.passes} pass, ${baseline.partials} partial, ${baseline.fails} fail`,
+      `${candidate.passes} pass, ${candidate.partials} partial, ${candidate.fails} fail`,
     ],
-    ["Mean score", formatScore(report.baseline.meanScore), formatScore(report.candidate.meanScore)],
+    ["Mean score", formatScore(baseline.meanScore), formatScore(candidate.meanScore)],
     [
       "Mean cost",
-      `${formatCents(report.baseline.meanCostCents)} (${report.baseline.meanCostUnits} authored units)`,
-      `${formatCents(report.candidate.meanCostCents)} (${report.candidate.meanCostUnits} authored units)`,
+      `${formatCents(baseline.meanCostCents)} (${baseline.meanCostUnits} authored units)`,
+      `${formatCents(candidate.meanCostCents)} (${candidate.meanCostUnits} authored units)`,
     ],
     [
       "Median latency",
-      formatLatency(report.baseline.medianDurationMs),
-      formatLatency(report.candidate.medianDurationMs),
+      formatLatency(baseline.medianDurationMs),
+      formatLatency(candidate.medianDurationMs),
     ],
-    [
-      "Human-assisted trials",
-      String(report.baseline.humanAssisted),
-      String(report.candidate.humanAssisted),
-    ],
+    ["Human-assisted trials", String(baseline.humanAssisted), String(candidate.humanAssisted)],
   ];
 
   return [
-    `| Measure | ${report.program.baselineLabel} | ${report.program.candidateLabel} |`,
+    `| Measure | ${baselineLabel} | ${candidateLabel} |`,
     "| --- | --- | --- |",
     ...rows.map((row) => `| ${row.join(" | ")} |`),
   ].join("\n");
+}
+
+function familyResults(report: PerformanceReport): string {
+  return report.families
+    .map((entry) => {
+      const reasons =
+        entry.claim.reasons.length > 0
+          ? entry.claim.reasons.map((reason) => `- ${reason}`).join("\n")
+          : "- Every registered condition was met for this family.";
+      return [
+        `### ${familyLabel(entry.key)}`,
+        "",
+        line("Family", `${entry.key} ${entry.version}`),
+        line("Tasks", `${entry.tasks} authored cases: ${entry.taskKeys.join(", ")}`),
+        line("Suite digest", entry.suiteDigest),
+        "",
+        statTable(entry.baseline, entry.candidate, "Family baseline", "Family candidate"),
+        "",
+        `Score difference: ${formatScore(entry.effect.scoreGain)} points. Cost difference: ${formatPercent(entry.effect.costReductionPct)} lower mean cost. Latency difference: ${formatPercent(entry.effect.latencyReductionPct)} lower median latency.`,
+        "",
+        `Conditions: within non-inferiority ${entry.effect.withinNoninferiority ? "yes" : "no"}; assistance matched ${entry.effect.assistanceMatched ? "yes" : "no"}; within registered limits ${entry.effect.withinLimits ? "yes" : "no"}.`,
+        "",
+        `**${VERDICT_LABELS[entry.claim.verdict] ?? entry.claim.verdict}** (${entry.claim.supported ? "supported" : "not supported"} for this family).`,
+        "",
+        reasons,
+      ].join("\n");
+    })
+    .join("\n\n");
 }
 
 export async function GET(
@@ -73,6 +99,11 @@ export async function GET(
     return new Response("Not found.", { status: 404 });
   }
 
+  const allFamilies = report.program.scope === "all_families" && report.families.length > 0;
+  const results = allFamilies
+    ? `Each family below is reported on its own rows. No pooled score is computed.\n\n${familyResults(report)}`
+    : `${statTable(report.baseline, report.candidate, report.program.baselineLabel, report.program.candidateLabel)}\n\nScore difference: ${formatScore(report.effect.scoreGain)} points. Cost difference: ${formatPercent(report.effect.costReductionPct)} lower mean cost. Latency difference: ${formatPercent(report.effect.latencyReductionPct)} lower median latency.\n\nConditions: within non-inferiority ${report.effect.withinNoninferiority ? "yes" : "no"}; assistance matched ${report.effect.assistanceMatched ? "yes" : "no"}; within registered limits ${report.effect.withinLimits ? "yes" : "no"}.`;
+
   const body = `# ${report.program.title}
 
 Performance program report for workspace \`${workspaceId}\`, generated from the recorded rows at ${new Date().toISOString()}.
@@ -89,9 +120,8 @@ Minimum effect: ${report.program.minimumEffect} ${CLAIM_UNITS[report.claims.regi
 
 ## Registered protocol
 
-${line("Task family", `${report.family.key} ${report.family.version}`)}
-${line("Family description", report.family.description)}
-${line("Task distribution", `${report.family.taskKeys.length} authored cases: ${report.family.taskKeys.join(", ")}`)}
+${allFamilies ? line("Task families", report.families.map((entry) => `${entry.key} ${entry.version}`).join(", ")) : line("Task family", `${report.family.key} ${report.family.version}`)}
+${allFamilies ? report.families.map((entry) => line(`Distribution — ${familyLabel(entry.key)}`, `${entry.tasks} authored cases: ${entry.taskKeys.join(", ")}; digest ${entry.suiteDigest}`)).join("\n") : `${line("Family description", report.family.description)}\n${line("Task distribution", `${report.family.taskKeys.length} authored cases: ${report.family.taskKeys.join(", ")}`)}`}
 ${line("Suite digest", report.family.suiteDigest)}
 ${line("Inclusion rules", report.program.inclusionRules)}
 ${line("Exclusion rules", report.program.exclusionRules)}
@@ -110,17 +140,13 @@ ${line("Status", report.program.status)}
 
 ## Results
 
-${statTable(report)}
-
-Score difference: ${formatScore(report.effect.scoreGain)} points. Cost difference: ${formatPercent(report.effect.costReductionPct)} lower mean cost. Latency difference: ${formatPercent(report.effect.latencyReductionPct)} lower median latency.
-
-Conditions: within non-inferiority ${report.effect.withinNoninferiority ? "yes" : "no"}; assistance matched ${report.effect.assistanceMatched ? "yes" : "no"}; within registered limits ${report.effect.withinLimits ? "yes" : "no"}.
+${results}
 
 ## Claim verdict
 
 **${VERDICT_LABELS[report.claims.verdict] ?? report.claims.verdict}** (${report.claims.supported ? "supported" : "not supported"}).
 
-${report.claims.reasons.length > 0 ? report.claims.reasons.map((reason) => `- ${reason}`).join("\n") : "- Every registered condition was met."}
+${allFamilies ? `${report.families.map((entry) => `- **${familyLabel(entry.key)}:** ${VERDICT_LABELS[entry.claim.verdict] ?? entry.claim.verdict} — ${entry.claim.supported ? "supports" : "does not support"} the claim on its own rows.`).join("\n")}\n\n` : ""}${report.claims.reasons.length > 0 ? report.claims.reasons.map((reason) => `- ${reason}`).join("\n") : "- Every registered condition was met."}
 
 ## Claims this report does not support
 
