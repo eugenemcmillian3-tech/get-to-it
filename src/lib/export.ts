@@ -332,14 +332,14 @@ export function exportFileName(
     : `get-to-it-${kind}-${day}.csv`;
 }
 
-function csvCell(value: unknown): string {
+export function csvCell(value: unknown): string {
   const text = value === null || value === undefined ? "" : String(value);
   // Spreadsheet formula injection guard.
   const guarded = /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
   return /[",\n\r]/.test(guarded) ? `"${guarded.replace(/"/g, '""')}"` : guarded;
 }
 
-function csvRows(headers: string[], rows: unknown[][]): string {
+export function csvRows(headers: string[], rows: unknown[][]): string {
   return [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\n") + "\n";
 }
 
