@@ -111,6 +111,8 @@ export async function listIncidentHistory(
       p_severity: filters.severity,
       p_status: filters.status,
       p_query: filters.query,
+      p_closed_from: filters.from,
+      p_closed_to: filters.to,
     }),
     session.supabase.rpc("workspace_member_directory", { p_workspace_id: workspaceId }),
   ]);

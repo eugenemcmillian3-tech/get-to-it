@@ -58,8 +58,20 @@ export type IncidentHistoryFilters = {
   severity: IncidentSeverity | null;
   status: ClosedStatus | null;
   query: string | null;
+  /** Inclusive first UTC day whose closures are shown. */
+  from: string | null;
+  /** Inclusive last UTC day whose closures are shown. */
+  to: string | null;
   page: number;
 };
+
+/** A real calendar day in `YYYY-MM-DD`, or null. `2026-02-31` is rejected. */
+function isoDay(value: string | null): string | null {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString().slice(0, 10) === value ? value : null;
+}
 
 function firstValue(value: string | string[] | undefined): string | null {
   const raw = Array.isArray(value) ? value[0] : value;
@@ -77,6 +89,8 @@ export function historyFilters(params: {
   severity?: string | string[];
   status?: string | string[];
   query?: string | string[];
+  from?: string | string[];
+  to?: string | string[];
   page?: string | string[];
 }): IncidentHistoryFilters {
   const severity = firstValue(params.severity);
@@ -90,6 +104,8 @@ export function historyFilters(params: {
       : null,
     status: CLOSED_STATUSES.includes(status as ClosedStatus) ? (status as ClosedStatus) : null,
     query: query ? query.slice(0, 100) : null,
+    from: isoDay(firstValue(params.from)),
+    to: isoDay(firstValue(params.to)),
     page: Number.isFinite(page) && page > 0 ? page : 1,
   };
 }
@@ -102,6 +118,8 @@ export function historyHref(
   const search = new URLSearchParams();
   if (filters.severity) search.set("severity", filters.severity);
   if (filters.status) search.set("status", filters.status);
+  if (filters.from) search.set("from", filters.from);
+  if (filters.to) search.set("to", filters.to);
   if (filters.query) search.set("query", filters.query);
   if (page > 1) search.set("page", String(page));
   const qs = search.toString();

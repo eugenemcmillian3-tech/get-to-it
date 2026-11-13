@@ -3598,15 +3598,20 @@ describeKnowledge("improvement proposals", () => {
       severity: string | null = null,
       status: string | null = null,
       query: string | null = null,
+      closedFrom: string | null = null,
+      closedTo: string | null = null,
     ) =>
       (
         await asUser(client, reviewer, () =>
           client.query<Paged>(
-            "select public.workspace_incident_history($1,$2,$3,$4,$5,$6) as result",
-            [workspaceId, limit, offset, severity, status, query],
+            "select public.workspace_incident_history($1,$2,$3,$4,$5,$6,$7,$8) as result",
+            [workspaceId, limit, offset, severity, status, query, closedFrom, closedTo],
           ),
         )
       ).rows[0].result;
+
+    const day = (offset: number) =>
+      new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
 
     const all = await read(20, 0);
     expect(all.ok).toBe(true);
@@ -3646,6 +3651,51 @@ describeKnowledge("improvement proposals", () => {
 
     const refused = await read(20, 0, "urgent");
     expect(refused).toMatchObject({ ok: false, code: "bad-filter" });
+
+    // A closure ten days ago, so the range has something outside today to find.
+    const oldRelease = await client.query<{ id: string }>(
+      `insert into public.app_releases (project_id, user_id, version, deployment_id, source_digest)
+       values ($1,$2,921,$3,$4) returning id`,
+      [projectId, owner, deploymentIds.approved, "c".repeat(63) + "9"],
+    );
+    await client.query(
+      `insert into public.app_release_incidents
+         (project_id, release_id, deployment_id, user_id, title, trigger, severity, status,
+          evidence, recovery_kind, recovery_plan, resolved_at, created_at)
+       values ($1,$2,$3,$4,$5,$6,'low','resolved',
+               '[{"kind":"log","detail":"one timeout"}]'::jsonb,
+               'patch', '{"action":"trim the retry"}'::jsonb,
+               now() - interval '10 days', now() - interval '12 days')`,
+      [
+        projectId,
+        oldRelease.rows[0].id,
+        deploymentIds.approved,
+        owner,
+        "An incident from ten days ago",
+        "The release check saw one timeout.",
+      ],
+    );
+
+    const todayOnly = await read(20, 0, null, null, null, day(0), day(0));
+    expect(todayOnly.total).toBeGreaterThan(0);
+    expect(todayOnly.incidents.some((row) => row.title === "An incident that gets fixed")).toBe(true);
+    expect(
+      todayOnly.incidents.some((row) => row.title === "An incident from ten days ago"),
+    ).toBe(false);
+
+    const olderWindow = await read(20, 0, null, null, null, day(-11), day(-9));
+    expect(olderWindow.total).toBe(1);
+    expect(olderWindow.incidents.map((row) => row.title)).toEqual([
+      "An incident from ten days ago",
+    ]);
+
+    // An end date before every closure is an empty range, not an error. The
+    // ten-day-old incident proves the bound is real, so it has to sit before that.
+    expect((await read(20, 0, null, null, null, null, day(-11))).total).toBe(0);
+    // Nor is an inverted range: it matches nothing and says so by being empty.
+    expect((await read(20, 0, null, null, null, day(-11), day(-12))).total).toBe(0);
+    // Combined with the other filters it still narrows rather than replaces them.
+    expect((await read(20, 0, "low", null, null, day(-11), day(-9))).total).toBe(1);
   });
 
   it("notifies on a backoff schedule instead of every day forever", async () => {

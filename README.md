@@ -2258,10 +2258,11 @@ closed incident (resolved or dismissed) on a promoted change's deployment, with 
 notifications actually delivered for it, per person — stage, when it was sent,
 whether it was marked read and the text it carried. An incident closed before a
 notification was due shows none rather than an assumed one. It filters by severity,
-by how the incident closed and by literal text in the incident or the promoted
-change, and pages 20 at a time with the total number of matches; a page past the end
-reads the last page instead of showing nothing. It is a read: nothing on that page
-changes state.
+by how the incident closed, by an inclusive UTC closed-date range (`from` and `to`,
+either end open) and by literal text in the incident or the promoted change, and
+pages 20 at a time with the total number of matches; a page past the end reads the
+last page instead of showing nothing, and a `from` after its `to` says so rather
+than silently swapping them. It is a read: nothing on that page changes state.
 
 Refused, by name and on the record: granting permissions, removing an approval
 gate, increasing spending authority, changing a billing price, disabling audit

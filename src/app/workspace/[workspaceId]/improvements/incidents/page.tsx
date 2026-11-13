@@ -69,8 +69,18 @@ export default async function IncidentHistoryPage({
       total + incident.notifications.filter((row) => row.stage === "escalation").length,
     0,
   );
-  const filtered = Boolean(filters.severity || filters.status || filters.query);
-  const clearHref = historyHref(workspaceId, { severity: null, status: null, query: null, page: 1 });
+  const filtered = Boolean(
+    filters.severity || filters.status || filters.query || filters.from || filters.to,
+  );
+  const invertedRange = Boolean(filters.from && filters.to && filters.from > filters.to);
+  const clearHref = historyHref(workspaceId, {
+    severity: null,
+    status: null,
+    query: null,
+    from: null,
+    to: null,
+    page: 1,
+  });
 
   return (
     <div className="min-h-dvh">
@@ -90,8 +100,8 @@ export default async function IncidentHistoryPage({
           the notifications the schedule delivered for it and whether they were marked read. This
           page only reads: every line comes from the incident and notification rows themselves, so
           an incident closed before it had been open for a day shows no notifications rather than
-          an assumed one. Filter by severity, by how it closed, or by text in the incident or the
-          promoted change; newest closure first.
+          an assumed one. Filter by severity, by how it closed, by a UTC closed-date range, or by
+          text in the incident or the promoted change; newest closure first.
         </p>
         <p className="mt-2 text-xs text-muted">
           {history.total} closed {history.total === 1 ? "incident" : "incidents"}
@@ -128,6 +138,28 @@ export default async function IncidentHistoryPage({
               ))}
             </select>
           </label>
+          <label>
+            <span className={labelClass}>Closed from</span>
+            <input
+              type="date"
+              name="from"
+              defaultValue={filters.from ?? ""}
+              className={`${inputClass} mt-1`}
+            />
+          </label>
+          <label>
+            <span className={labelClass}>Closed to</span>
+            <input
+              type="date"
+              name="to"
+              defaultValue={filters.to ?? ""}
+              className={`${inputClass} mt-1`}
+            />
+          </label>
+          <p className="text-xs text-muted sm:col-span-2">
+            Dates are UTC days and both ends are inclusive. Leave either blank for an open-ended
+            range.
+          </p>
           <label className="sm:col-span-2">
             <span className={labelClass}>Search</span>
             <input
@@ -155,6 +187,12 @@ export default async function IncidentHistoryPage({
           <h2 id="closed-heading" className="text-xl font-bold">
             Closed incidents
           </h2>
+          {invertedRange ? (
+            <p className="mt-2 text-sm text-muted">
+              The start date {filters.from} is after the end date {filters.to}, so nothing can
+              match. Swap them to widen the range.
+            </p>
+          ) : null}
           {history.incidents.length === 0 ? (
             <p className="mt-2 text-sm text-muted">
               {filtered ? (
