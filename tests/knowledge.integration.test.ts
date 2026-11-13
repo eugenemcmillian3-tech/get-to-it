@@ -3589,7 +3589,14 @@ describeKnowledge("improvement proposals", () => {
         total: number;
         limit: number;
         offset: number;
-        incidents: { id: string; title: string; severity: string; status: string }[];
+        incidents: {
+          id: string;
+          title: string;
+          severity: string;
+          status: string;
+          opened_at: string;
+          closed_at: string;
+        }[];
       };
     };
     const read = async (
@@ -3600,12 +3607,25 @@ describeKnowledge("improvement proposals", () => {
       query: string | null = null,
       closedFrom: string | null = null,
       closedTo: string | null = null,
+      openFrom: string | null = null,
+      openTo: string | null = null,
     ) =>
       (
         await asUser(client, reviewer, () =>
           client.query<Paged>(
-            "select public.workspace_incident_history($1,$2,$3,$4,$5,$6,$7,$8) as result",
-            [workspaceId, limit, offset, severity, status, query, closedFrom, closedTo],
+            "select public.workspace_incident_history($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) as result",
+            [
+              workspaceId,
+              limit,
+              offset,
+              severity,
+              status,
+              query,
+              closedFrom,
+              closedTo,
+              openFrom,
+              openTo,
+            ],
           ),
         )
       ).rows[0].result;
@@ -3696,6 +3716,67 @@ describeKnowledge("improvement proposals", () => {
     expect((await read(20, 0, null, null, null, day(-11), day(-12))).total).toBe(0);
     // Combined with the other filters it still narrows rather than replaces them.
     expect((await read(20, 0, "low", null, null, day(-11), day(-9))).total).toBe(1);
+
+    // A long incident, opened 40 days ago and closed 5 days ago: outside every
+    // closed-date window used above, but open during the middle of that span.
+    const longRelease = await client.query<{ id: string }>(
+      `insert into public.app_releases (project_id, user_id, version, deployment_id, source_digest)
+       values ($1,$2,922,$3,$4) returning id`,
+      [projectId, owner, deploymentIds.approved, "d".repeat(63) + "9"],
+    );
+    await client.query(
+      `insert into public.app_release_incidents
+         (project_id, release_id, deployment_id, user_id, title, trigger, severity, status,
+          evidence, recovery_kind, recovery_plan, resolved_at, created_at)
+       values ($1,$2,$3,$4,$5,$6,'medium','resolved',
+               '[{"kind":"log","detail":"slow sends"}]'::jsonb,
+               'patch', '{"action":"trim"}'::jsonb,
+               now() - interval '5 days', now() - interval '40 days')`,
+      [
+        projectId,
+        longRelease.rows[0].id,
+        deploymentIds.approved,
+        owner,
+        "An incident that ran for five weeks",
+        "Sends stayed slow.",
+      ],
+    );
+
+    // The window in the middle of that incident's life finds it and nothing from
+    // the newer closures, because they opened after the window closed.
+    const midWindow = await read(20, 0, null, null, null, null, null, day(-30), day(-20));
+    expect(midWindow.total).toBe(1);
+    expect(midWindow.incidents.map((row) => row.title)).toEqual([
+      "An incident that ran for five weeks",
+    ]);
+
+    // Open-ended window from today finds only what was still open today.
+    const stillOpen = await read(20, 0, null, null, null, null, null, day(0), null);
+    expect(stillOpen.incidents.some((row) => row.title === "An incident that gets fixed")).toBe(true);
+    expect(
+      stillOpen.incidents.some((row) => row.title === "An incident that ran for five weeks"),
+    ).toBe(false);
+
+    // The closed range and the open window are separate filters. Together they are
+    // an intersection, so every row has to satisfy both, and the count cannot
+    // exceed either side on its own.
+    const both = await read(20, 0, null, null, null, day(0), day(0), day(-30), day(-20));
+    expect(both.total).toBeLessThanOrEqual(todayOnly.total);
+    expect(both.total).toBeLessThanOrEqual(midWindow.total);
+    expect(
+      both.incidents.every(
+        (row) =>
+          row.closed_at.slice(0, 10) === day(0) && row.opened_at.slice(0, 10) <= day(-20),
+      ),
+    ).toBe(true);
+
+    // An inverted open window is explicitly empty rather than read as "open across
+    // the whole span", which is what the separate bounds would otherwise mean.
+    expect((await read(20, 0, null, null, null, null, null, day(-20), day(-30))).total).toBe(0);
+
+    // Overlap is not "contained by": a window that ends before the long incident
+    // closed, but after it opened, still matches it.
+    expect((await read(20, 0, null, null, null, null, null, day(-40), day(-39))).total).toBe(1);
   });
 
   it("notifies on a backoff schedule instead of every day forever", async () => {

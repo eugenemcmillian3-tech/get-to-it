@@ -62,6 +62,10 @@ export type IncidentHistoryFilters = {
   from: string | null;
   /** Inclusive last UTC day whose closures are shown. */
   to: string | null;
+  /** Inclusive first UTC day of the open window; incidents open inside it match. */
+  openFrom: string | null;
+  /** Inclusive last UTC day of the open window. */
+  openTo: string | null;
   page: number;
 };
 
@@ -91,6 +95,8 @@ export function historyFilters(params: {
   query?: string | string[];
   from?: string | string[];
   to?: string | string[];
+  open_from?: string | string[];
+  open_to?: string | string[];
   page?: string | string[];
 }): IncidentHistoryFilters {
   const severity = firstValue(params.severity);
@@ -106,6 +112,8 @@ export function historyFilters(params: {
     query: query ? query.slice(0, 100) : null,
     from: isoDay(firstValue(params.from)),
     to: isoDay(firstValue(params.to)),
+    openFrom: isoDay(firstValue(params.open_from)),
+    openTo: isoDay(firstValue(params.open_to)),
     page: Number.isFinite(page) && page > 0 ? page : 1,
   };
 }
@@ -120,6 +128,8 @@ export function historyHref(
   if (filters.status) search.set("status", filters.status);
   if (filters.from) search.set("from", filters.from);
   if (filters.to) search.set("to", filters.to);
+  if (filters.openFrom) search.set("open_from", filters.openFrom);
+  if (filters.openTo) search.set("open_to", filters.openTo);
   if (filters.query) search.set("query", filters.query);
   if (page > 1) search.set("page", String(page));
   const qs = search.toString();
