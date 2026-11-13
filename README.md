@@ -2253,6 +2253,13 @@ or dismissing the incident marks its unread notifications read, so the inbox and
 unread count stop advertising a problem that is already closed; the rows stay as
 history. Delivery stays in-app; no email, SMS or push is sent.
 
+`/workspace/{workspaceId}/improvements/incidents` is the read-only other half: every
+closed incident (resolved or dismissed) on a promoted change's deployment, with the
+notifications actually delivered for it, per person — stage, when it was sent,
+whether it was marked read and the text it carried. An incident closed before a
+notification was due shows none rather than an assumed one. It is a read: nothing
+on that page changes state.
+
 Refused, by name and on the record: granting permissions, removing an approval
 gate, increasing spending authority, changing a billing price, disabling audit
 logging, altering held-out answers, rewriting success criteria after results,
