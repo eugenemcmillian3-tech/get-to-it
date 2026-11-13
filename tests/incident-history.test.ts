@@ -52,6 +52,8 @@ describe("history filters and pages", () => {
       query: "timeout",
       from: null,
       to: null,
+      openFrom: null,
+      openTo: null,
       page: 3,
     });
 
@@ -62,6 +64,8 @@ describe("history filters and pages", () => {
       query: null,
       from: null,
       to: null,
+      openFrom: null,
+      openTo: null,
       page: 1,
     });
     expect(historyFilters({ page: "-4" })).toMatchObject({ page: 1 });
@@ -81,6 +85,12 @@ describe("history filters and pages", () => {
     expect(historyFilters({ to: "2026-2-3" })).toMatchObject({ to: null });
     expect(historyFilters({ from: "last tuesday" })).toMatchObject({ from: null });
     expect(historyFilters({ from: "2026-11-01T00:00:00Z" })).toMatchObject({ from: null });
+
+    expect(historyFilters({ open_from: "2026-10-01", open_to: "2026-10-31" })).toMatchObject({
+      openFrom: "2026-10-01",
+      openTo: "2026-10-31",
+    });
+    expect(historyFilters({ open_to: "2026-13-01" })).toMatchObject({ openTo: null });
   });
 
   it("builds links that keep the filters and omit the page when it is the first", () => {
@@ -90,6 +100,8 @@ describe("history filters and pages", () => {
       query: null,
       from: null,
       to: null,
+      openFrom: null,
+      openTo: null,
       page: 1,
     });
     expect(base).toBe("/workspace/ws-1/improvements/incidents");
@@ -102,6 +114,8 @@ describe("history filters and pages", () => {
         query: "sends are timing out",
         from: "2026-11-01",
         to: "2026-11-30",
+        openFrom: "2026-10-01",
+        openTo: "2026-10-31",
         page: 1,
       },
       2,
@@ -113,6 +127,8 @@ describe("history filters and pages", () => {
     expect(url.searchParams.get("query")).toBe("sends are timing out");
     expect(url.searchParams.get("from")).toBe("2026-11-01");
     expect(url.searchParams.get("to")).toBe("2026-11-30");
+    expect(url.searchParams.get("open_from")).toBe("2026-10-01");
+    expect(url.searchParams.get("open_to")).toBe("2026-10-31");
     expect(url.searchParams.get("page")).toBe("2");
 
     const unfiltered = {
@@ -121,6 +137,8 @@ describe("history filters and pages", () => {
       query: null,
       from: null,
       to: null,
+      openFrom: null,
+      openTo: null,
       page: 1,
     };
     expect(historyHref("ws-1", unfiltered, 1)).toBe(base);

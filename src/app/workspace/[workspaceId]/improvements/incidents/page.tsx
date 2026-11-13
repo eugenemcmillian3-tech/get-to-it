@@ -70,15 +70,26 @@ export default async function IncidentHistoryPage({
     0,
   );
   const filtered = Boolean(
-    filters.severity || filters.status || filters.query || filters.from || filters.to,
+    filters.severity ||
+      filters.status ||
+      filters.query ||
+      filters.from ||
+      filters.to ||
+      filters.openFrom ||
+      filters.openTo,
   );
-  const invertedRange = Boolean(filters.from && filters.to && filters.from > filters.to);
+  const invertedClosed = Boolean(filters.from && filters.to && filters.from > filters.to);
+  const invertedOpen = Boolean(
+    filters.openFrom && filters.openTo && filters.openFrom > filters.openTo,
+  );
   const clearHref = historyHref(workspaceId, {
     severity: null,
     status: null,
     query: null,
     from: null,
     to: null,
+    openFrom: null,
+    openTo: null,
     page: 1,
   });
 
@@ -100,8 +111,9 @@ export default async function IncidentHistoryPage({
           the notifications the schedule delivered for it and whether they were marked read. This
           page only reads: every line comes from the incident and notification rows themselves, so
           an incident closed before it had been open for a day shows no notifications rather than
-          an assumed one. Filter by severity, by how it closed, by a UTC closed-date range, or by
-          text in the incident or the promoted change; newest closure first.
+          an assumed one. Filter by severity, by how it closed, by a UTC closed-date range, by an
+          open window (anything open at some point inside it), or by text in the incident or the
+          promoted change; newest closure first.
         </p>
         <p className="mt-2 text-xs text-muted">
           {history.total} closed {history.total === 1 ? "incident" : "incidents"}
@@ -157,8 +169,30 @@ export default async function IncidentHistoryPage({
             />
           </label>
           <p className="text-xs text-muted sm:col-span-2">
-            Dates are UTC days and both ends are inclusive. Leave either blank for an open-ended
-            range.
+            Closed dates are UTC days and both ends are inclusive. Leave either blank for an
+            open-ended range.
+          </p>
+          <label>
+            <span className={labelClass}>Open from</span>
+            <input
+              type="date"
+              name="open_from"
+              defaultValue={filters.openFrom ?? ""}
+              className={`${inputClass} mt-1`}
+            />
+          </label>
+          <label>
+            <span className={labelClass}>Open to</span>
+            <input
+              type="date"
+              name="open_to"
+              defaultValue={filters.openTo ?? ""}
+              className={`${inputClass} mt-1`}
+            />
+          </label>
+          <p className="text-xs text-muted sm:col-span-2">
+            The open window matches an incident that was open at any point inside it, so one opened
+            before the window and closed after it still counts.
           </p>
           <label className="sm:col-span-2">
             <span className={labelClass}>Search</span>
@@ -187,10 +221,16 @@ export default async function IncidentHistoryPage({
           <h2 id="closed-heading" className="text-xl font-bold">
             Closed incidents
           </h2>
-          {invertedRange ? (
+          {invertedClosed ? (
             <p className="mt-2 text-sm text-muted">
               The start date {filters.from} is after the end date {filters.to}, so nothing can
               match. Swap them to widen the range.
+            </p>
+          ) : null}
+          {invertedOpen ? (
+            <p className="mt-2 text-sm text-muted">
+              The open window starts {filters.openFrom}, after it ends {filters.openTo}, so nothing
+              can match. Swap them to widen the window.
             </p>
           ) : null}
           {history.incidents.length === 0 ? (

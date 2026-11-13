@@ -113,6 +113,8 @@ export async function listIncidentHistory(
       p_query: filters.query,
       p_closed_from: filters.from,
       p_closed_to: filters.to,
+      p_open_from: filters.openFrom,
+      p_open_to: filters.openTo,
     }),
     session.supabase.rpc("workspace_member_directory", { p_workspace_id: workspaceId }),
   ]);

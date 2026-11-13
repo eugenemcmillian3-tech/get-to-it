@@ -2259,10 +2259,13 @@ notifications actually delivered for it, per person — stage, when it was sent,
 whether it was marked read and the text it carried. An incident closed before a
 notification was due shows none rather than an assumed one. It filters by severity,
 by how the incident closed, by an inclusive UTC closed-date range (`from` and `to`,
-either end open) and by literal text in the incident or the promoted change, and
-pages 20 at a time with the total number of matches; a page past the end reads the
-last page instead of showing nothing, and a `from` after its `to` says so rather
-than silently swapping them. It is a read: nothing on that page changes state.
+either end open), by an open window (`open_from` and `open_to`) that matches anything
+open at some point inside it — so an incident opened before the window and closed
+after it still counts — and by literal text in the incident or the promoted change.
+It pages 20 at a time with the total number of matches; a page past the end reads the
+last page instead of showing nothing, and a range that starts after it ends says so
+rather than silently swapping the ends or being read as a different question. It is
+a read: nothing on that page changes state.
 
 Refused, by name and on the record: granting permissions, removing an approval
 gate, increasing spending authority, changing a billing price, disabling audit
