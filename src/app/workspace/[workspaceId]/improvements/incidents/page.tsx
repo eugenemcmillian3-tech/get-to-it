@@ -7,12 +7,17 @@ import { requireSession } from "@/lib/auth";
 import { listIncidentHistory } from "@/lib/data/incident-history";
 import { getIdentity } from "@/lib/identity";
 import {
+  CLOSED_STATUSES,
+  INCIDENT_SEVERITIES,
   formatIncidentMoment,
+  historyFilters,
+  historyHref,
   incidentDuration,
   notificationStageLabel,
+  pageWindow,
   recoveryKindLabel,
 } from "@/lib/incident-history";
-import { cardClass, chipClass } from "@/lib/styles";
+import { cardClass, chipClass, inputClass, labelClass, primaryButton, quietButton } from "@/lib/styles";
 import { getSupabaseSettings } from "@/lib/supabase/config";
 
 export const metadata: Metadata = { title: "Incident history — GET TO IT" };
@@ -23,8 +28,10 @@ function person(name: string | null, id: string): string {
 
 export default async function IncidentHistoryPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ workspaceId: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { workspaceId } = await params;
   if (!getSupabaseSettings()) {
@@ -35,12 +42,23 @@ export default async function IncidentHistoryPage({
     );
   }
 
+  const filters = historyFilters(await searchParams);
   const session = await requireSession();
-  const [identity, history] = await Promise.all([
+  const [identity, firstRead] = await Promise.all([
     getIdentity(session),
-    listIncidentHistory(session, workspaceId),
+    listIncidentHistory(session, workspaceId, filters),
   ]);
-  if (!history) notFound();
+  if (!firstRead) notFound();
+
+  // A page past the end of the result set reads nothing, so it is re-read at the
+  // last page that exists instead of showing "0 of 63".
+  let history = firstRead;
+  let window = pageWindow(history.total, filters.page);
+  if (history.total > 0 && window.page !== filters.page) {
+    history = (await listIncidentHistory(session, workspaceId, { ...filters, page: window.page })) ??
+      history;
+    window = pageWindow(history.total, window.page);
+  }
 
   const notifications = history.incidents.reduce(
     (total, incident) => total + incident.notifications.length,
@@ -51,6 +69,8 @@ export default async function IncidentHistoryPage({
       total + incident.notifications.filter((row) => row.stage === "escalation").length,
     0,
   );
+  const filtered = Boolean(filters.severity || filters.status || filters.query);
+  const clearHref = historyHref(workspaceId, { severity: null, status: null, query: null, page: 1 });
 
   return (
     <div className="min-h-dvh">
@@ -70,13 +90,66 @@ export default async function IncidentHistoryPage({
           the notifications the schedule delivered for it and whether they were marked read. This
           page only reads: every line comes from the incident and notification rows themselves, so
           an incident closed before it had been open for a day shows no notifications rather than
-          an assumed one.
+          an assumed one. Filter by severity, by how it closed, or by text in the incident or the
+          promoted change; newest closure first.
         </p>
         <p className="mt-2 text-xs text-muted">
-          {history.incidents.length} closed {history.incidents.length === 1 ? "incident" : "incidents"} ·{" "}
+          {history.total} closed {history.total === 1 ? "incident" : "incidents"}
+          {filtered ? " matching the filters" : ""} · on this page:{" "}
+          {history.incidents.length} {history.incidents.length === 1 ? "incident" : "incidents"},{" "}
           {notifications} {notifications === 1 ? "notification" : "notifications"} delivered
           {escalations > 0 ? ` · ${escalations} escalation${escalations === 1 ? "" : "s"}` : ""}
         </p>
+
+        <form method="get" className={`${cardClass} mt-4 grid gap-3 sm:grid-cols-2`}>
+          <label>
+            <span className={labelClass}>Severity</span>
+            <select
+              name="severity"
+              defaultValue={filters.severity ?? ""}
+              className={`${inputClass} mt-1`}
+            >
+              <option value="">Any severity</option>
+              {INCIDENT_SEVERITIES.map((severity) => (
+                <option key={severity} value={severity}>
+                  {severity}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span className={labelClass}>Closed as</span>
+            <select name="status" defaultValue={filters.status ?? ""} className={`${inputClass} mt-1`}>
+              <option value="">Resolved or dismissed</option>
+              {CLOSED_STATUSES.map((status) => (
+                <option key={status} value={status}>
+                  {status}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="sm:col-span-2">
+            <span className={labelClass}>Search</span>
+            <input
+              type="search"
+              name="query"
+              defaultValue={filters.query ?? ""}
+              maxLength={100}
+              placeholder="Incident or promoted change"
+              className={`${inputClass} mt-1`}
+            />
+          </label>
+          <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
+            <button type="submit" className={primaryButton}>
+              Apply filters
+            </button>
+            {filtered ? (
+              <Link href={clearHref} className={quietButton}>
+                Clear
+              </Link>
+            ) : null}
+          </div>
+        </form>
 
         <section aria-labelledby="closed-heading" className="mt-8">
           <h2 id="closed-heading" className="text-xl font-bold">
@@ -84,8 +157,17 @@ export default async function IncidentHistoryPage({
           </h2>
           {history.incidents.length === 0 ? (
             <p className="mt-2 text-sm text-muted">
-              No incident on a promoted deployment has been resolved or dismissed in this workspace
-              yet.
+              {filtered ? (
+                <>
+                  No closed incident matches these filters.{" "}
+                  <Link href={clearHref} className="underline">
+                    Clear them
+                  </Link>
+                  .
+                </>
+              ) : (
+                "No incident on a promoted deployment has been resolved or dismissed in this workspace yet."
+              )}
             </p>
           ) : (
             <ul className="mt-3 grid gap-4">
@@ -158,6 +240,32 @@ export default async function IncidentHistoryPage({
             </ul>
           )}
         </section>
+
+        {history.total > 0 ? (
+          <nav
+            aria-label="Incident history pages"
+            className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm"
+          >
+            <p className="text-muted">
+              Showing {window.first}–{window.last} of {history.total}
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              {window.hasPrevious ? (
+                <Link href={historyHref(workspaceId, filters, window.page - 1)} className={quietButton}>
+                  Previous
+                </Link>
+              ) : null}
+              <span className="text-muted">
+                Page {window.page} of {window.pageCount}
+              </span>
+              {window.hasNext ? (
+                <Link href={historyHref(workspaceId, filters, window.page + 1)} className={quietButton}>
+                  Next
+                </Link>
+              ) : null}
+            </div>
+          </nav>
+        ) : null}
       </main>
     </div>
   );
