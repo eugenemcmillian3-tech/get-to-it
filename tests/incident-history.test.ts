@@ -6,14 +6,19 @@ import {
   historyFilters,
   historyHref,
   incidentDuration,
+  notificationExportHref,
   notificationStageLabel,
   pageWindow,
   recoveryKindLabel,
 } from "@/lib/incident-history";
 import {
   INCIDENT_HISTORY_CSV_HEADERS,
+  INCIDENT_NOTIFICATION_CSV_HEADERS,
   incidentHistoryCsv,
   incidentHistoryCsvFileName,
+  incidentNotificationCsv,
+  incidentNotificationCsvFileName,
+  incidentNotificationRowCount,
 } from "@/lib/incident-history-csv";
 
 describe("closed incident wording", () => {
@@ -321,5 +326,118 @@ describe("incident history CSV", () => {
         page: 1,
       }),
     ).toBe("/workspace/ws-1/improvements/incidents/export");
+  });
+});
+
+describe("notification trail CSV", () => {
+  const delivered = (overrides: Partial<ClosedIncident> = {}): ClosedIncident =>
+    incident({
+      notifications: [
+        {
+          userId: "user-b",
+          recipient: "Bea",
+          stage: "reminder",
+          day: "2026-11-07",
+          sentAt: "2026-11-07T07:30:00.000Z",
+          readAt: "2026-11-07T09:00:00.000Z",
+          summary: "second delivery, with a comma",
+        },
+        {
+          userId: "user-a",
+          recipient: "Ada",
+          stage: "first",
+          day: "2026-11-06",
+          sentAt: "2026-11-06T07:30:00.000Z",
+          readAt: "2026-11-06T07:35:00.000Z",
+          summary: "first delivery",
+        },
+      ],
+      ...overrides,
+    });
+
+  it("writes one row per delivery, oldest first, with the incident on each row", () => {
+    const csv = incidentNotificationCsv([delivered(), delivered({ id: "incident-2", title: "Second" })]);
+    const lines = csv.trimEnd().split("\n");
+    expect(lines[0]).toBe(INCIDENT_NOTIFICATION_CSV_HEADERS.join(","));
+    expect(lines).toHaveLength(5);
+    // First incident, oldest notification first.
+    expect(lines[1]).toContain("Ada");
+    expect(lines[2]).toContain("Bea");
+    expect(lines[3]).toContain("Second");
+    expect(lines[1]).toContain("Sends are timing out");
+  });
+
+  it("carries the stage, day, recipient and read state on each row", () => {
+    const [header, first] = incidentNotificationCsv([delivered()]).trimEnd().split("\n");
+    const cells = first.split(",");
+    const at = (name: string) => cells[header.split(",").indexOf(name)];
+    expect(at("stage")).toBe("first");
+    expect(at("reminder_day")).toBe("2026-11-06");
+    expect(at("recipient")).toBe("Ada");
+    expect(at("sent_at")).toBe("2026-11-06T07:30:00.000Z");
+    expect(at("read_at")).toBe("2026-11-06T07:35:00.000Z");
+    expect(at("closed_at")).toBe("2026-11-06T11:00:00.000Z");
+  });
+
+  it("leaves empty fields for a row from before the schedule and an unnamed member", () => {
+    const csv = incidentNotificationCsv([
+      delivered({
+        notifications: [
+          {
+            userId: "abcdef123456",
+            recipient: null,
+            stage: null,
+            day: null,
+            sentAt: "2026-11-05T07:30:00.000Z",
+            readAt: null,
+            summary: "delivered before reminder stages existed",
+          },
+        ],
+      }),
+    ]);
+    const [header, row] = csv.trimEnd().split("\n");
+    const at = (name: string) => row.split(",")[header.split(",").indexOf(name)];
+    expect(at("stage")).toBe("");
+    expect(at("reminder_day")).toBe("");
+    expect(at("read_at")).toBe("");
+    expect(at("recipient")).toBe("member abcdef12");
+  });
+
+  it("quotes a summary that contains a comma", () => {
+    const csv = incidentNotificationCsv([delivered()]);
+    expect(csv).toContain('"second delivery, with a comma"');
+  });
+
+  it("counts every delivery across incidents", () => {
+    expect(incidentNotificationRowCount([])).toBe(0);
+    expect(
+      incidentNotificationRowCount([delivered(), delivered({ notifications: [] })]),
+    ).toBe(2);
+  });
+
+  it("names the notifications file by the day it was exported", () => {
+    expect(incidentNotificationCsvFileName("2026-11-13T05:30:00.000Z")).toBe(
+      "incident-notifications-2026-11-13.csv",
+    );
+  });
+
+  it("links the notification export to the same filters", () => {
+    const href = notificationExportHref("ws-1", {
+      severity: "critical",
+      status: "dismissed",
+      query: "timeout",
+      from: "2026-11-01",
+      to: "2026-11-30",
+      openFrom: null,
+      openTo: null,
+      page: 3,
+    });
+    const url = new URL(href, "https://example.test");
+    expect(url.pathname).toBe("/workspace/ws-1/improvements/incidents/notifications/export");
+    expect(url.searchParams.get("severity")).toBe("critical");
+    expect(url.searchParams.get("status")).toBe("dismissed");
+    expect(url.searchParams.get("query")).toBe("timeout");
+    expect(url.searchParams.get("from")).toBe("2026-11-01");
+    expect(url.searchParams.get("page")).toBeNull();
   });
 });

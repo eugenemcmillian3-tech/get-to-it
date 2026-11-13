@@ -67,3 +67,59 @@ export function incidentHistoryCsv(incidents: ClosedIncident[]): string {
 export function incidentHistoryCsvFileName(exportedAt: string): string {
   return `incident-history-${exportedAt.slice(0, 10)}.csv`;
 }
+
+/**
+ * The delivery trail, one row per notification. The incident's own facts are
+ * repeated on each row so a single line stands on its own when filtered or sorted.
+ */
+export const INCIDENT_NOTIFICATION_CSV_HEADERS = [
+  "incident_status",
+  "severity",
+  "incident",
+  "promoted_change",
+  "deployment_target",
+  "opened_at",
+  "closed_at",
+  "stage",
+  "reminder_day",
+  "recipient",
+  "sent_at",
+  "read_at",
+  "summary",
+];
+
+export function incidentNotificationCsv(incidents: ClosedIncident[]): string {
+  return csvRows(
+    INCIDENT_NOTIFICATION_CSV_HEADERS,
+    incidents.flatMap((incident) => {
+      // Oldest delivery first within an incident; incidents keep their closed-date
+      // order, so the file reads the same way as the page.
+      const delivered = [...incident.notifications].sort((a, b) =>
+        a.sentAt < b.sentAt ? -1 : a.sentAt > b.sentAt ? 1 : 0,
+      );
+      return delivered.map((row) => [
+        incident.status,
+        incident.severity,
+        incident.title,
+        incident.candidateTitle,
+        incident.target,
+        incident.openedAt,
+        incident.closedAt,
+        row.stage ?? "",
+        row.day ?? "",
+        row.recipient ?? `member ${row.userId.slice(0, 8)}`,
+        row.sentAt,
+        row.readAt ?? "",
+        row.summary,
+      ]);
+    }),
+  );
+}
+
+export function incidentNotificationRowCount(incidents: ClosedIncident[]): number {
+  return incidents.reduce((total, incident) => total + incident.notifications.length, 0);
+}
+
+export function incidentNotificationCsvFileName(exportedAt: string): string {
+  return `incident-notifications-${exportedAt.slice(0, 10)}.csv`;
+}

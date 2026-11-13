@@ -12,6 +12,7 @@ import {
   formatIncidentMoment,
   exportHref,
   historyFilters,
+  notificationExportHref,
   historyHref,
   incidentDuration,
   notificationStageLabel,
@@ -220,11 +221,14 @@ export default async function IncidentHistoryPage({
 
         <p className="mt-3 flex flex-wrap items-center gap-3 text-sm">
           <Link href={exportHref(workspaceId, filters)} className="underline">
-            Export these filters as CSV
+            Export incidents as CSV
+          </Link>
+          <Link href={notificationExportHref(workspaceId, filters)} className="underline">
+            Export notifications as CSV
           </Link>
           <span className="text-xs text-muted">
-            Every matching incident, not just this page. Repeated filters are applied as they are
-            on screen.
+            Both exports cover every matching incident, not just this page, with the filters as
+            they are on screen. The notifications file has one row per delivery.
           </span>
         </p>
 
