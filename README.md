@@ -2274,9 +2274,12 @@ go through the app's existing CSV writer, so commas, quotes and newlines stay in
 their column and a leading `=`, `+`, `-` or `@` is prefixed with an apostrophe so a
 spreadsheet treats it as text. A second file exports the delivery trail instead: one
 row per notification, carrying its incident, stage, reminder day, recipient, sent
-time, read time and summary, oldest first within each incident. Above 5,000 matching
-incidents (or 20,000 notification rows) the export is refused with an explanation
-instead of being cut short, because a partial file would look complete.
+time, read time and summary, oldest first within each incident. That trail can be
+narrowed to one person (`recipient=<user id>`, offered as a per-person link on the
+page), so a review can see exactly what someone was sent without picking their rows
+out of the full file. Above 5,000 matching incidents (or 20,000 notification rows)
+the export is refused with an explanation instead of being cut short, because a
+partial file would look complete.
 
 Refused, by name and on the record: granting permissions, removing an approval
 gate, increasing spending authority, changing a billing price, disabling audit
