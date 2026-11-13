@@ -46,13 +46,22 @@ describe("history filters and pages", () => {
   it("keeps only the filters the read actually supports", () => {
     expect(
       historyFilters({ severity: "high", status: "dismissed", query: "  timeout ", page: "3" }),
-    ).toEqual({ severity: "high", status: "dismissed", query: "timeout", page: 3 });
+    ).toEqual({
+      severity: "high",
+      status: "dismissed",
+      query: "timeout",
+      from: null,
+      to: null,
+      page: 3,
+    });
 
     // Values a hand-edited link could invent are dropped, not forwarded.
     expect(historyFilters({ severity: "urgent", status: "open", page: "zero" })).toEqual({
       severity: null,
       status: null,
       query: null,
+      from: null,
+      to: null,
       page: 1,
     });
     expect(historyFilters({ page: "-4" })).toMatchObject({ page: 1 });
@@ -62,13 +71,39 @@ describe("history filters and pages", () => {
     expect(historyFilters({ severity: ["low", "high"] })).toMatchObject({ severity: "low" });
   });
 
+  it("keeps a closed-date range only when it is a real UTC day", () => {
+    expect(historyFilters({ from: "2026-11-01", to: "2026-11-30" })).toMatchObject({
+      from: "2026-11-01",
+      to: "2026-11-30",
+    });
+    // Days that do not exist, unpadded months, and free text are not dates.
+    expect(historyFilters({ from: "2026-02-31" })).toMatchObject({ from: null });
+    expect(historyFilters({ to: "2026-2-3" })).toMatchObject({ to: null });
+    expect(historyFilters({ from: "last tuesday" })).toMatchObject({ from: null });
+    expect(historyFilters({ from: "2026-11-01T00:00:00Z" })).toMatchObject({ from: null });
+  });
+
   it("builds links that keep the filters and omit the page when it is the first", () => {
-    const base = historyHref("ws-1", { severity: null, status: null, query: null, page: 1 });
+    const base = historyHref("ws-1", {
+      severity: null,
+      status: null,
+      query: null,
+      from: null,
+      to: null,
+      page: 1,
+    });
     expect(base).toBe("/workspace/ws-1/improvements/incidents");
 
     const filtered = historyHref(
       "ws-1",
-      { severity: "high", status: "resolved", query: "sends are timing out", page: 1 },
+      {
+        severity: "high",
+        status: "resolved",
+        query: "sends are timing out",
+        from: "2026-11-01",
+        to: "2026-11-30",
+        page: 1,
+      },
       2,
     );
     const url = new URL(filtered, "https://example.test");
@@ -76,9 +111,19 @@ describe("history filters and pages", () => {
     expect(url.searchParams.get("severity")).toBe("high");
     expect(url.searchParams.get("status")).toBe("resolved");
     expect(url.searchParams.get("query")).toBe("sends are timing out");
+    expect(url.searchParams.get("from")).toBe("2026-11-01");
+    expect(url.searchParams.get("to")).toBe("2026-11-30");
     expect(url.searchParams.get("page")).toBe("2");
 
-    expect(historyHref("ws-1", { severity: null, status: null, query: null, page: 1 }, 1)).toBe(base);
+    const unfiltered = {
+      severity: null,
+      status: null,
+      query: null,
+      from: null,
+      to: null,
+      page: 1,
+    };
+    expect(historyHref("ws-1", unfiltered, 1)).toBe(base);
   });
 
   it("describes the window of a result set without inventing a page", () => {
