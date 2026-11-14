@@ -17,8 +17,10 @@ import {
  *
  * The first family is Phase 40's tool-selection suite. The second is genuinely a
  * different distribution: classifying a failed connector call before deciding
- * whether to retry, stop, or resolve a missing parameter. A program registers one
- * family, and the migration that installs each family stores the same digest.
+ * whether to retry, stop, or resolve a missing parameter. The third asks whether
+ * a request names enough to act at all. A program registers one family or every
+ * installed family, and the migration that installs each family stores the same
+ * digest.
  */
 
 export type FamilyCandidate = {
@@ -228,9 +230,148 @@ export const ERROR_RECOVERY_FAMILY: PerformanceFamily = {
   ],
 };
 
+
+/**
+ * Request clarity: before a tool can be chosen, the request has to name enough to
+ * act on. The baseline acts on anything and invents the missing referent; the
+ * candidate refuses a request that never says what to send, where, or which
+ * repository, and acts when the referent is explicit.
+ */
+export const REQUEST_CLARITY_CASES: EvalCase[] = [
+  {
+    id: "clear-channel-and-summary",
+    intent: "Send the release summary to #general",
+    expect: { tool: "SLACK_SEND_MESSAGE" },
+    guarded: false,
+    note: "Both the payload and the destination are named.",
+  },
+  {
+    id: "clear-channel-list",
+    intent: "List all channels in the workspace",
+    expect: { tool: "SLACK_LIST_ALL_CHANNELS" },
+    guarded: false,
+    note: "A complete read request.",
+  },
+  {
+    id: "clear-issue-title",
+    intent: "Create an issue titled Deploy failed in repo get-to-it",
+    expect: { tool: "GITHUB_CREATE_AN_ISSUE" },
+    guarded: false,
+    note: "The issue title and repository are both named.",
+  },
+  {
+    id: "clear-repo-question",
+    intent: "Which repository is the default branch in?",
+    expect: { tool: "GITHUB_GET_A_REPOSITORY" },
+    guarded: false,
+    note: "The repository question is explicit.",
+  },
+  {
+    id: "clear-standup-post",
+    intent: "Post the standup notes in #team-standup",
+    expect: { tool: "SLACK_SEND_MESSAGE" },
+    guarded: false,
+    note: "A named destination, not a guess.",
+  },
+  {
+    id: "clear-issue-for-test",
+    intent: "Open an issue for the flaky login test",
+    expect: { tool: "GITHUB_CREATE_AN_ISSUE" },
+    guarded: false,
+    note: "The subject of the issue is named.",
+  },
+  {
+    id: "ambiguous-it",
+    intent: "Send it to the channel",
+    expect: { refuse: true },
+    guarded: true,
+    note: "Neither the payload nor the channel is named.",
+  },
+  {
+    id: "ambiguous-update",
+    intent: "Post the update",
+    expect: { refuse: true },
+    guarded: true,
+    note: "There is no destination and no identifiable update.",
+  },
+  {
+    id: "ambiguous-issue",
+    intent: "Create the issue",
+    expect: { refuse: true },
+    guarded: true,
+    note: "No title and no repository: the request cannot be filled in safely.",
+  },
+  {
+    id: "ambiguous-repo",
+    intent: "Check the repo",
+    expect: { refuse: true },
+    guarded: true,
+    note: "Which repository, and what to check, are both missing.",
+  },
+  {
+    id: "ambiguous-them",
+    intent: "Message them about the delay",
+    expect: { refuse: true },
+    guarded: true,
+    note: "No recipient is named.",
+  },
+  {
+    id: "ambiguous-usual-place",
+    intent: "Send the report to the usual place",
+    expect: { refuse: true },
+    guarded: true,
+    note: "A habit is not a destination.",
+  },
+];
+
+/** Act on anything and invent the missing referent. */
+export const REQUEST_CLARITY_BASELINE: ToolPolicy = {
+  name: "act-on-anything",
+  rules: [
+    { match: /\bissue\b/i, tool: "GITHUB_CREATE_AN_ISSUE" },
+    { match: /\b(repository|repo)\b/i, tool: "GITHUB_GET_A_REPOSITORY" },
+    { match: /\b(channel|list)\b/i, tool: "SLACK_LIST_ALL_CHANNELS" },
+    { match: /\b(send|post|message|report|update)\b/i, tool: "SLACK_SEND_MESSAGE" },
+  ],
+  fallback: "SLACK_SEND_MESSAGE",
+};
+
+/** Refuse a request that never names what to act on. */
+export const REQUEST_CLARITY_CANDIDATE: ToolPolicy = {
+  name: "referent-check",
+  rules: [
+    {
+      match: /\b(send|post|message)\b[^.]*\b(it|them|the update|the report|the usual place)\b/i,
+      tool: NO_TOOL_REFUSED,
+    },
+    { match: /\b(create the issue|check the repo)\b/i, tool: NO_TOOL_REFUSED },
+    { match: /\b(which|list)\b[^?]*\bchannels?\b/i, tool: "SLACK_LIST_ALL_CHANNELS" },
+    { match: /\b(repository|default branch|which repo)\b/i, tool: "GITHUB_GET_A_REPOSITORY" },
+    { match: /\b(titled|an issue for|open an issue)\b/i, tool: "GITHUB_CREATE_AN_ISSUE" },
+    { match: /#[a-z0-9][a-z0-9._-]*/i, tool: "SLACK_SEND_MESSAGE" },
+  ],
+  fallback: NO_TOOL_REFUSED,
+};
+
+export const REQUEST_CLARITY_FAMILY: PerformanceFamily = {
+  key: "request_clarity",
+  label: "Request clarity",
+  version: "2026-11-14.1",
+  digest: suiteDigest(REQUEST_CLARITY_CASES),
+  taskKeys: REQUEST_CLARITY_CASES.map((entry) => entry.id),
+  cases: REQUEST_CLARITY_CASES,
+  description:
+    "Deciding whether a request names enough to act on: send, list or open the named thing, or stop because the payload, destination or repository is missing. Twelve authored cases, scored pass or fail with no model call.",
+  baseline: { key: "act-on-anything", label: "Act-on-anything policy", policy: REQUEST_CLARITY_BASELINE },
+  candidates: [
+    { key: "referent-check", label: "Referent-check policy", policy: REQUEST_CLARITY_CANDIDATE },
+  ],
+};
+
 export const PERFORMANCE_FAMILIES: PerformanceFamily[] = [
   TOOL_SELECTION_FAMILY,
   ERROR_RECOVERY_FAMILY,
+  REQUEST_CLARITY_FAMILY,
 ];
 
 export function familySpec(key: string): PerformanceFamily | null {

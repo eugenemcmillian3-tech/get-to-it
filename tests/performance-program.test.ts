@@ -6,6 +6,8 @@ import {
   ERROR_RECOVERY_CASES,
   ERROR_RECOVERY_FAMILY,
   PERFORMANCE_FAMILIES,
+  REQUEST_CLARITY_CASES,
+  REQUEST_CLARITY_FAMILY,
   TOOL_SELECTION_FAMILY,
 } from "@/lib/performance-families";
 import {
@@ -92,6 +94,35 @@ describe("performance program registration", () => {
     expect(migration).toContain(PERFORMANCE_FAMILY_VERSION);
   });
 
+  it("installs a third family that scores whether a request can be acted on", () => {
+    expect(REQUEST_CLARITY_FAMILY.digest).toBe(suiteDigest(REQUEST_CLARITY_CASES));
+    expect(REQUEST_CLARITY_FAMILY.taskKeys).toEqual(
+      REQUEST_CLARITY_CASES.map((entry) => entry.id),
+    );
+    expect(REQUEST_CLARITY_FAMILY.taskKeys.some((key) => PERFORMANCE_TASK_KEYS.includes(key))).toBe(
+      false,
+    );
+    expect(
+      REQUEST_CLARITY_FAMILY.taskKeys.some((key) => ERROR_RECOVERY_FAMILY.taskKeys.includes(key)),
+    ).toBe(false);
+
+    const migration = readFileSync(
+      path.join(process.cwd(), "supabase/migrations/0086_phase41_third_task_family.sql"),
+      "utf8",
+    );
+    expect(migration).toContain(REQUEST_CLARITY_FAMILY.digest);
+    expect(migration).toContain(REQUEST_CLARITY_FAMILY.version);
+    expect(migration).toContain("request_clarity");
+  });
+
+  it("scores the third family's baseline below its candidate", () => {
+    const baseline = runPolicy(REQUEST_CLARITY_CASES, REQUEST_CLARITY_FAMILY.baseline.policy);
+    const candidate = runPolicy(REQUEST_CLARITY_CASES, REQUEST_CLARITY_FAMILY.candidates[0].policy);
+
+    expect(baseline.passed).toBe(6);
+    expect(candidate.passed).toBe(12);
+  });
+
   it("installs a second, genuinely different family with its own pinned digest", () => {
     expect(ERROR_RECOVERY_FAMILY.key).toBe(ERROR_RECOVERY_FAMILY_KEY);
     expect(ERROR_RECOVERY_FAMILY.version).toBe(ERROR_RECOVERY_FAMILY_VERSION);
@@ -113,9 +144,10 @@ describe("performance program registration", () => {
     expect(PERFORMANCE_FAMILIES.map((family) => family.key)).toEqual([
       "tool_selection",
       "error_recovery",
+      "request_clarity",
     ]);
-    expect(PERFORMANCE_FAMILIES_LIST).toHaveLength(2);
-    expect(PERFORMANCE_FAMILY_OPTIONS.map((row) => row.tasks)).toEqual([12, 12]);
+    expect(PERFORMANCE_FAMILIES_LIST).toHaveLength(3);
+    expect(PERFORMANCE_FAMILY_OPTIONS.map((row) => row.tasks)).toEqual([12, 12, 12]);
   });
 
   it("distinguishes the two distributions by their own baseline", () => {
@@ -246,11 +278,13 @@ describe("performance program registration", () => {
     expect(combined.task_keys).toEqual([
       ...TOOL_SELECTION_FAMILY.taskKeys,
       ...ERROR_RECOVERY_FAMILY.taskKeys,
+      ...REQUEST_CLARITY_FAMILY.taskKeys,
     ]);
-    expect(combined.tasks).toBe(24);
+    expect(combined.tasks).toBe(36);
     expect(combined.digest).toMatch(/^[0-9a-f]{64}$/);
     expect(combined.digest).not.toBe(PERFORMANCE_FAMILY_DIGEST);
     expect(combined.digest).not.toBe(ERROR_RECOVERY_FAMILY.digest);
+    expect(combined.digest).not.toBe(REQUEST_CLARITY_FAMILY.digest);
 
     for (const entry of combined.families) {
       const installed = familySpec(entry.key);

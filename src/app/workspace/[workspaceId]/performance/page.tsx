@@ -14,6 +14,7 @@ import {
   PERFORMANCE_FAMILY_VERSION,
   PERFORMANCE_STATUS_LABELS,
   REFUSED_CLAIM_NOTE,
+  REQUEST_CLARITY_VERSION,
   familyLabel,
 } from "@/lib/performance-program";
 import { cardClass, chipClass } from "@/lib/styles";
@@ -66,10 +67,12 @@ export default async function PerformanceProgramPage({
         </p>
         <ul className="mt-3 grid gap-1 text-sm text-muted">
           <li>
-            Two installed families: tool selection ({PERFORMANCE_FAMILY_VERSION}, twelve authored
-            intents including the six refusals that must not move) and error recovery
+            Three installed families: tool selection ({PERFORMANCE_FAMILY_VERSION}, twelve authored
+            intents including the six refusals that must not move), error recovery
             ({ERROR_RECOVERY_FAMILY_VERSION}, twelve authored failures to classify before
-            retrying). Each family fixes its own baseline, candidate policies and digest.
+            retrying), and request clarity ({REQUEST_CLARITY_VERSION}, twelve authored requests
+            where the missing referent decides whether to act). Each family fixes its own baseline,
+            candidate policies and digest.
           </li>
           <li>
             Claims are not interchangeable. Faster, lower cost, better on this benchmark and better

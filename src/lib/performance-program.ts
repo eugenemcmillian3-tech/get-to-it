@@ -34,6 +34,7 @@ export const ALL_FAMILIES_VERSION = "2026-11-13.2";
 /** The suite label a program registers when it covers every installed family. */
 export const ALL_FAMILIES_LABEL = "All installed families";
 export const ERROR_RECOVERY_FAMILY_VERSION = "2026-11-13.1";
+export const REQUEST_CLARITY_VERSION = "2026-11-14.1";
 
 export const PERFORMANCE_TASK_KEYS = PRIMARY_FAMILY.taskKeys;
 export const PERFORMANCE_FAMILIES_LIST = PERFORMANCE_FAMILIES;
