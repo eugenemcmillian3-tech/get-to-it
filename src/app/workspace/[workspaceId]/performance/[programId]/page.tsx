@@ -10,6 +10,7 @@ import { SetupNotice } from "@/components/setup-notice";
 import { SiteHeader } from "@/components/site-header";
 import { requireSession } from "@/lib/auth";
 import {
+  listInstalledFamilies,
   listReviewableTrials,
   readPerformanceReport,
   type PerformanceFamilyResult,
@@ -133,9 +134,10 @@ export default async function PerformanceProgramDetailPage({
   }
 
   const session = await requireSession();
-  const [identity, report] = await Promise.all([
+  const [identity, report, installed] = await Promise.all([
     getIdentity(session),
     readPerformanceReport(session, programId),
+    listInstalledFamilies(session),
   ]);
   if (!report) notFound();
   if (report.program.workspaceId !== workspaceId) notFound();
@@ -145,6 +147,8 @@ export default async function PerformanceProgramDetailPage({
   const candidate = statCells(report.candidate);
   const complete = report.claims.complete;
   const allFamilies = report.program.scope === "all_families";
+  const registeredFamilyKeys = new Set(report.families.map((entry) => entry.key));
+  const laterFamilies = installed.filter((entry) => !registeredFamilyKeys.has(entry.key));
   const distributionRows: [string, string][] = allFamilies
     ? report.families.flatMap((entry) => [
         [
@@ -324,6 +328,53 @@ export default async function PerformanceProgramDetailPage({
             </>
           )}
         </section>
+
+
+        {allFamilies ? (
+          <section aria-labelledby="family-set-heading" className={`${cardClass} mt-8`}>
+            <h2 id="family-set-heading" className="text-xl font-bold">
+              Families in this comparison
+            </h2>
+            <p className="mt-1 text-sm text-muted">
+              Registered with {report.families.length} families and frozen: this comparison runs
+              and reports only those, whatever is installed later.
+            </p>
+            <ul className="mt-2 grid gap-1 text-sm">
+              {report.families.map((entry) => (
+                <li key={entry.key}>
+                  <strong>{familyLabel(entry.key)}</strong> — {entry.key} {entry.version} (
+                  {entry.tasks} tasks)
+                </li>
+              ))}
+            </ul>
+            <h3 className="mt-4 text-sm font-semibold">
+              {laterFamilies.length > 0
+                ? "Installed after registration"
+                : "Nothing installed since registration"}
+            </h3>
+            {laterFamilies.length > 0 ? (
+              <>
+                <p className="mt-1 text-sm text-muted">
+                  These families exist now but are not part of this comparison: it records no
+                  trials for them and its claim says nothing about them. Register a new comparison
+                  to cover them.
+                </p>
+                <ul className="mt-2 grid gap-1 text-sm">
+                  {laterFamilies.map((entry) => (
+                    <li key={entry.key}>
+                      <strong>{familyLabel(entry.key)}</strong> — {entry.key} {entry.version} (
+                      {entry.tasks} tasks, installed {entry.installedAt.slice(0, 10)})
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : (
+              <p className="mt-1 text-sm text-muted">
+                Every installed family was part of this comparison when it was registered.
+              </p>
+            )}
+          </section>
+        ) : null}
 
         <section aria-labelledby="protocol-heading" className={`${cardClass} mt-8`}>
           <h2 id="protocol-heading" className="text-xl font-bold">

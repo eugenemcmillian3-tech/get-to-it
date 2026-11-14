@@ -361,6 +361,44 @@ export async function listPerformancePrograms(
   };
 }
 
+export type InstalledFamily = {
+  key: string;
+  version: string;
+  tasks: number;
+  description: string;
+  installedAt: string;
+};
+
+/**
+ * Every family installed in the database, oldest first. A program shows the ones
+ * it registered separately from the ones that arrived after it was registered.
+ */
+export async function listInstalledFamilies(session: Session): Promise<InstalledFamily[]> {
+  const { data, error } = await session.supabase
+    .from("performance_task_families")
+    .select("key, version, task_keys, description, installed_at")
+    .order("installed_at", { ascending: true })
+    .order("key", { ascending: true });
+  if (error) {
+    console.error("installed task family read failed:", error.message);
+    throw new DataError(LOAD_ERROR);
+  }
+
+  return ((data ?? []) as {
+    key: string;
+    version: string;
+    task_keys: string[];
+    description: string;
+    installed_at: string;
+  }[]).map((row) => ({
+    key: row.key,
+    version: row.version,
+    tasks: row.task_keys.length,
+    description: row.description,
+    installedAt: row.installed_at,
+  }));
+}
+
 /**
  * One program and the numbers recorded against it. The claim verdict comes from
  * Postgres, re-derived from the rows, so the page cannot show a supported claim
