@@ -39,6 +39,7 @@
 | Phase 40 | Improvement proposals: one written record per change to how the product is built and run (prompt revision, model routing, tool policy, reusable procedure, workflow, application patch or new evaluation case), carrying the problem, its evidence, the change, the expected benefit, the risks, the affected components, the evaluation plan, the cost, the security implications and the rollback. Candidates run in their own branch or sandbox, criteria freeze when evaluation starts, evaluations are append-only with the verdict re-derived in Postgres from the numbers, approval needs a different person and a clean measured result, promotion names a real `app_deployments` row that a person already approved in the deployment flow (so no free-text reference can ship anything), and nine authorities (permissions, approval gates, spending, prices, audit logging, held-out answers, success criteria, deployment, production data) are refused and recorded | Complete for the record, isolation, evaluation, review and promotion state machine (unit and database tested plus a live crawl; the evaluation subject is the connector tool policy, so no model call, push or deployment is involved) |
 | Phase 41 | Controlled performance research program: three installed narrow task families (twelve authored tool-selection cases, twelve authored error-recovery cases and twelve authored request-clarity cases, each with its own baseline, candidate policies and pinned digest), a comparison scope that covers one family or every family installed at registration with each family's results and verdict reported separately and no pooled score, a comparison registered before testing with its distribution, inclusion/exclusion rules, scoring method, baseline and candidate, permitted tools, time and cost limits, trials, human assistance policy, failure criteria and the single claim it could support, a frozen protocol, append-only trials, documented human references, independent review separated from the recorder and registrar, and a claim verdict re-derived in Postgres that refuses speed without latency, cost without a measured cost, a distribution claim without a documented human reference and any broader general-capability claim | Complete (fixture-tested and database-tested; the suite is offline and deterministic, so no model call, spend, deployment or publication is involved) |
 | Phase 39 | Research missions: a bounded research contract (question, scope, competing hypotheses, required source quality, tool allowlist, budgets, stop conditions, human checkpoints), sources with provenance and stance, findings separated into quotations, observations, inferences and proposals, independent verification enforced in Postgres, a brief that re-checks its evidence when rendered, tasks dispatched into the existing orchestration queue, and a proposed next experiment recorded as a normal Phase 35 draft | Complete (fixture-tested plus a live crawl; no autonomous executor, outreach or publication) |
+| Phase 42 | Research observatory: one workspace-scoped, read-only view that reuses Phase 38 capability versions and runs, Phase 40 proposals, evaluations, promotion approvals and boundary refusals, release incidents, deployments and release records, Phase 39 research missions and hypotheses, and Phase 41 comparisons. It reports capability results per version, domain and split, held-out generalization with contamination, strengths and failures, cost and latency changes between measured versions, human intervention, incidents, deployment and rollback history, and open questions; eight evidence labels mark the strongest stage reached; every displayed capability claim links to its system version, experiment or evaluation, evidence and human release decision, and is hidden if any is missing; the singularity wording is confined to a labelled research area with an explicit non-achievement disclaimer; no score grants spending, tools, data, deployment, publication or reduced oversight | Complete (unit-tested read-only aggregation; design-level release review with stated limits; no schema change, deployment, spend, publication or permission change) |
 
 Every phase that has a row below is complete. The most recent phases are described
 at the end of this file. Phases 26–30 exist in the repository as migrations and
@@ -408,3 +409,33 @@ Phase 36 adds `/workspace/{workspaceId}/orchestrations`. A goal becomes an outco
 Phase 37 adds `/workspace/{workspaceId}/knowledge`: claims and procedures with sources, supporting and contradicting evidence, verification statuses, corrections recorded as new versions, transfers between workspaces that need the target workspace's owner or admin, retention purges, and read-only tables for clients. A hypothesis or an AI suggestion is refused promotion as verified knowledge; it has to be restated as a measured observation or tested procedure.
 
 Phase 39 adds `/workspace/{workspaceId}/research`. A mission records a research contract — question, scope, existing evidence, at least two competing hypotheses, the source quality it will accept, a read-only tool allowlist, deliverables, task/agent/retry/spend/time ceilings, stop conditions and human review checkpoints — and refuses outreach or publishing tools outright. Sources record provenance, stance and whether the statement is a quotation, observation, inference or proposal. A conclusion cannot be verified by the same specialist function that wrote it, and a discovery is refused unless a verified supporting source at the required quality exists and no verified source contradicts it; the brief repeats that check when it renders, so a stale label is downgraded rather than repeated. Missions dispatch ordinary tasks into the Phase 36 queue, and a research task cannot be marked verified until the mission holds the evidence it was meant to produce. The proposed next experiment becomes an ordinary draft Phase 35 record. Nothing publishes, contacts anyone or runs a separate agent runtime.
+
+Phase 42 adds `/workspace/{workspaceId}/observatory`, a read-only observatory over
+the evidence the previous phases already record. It reads capability versions and
+runs that are linked to an experiment in the workspace (owner-scoped by policy),
+improvement proposals with their frozen evaluations, promotion approvals and
+refusals, deployments, releases and release incidents for the projects those
+proposals name, research missions and their competing hypotheses, and Phase 41
+comparisons. It adds no table, writes nothing, and computes no blended score.
+
+Capability results are shown per evaluation and version, never pooled across
+evaluations, with each domain's verified count and most common failure, held-out
+results separated from development and validation, contaminated exposure called
+out, cost and latency compared only between measured versions of the same
+configuration, and human assistance and interventions counted per version.
+
+Eight evidence labels describe how far a record actually got. A capability claim
+is shown only with its exact version, experiment or evaluation, evidence and
+human release decision; a missing link hides the claim, and a released claim
+without a recorded human approval is refused. The report states where no release
+decision exists instead of implying one. The word "singularity" is used only as a
+clearly labelled research area, with a statement that no singularity has occurred
+and that the platform has not caused or achieved one.
+
+Improved scores never widen authority: spending, tools, data access, production
+deployment, publication and human oversight each still require their own written
+approval, and the observatory adds no control, execution path or automatic
+permission. The page also carries the release review of Phases 36–42 across
+eleven areas, naming the areas that hold only with limits. It is a design-level
+review by the builder, not an external audit; no deployment, publication or spend
+was performed for this phase.

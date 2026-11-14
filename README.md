@@ -2363,3 +2363,60 @@ Nothing in this phase calls a model, spends money, deploys anything or publishes
 claim. The measured money cost is zero on both sides because no paid call is made;
 authored cost units are not a price. That is exactly why the engine refuses speed
 and cost claims it has no evidence for.
+
+## Research observatory (Phase 42)
+
+`/workspace/{workspaceId}/observatory` is a read-only view of the evidence the
+earlier phases already keep. It reuses the Phase 38 capability evaluations,
+Phase 40 improvement proposals and their evaluations, promotion and deployment
+records, release incidents, Phase 39 research missions and Phase 41 comparisons.
+It stores nothing of its own, computes no new score, and cannot change a record.
+
+The page reports capability results per evaluation, version, domain and split;
+the domains where verified success is highest and the ones where it is not,
+with the most common failure category; held-out results separately from
+development and validation, including contaminated held-out exposure; cost and
+latency changes between measured versions of the same configuration; the human
+assistance recorded for each version and how often a person had to intervene;
+improvement proposals with their measured verdict; permission and safety
+incidents; deployment history; release records with their rollback limitations;
+and the research questions still open, with their competing hypotheses.
+
+Eight evidence labels describe the strongest stage a record has reached:
+proposed, implemented, tested, independently reviewed, released, inconclusive,
+failed and superseded. A label is never inferred upward: contaminated held-out
+runs, an inconclusive comparison or a recovery without a confirmed cause stay
+inconclusive, a rejected or blocked proposal is failed, and a cancelled record
+is superseded.
+
+Every capability claim carries four links: the exact system version, the
+experiment or evaluation, the evidence underneath, and the human release
+decision. A claim that cannot supply them is hidden rather than shown with a
+weaker rule, and a released claim without a recorded human approval is refused.
+The page states where no release decision exists instead of implying one.
+
+The word "singularity" appears only as a clearly labelled research-area name.
+The page states in the same card that this observatory does not claim a
+technological singularity has occurred, is occurring, or was caused or achieved
+by the platform, and no capability claim may contain that wording.
+
+No score widens authority. Spending, tool access, data access, production
+deployment, external publication and the level of human oversight each need
+their own written approval; the observatory adds no control that changes them
+and no code path from a measurement to a permission. There is no "singularity
+achieved" switch, no unbounded recursive execution, no self-modification and no
+automatic removal of human control.
+
+The release review on the page checks the integrated Phases 36–42 against tenant
+isolation, consent enforcement, approval binding, budget enforcement, credit
+accounting, evidence provenance, evaluation integrity, cancellation behavior,
+auditability, rollback readiness and the accuracy of customer-facing claims,
+stating where an area holds only with limits. It is a design-level review by the
+builder, not an external audit.
+
+Limits worth stating: observatory reads are workspace-scoped, while capability
+evaluations remain owner-scoped, so another member's evaluation is not shown;
+no independent capability review record exists yet, so measured capability
+stays experimental; and nothing here deploys, publishes, spends or changes a
+permission. The page is a server-rendered read with no form and no action.
+
