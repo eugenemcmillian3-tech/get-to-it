@@ -3,9 +3,11 @@
  * Authenticated functional smoke test.
  *
  * Exercises the browser path that unit tests and an HTTP crawl cannot:
- * saving a workflow step through a server action, reopening a completed task,
- * downloading an export, and importing it into a second account. By default it
- * stops before the AI draft, so it needs no provider key and spends no AI request.
+ * signing in, opening a goal and its task, reopening the task, starting and
+ * advancing a workflow, downloading an export, and importing it into a second
+ * account. Every browser action in that path is performed with the keyboard.
+ * By default it stops before the AI draft, so it needs no provider key and
+ * spends no AI request.
  *
  * Required environment:
  *   E2E_SERVICE_ROLE_KEY  Supabase service-role key, used only to create and
@@ -161,14 +163,97 @@ async function rest(session, path, options = {}) {
   );
 }
 
+async function activeElement(page) {
+  return page.evaluate(() => {
+    const element = document.activeElement;
+    if (!element) return null;
+    const style = getComputedStyle(element);
+    return {
+      tag: element.tagName.toLowerCase(),
+      id: element.id,
+      name: element.getAttribute("name"),
+      text: (element.textContent ?? "").replace(/\s+/g, " ").trim(),
+      href: element.getAttribute("href"),
+      disabled: element.hasAttribute("disabled"),
+      outlineWidth: style.outlineWidth,
+      outlineStyle: style.outlineStyle,
+      boxShadow: style.boxShadow,
+    };
+  });
+}
+
+/** Presses Tab until the focused element matches, then returns it. */
+async function tabTo(page, predicate, description, { max = 180, backwards = false } = {}) {
+  for (let index = 0; index < max; index += 1) {
+    await page.keyboard.press(backwards ? "Shift+Tab" : "Tab");
+    const active = await activeElement(page);
+    if (active && predicate(active)) return active;
+  }
+  throw new Error(
+    `Keyboard traversal could not reach ${description} in ${max} tab stops.`,
+  );
+}
+
+async function activateByKeyboard(page, predicate, description, options) {
+  const active = await tabTo(page, predicate, description, options);
+  await page.keyboard.press("Enter");
+  return active;
+}
+
 async function uiLogin(page, account) {
   await page.goto(`${BASE}/sign-in`, { waitUntil: "domcontentloaded" });
-  await page.locator("#email").fill(account.email);
-  await page.locator("#password").fill(account.password);
+  const email = await tabTo(page, (active) => active.id === "email", "the email field");
+  const ring =
+    (email.outlineStyle !== "none" && email.outlineWidth !== "0px") ||
+    email.boxShadow !== "none";
+  if (!ring) throw new Error("The focused email field has no visible focus ring.");
+  await page.keyboard.type(account.email);
+  await page.keyboard.press("Tab");
+
+  const focusedAfterEmail = await activeElement(page);
+  if (focusedAfterEmail?.id !== "password") {
+    throw new Error("Tab after email did not focus the password field.");
+  }
+  await page.keyboard.type(account.password);
+  await tabTo(
+    page,
+    (active) => active.tag === "button" && active.text === "Sign in",
+    "the Sign in button",
+  );
   await Promise.all([
     page.waitForURL((url) => url.pathname === "/dashboard", { timeout: 20_000 }),
-    page.getByRole("button", { name: /^Sign in$/ }).click(),
+    page.keyboard.press("Enter"),
   ]);
+}
+
+async function openGoalByKeyboard(page, goal) {
+  await page.goto(`${BASE}/dashboard`, { waitUntil: "domcontentloaded" });
+  await tabTo(
+    page,
+    (active) => active.tag === "a" && active.text === goal.title,
+    "the seeded goal link",
+  );
+  await Promise.all([
+    page.waitForURL((url) => url.pathname === `/goals/${goal.id}`, { timeout: 20_000 }),
+    page.keyboard.press("Enter"),
+  ]);
+  check("goal opens from the dashboard with the keyboard", true);
+}
+
+async function openTaskByKeyboard(page, goal, task) {
+  await tabTo(
+    page,
+    (active) =>
+      active.tag === "a" && active.href?.endsWith(`/goals/${goal.id}/tasks/${task.id}`),
+    "the seeded task link",
+  );
+  await Promise.all([
+    page.waitForURL((url) => url.pathname === `/goals/${goal.id}/tasks/${task.id}`, {
+      timeout: 20_000,
+    }),
+    page.keyboard.press("Enter"),
+  ]);
+  check("task opens from the goal with the keyboard", true);
 }
 
 function check(name, condition, detail = {}) {
@@ -238,16 +323,27 @@ async function runWorkflow(sessionA, accountA, page) {
   });
 
   await page.goto(`${BASE}/workflows/${workflow.id}`, { waitUntil: "domcontentloaded" });
-  await Promise.all([
-    page.waitForURL(/\/workflows\/runs\/[0-9a-f-]{36}$/, { timeout: 20_000 }),
-    page.getByRole("button", { name: "Start a run" }).click(),
-  ]);
-  check("workflow run starts from the detail page", true);
+  await activateByKeyboard(
+    page,
+    (active) => active.tag === "button" && active.text === "Start a run",
+    "the Start a run button",
+  );
+  await page.waitForURL(/\/workflows\/runs\/[0-9a-f-]{36}$/, { timeout: 20_000 });
+  check("workflow run starts from the detail page with the keyboard", true);
 
-  await page
-    .locator("#workflow-notes")
-    .fill("Functional smoke test: save this input through the server action.");
-  await page.getByRole("button", { name: "Save input and continue" }).click();
+  await tabTo(
+    page,
+    (active) => active.id === "workflow-notes",
+    "the workflow notes field",
+  );
+  await page.keyboard.type(
+    "Functional smoke test: save this input through the server action.",
+  );
+  await activateByKeyboard(
+    page,
+    (active) => active.tag === "button" && active.text === "Save input and continue",
+    "the Save input and continue button",
+  );
 
   try {
     await page.getByRole("button", { name: "Generate the draft" }).waitFor({ timeout: 20_000 });
@@ -311,10 +407,13 @@ async function runWorkflow(sessionA, accountA, page) {
 async function exportGoal(page) {
   const exportPath = join(workDir, "export.json");
   await page.goto(`${BASE}/data`, { waitUntil: "domcontentloaded" });
-  const [download] = await Promise.all([
-    page.waitForEvent("download", { timeout: 30_000 }),
-    page.getByRole("button", { name: "Download JSON export" }).click(),
-  ]);
+  const downloadPromise = page.waitForEvent("download", { timeout: 30_000 });
+  await activateByKeyboard(
+    page,
+    (active) => active.tag === "button" && active.text === "Download JSON export",
+    "the Download JSON export button",
+  );
+  const download = await downloadPromise;
   await download.saveAs(exportPath);
   const parsed = JSON.parse(readFileSync(exportPath, "utf8"));
   check(
@@ -374,7 +473,11 @@ async function reopenTask(page, session, goal, task) {
     waitUntil: "domcontentloaded",
   });
   await page.getByRole("button", { name: "Reopen task" }).waitFor({ timeout: 20_000 });
-  await page.getByRole("button", { name: "Reopen task" }).click();
+  await activateByKeyboard(
+    page,
+    (active) => active.tag === "button" && active.text === "Reopen task",
+    "the Reopen task button",
+  );
   await page.waitForFunction(
     () => {
       const button = Array.from(document.querySelectorAll("button")).find(
@@ -421,11 +524,13 @@ async function main() {
   pageB = await contextB.newPage();
 
   await uiLogin(pageA, accountA);
-  check("first account signs in through the UI", true);
+  check("first account signs in with the keyboard", true);
   await uiLogin(pageB, accountB);
-  check("second account signs in through the UI", true);
+  check("second account signs in with the keyboard", true);
 
   const { goal, task } = await seedGoal(sessionA, accountA);
+  await openGoalByKeyboard(pageA, goal);
+  await openTaskByKeyboard(pageA, goal, task);
   await runWorkflow(sessionA, accountA, pageA);
   const exportPath = await exportGoal(pageA);
   await importGoal(pageB, exportPath);
