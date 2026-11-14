@@ -150,6 +150,9 @@ export default async function WorkspacePage({
           <Link href={`/workspace/${workspaceId}/knowledge`} className={secondaryButton}>
             Knowledge
           </Link>
+          <Link href={`/workspace/${workspaceId}/observatory`} className={secondaryButton}>
+            Observatory
+          </Link>
         </p>
 
         <section aria-labelledby="progress-heading" className="mt-8">
