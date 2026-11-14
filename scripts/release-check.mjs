@@ -26,9 +26,15 @@ function run(label, command, args, options = {}) {
   return true;
 }
 
+const repoRoot = process.cwd();
+
 function git(args) {
   try {
-    return execFileSync("git", args, { encoding: "utf8" }).trim();
+    // The release record must name its revision even when the checkout is owned
+    // by another user. Relax the ownership check for this invocation only.
+    return execFileSync("git", ["-c", `safe.directory=${repoRoot}`, ...args], {
+      encoding: "utf8",
+    }).trim();
   } catch {
     return "";
   }
