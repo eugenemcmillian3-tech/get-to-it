@@ -367,6 +367,12 @@ export default async function PerformanceProgramDetailPage({
                     </li>
                   ))}
                 </ul>
+                <Link
+                  href={`/workspace/${workspaceId}/performance?scope=all_families#register-program`}
+                  className="mt-2 inline-block text-sm underline"
+                >
+                  Register a comparison across every installed family
+                </Link>
               </>
             ) : (
               <p className="mt-1 text-sm text-muted">

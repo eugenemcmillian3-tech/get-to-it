@@ -71,12 +71,14 @@ const PROTOCOL_FIELDS = [
 export function RegisterProgramForm({
   workspaceId,
   families,
+  defaultAllFamilies = false,
 }: {
   workspaceId: string;
   families: FamilyOption[];
+  defaultAllFamilies?: boolean;
 }) {
   const [state, action] = useActionState(registerPerformanceProgramAction, idleBuildState);
-  const [allFamilies, setAllFamilies] = useState(false);
+  const [allFamilies, setAllFamilies] = useState(defaultAllFamilies);
   const [familyKey, setFamilyKey] = useState(families[0]?.key ?? "");
   const family = families.find((row) => row.key === familyKey) ?? families[0];
   const [candidatePolicy, setCandidatePolicy] = useState(family?.candidates[0]?.key ?? "");
@@ -86,7 +88,11 @@ export function RegisterProgramForm({
     : (candidates[0]?.key ?? "");
 
   return (
-    <section aria-labelledby="register-program-heading" className={`${cardClass} mt-8`}>
+    <section
+      id="register-program"
+      aria-labelledby="register-program-heading"
+      className={`${cardClass} mt-8`}
+    >
       <h2 id="register-program-heading" className="text-xl font-bold">
         Register a comparison
       </h2>
