@@ -368,7 +368,7 @@ export default async function PerformanceProgramDetailPage({
                   ))}
                 </ul>
                 <Link
-                  href={`/workspace/${workspaceId}/performance?scope=all_families#register-program`}
+                  href={`/workspace/${workspaceId}/performance?scope=all_families&claim=${report.claims.registered}#register-program`}
                   className="mt-2 inline-block text-sm underline"
                 >
                   Register a comparison across every installed family

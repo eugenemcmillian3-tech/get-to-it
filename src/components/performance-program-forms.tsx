@@ -16,6 +16,7 @@ import {
   CLAIM_UNITS,
   PERFORMANCE_CLAIMS,
   type FamilyOption,
+  type PerformanceClaim,
 } from "@/lib/performance-program";
 import { cardClass, inputClass, labelClass, primaryButton, quietButton } from "@/lib/styles";
 
@@ -72,10 +73,12 @@ export function RegisterProgramForm({
   workspaceId,
   families,
   defaultAllFamilies = false,
+  defaultClaim,
 }: {
   workspaceId: string;
   families: FamilyOption[];
   defaultAllFamilies?: boolean;
+  defaultClaim?: PerformanceClaim;
 }) {
   const [state, action] = useActionState(registerPerformanceProgramAction, idleBuildState);
   const [allFamilies, setAllFamilies] = useState(defaultAllFamilies);
@@ -268,7 +271,11 @@ export function RegisterProgramForm({
 
         <label className="grid gap-1">
           <span className={labelClass}>The one claim this program could support</span>
-          <select name="supportedClaim" className={inputClass} defaultValue="benchmark">
+          <select
+            name="supportedClaim"
+            className={inputClass}
+            defaultValue={defaultClaim ?? "benchmark"}
+          >
             {PERFORMANCE_CLAIMS.map((claim) => (
               <option key={claim} value={claim}>
                 {CLAIM_LABELS[claim]}
