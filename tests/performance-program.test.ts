@@ -31,8 +31,11 @@ import {
   formatLatency,
   formatPercent,
   programProblems,
+  replacementPrefill,
   protocolFingerprint,
+  REPLACEMENT_PREFILL_FIELDS,
   type PerformanceDraft,
+  type RegisterPrefill,
 } from "@/lib/performance-program";
 
 const draft: PerformanceDraft = {
@@ -303,6 +306,50 @@ describe("performance program registration", () => {
     expect(migration).toContain("all_families");
     expect(migration).toContain("family_keys");
     expect(migration).toContain("'families'");
+  });
+
+
+  it("carries every protocol field and limit into a replacement registration", () => {
+    const previous = {
+      question: "question-copy",
+      inclusionRules: "inclusion-copy",
+      exclusionRules: "exclusion-copy",
+      scoringMethod: "scoring-copy",
+      humanAssistancePolicy: "assistance-copy",
+      failureCriteria: "failure-copy",
+      claimText: "claim-copy",
+      trials: 7,
+      timeLimitSeconds: 240,
+      costLimitCents: 42,
+      maxDisagreements: 3,
+      minimumEffect: 0.35,
+      noninferiorityMargin: 0.07,
+    } satisfies RegisterPrefill;
+
+    const prefill = replacementPrefill(previous);
+
+    expect(prefill).toEqual(previous);
+    expect(Object.keys(prefill).sort()).toEqual([...REPLACEMENT_PREFILL_FIELDS].sort());
+    expect(Object.keys(prefill)).toHaveLength(13);
+    expect(REPLACEMENT_PREFILL_FIELDS).toHaveLength(13);
+  });
+
+  it("binds every prefilled field to a named input, so a rename fails here", () => {
+    const form = readFileSync(
+      path.join(process.cwd(), "src/components/performance-program-forms.tsx"),
+      "utf8",
+    );
+    const page = readFileSync(
+      path.join(process.cwd(), "src/app/workspace/[workspaceId]/performance/page.tsx"),
+      "utf8",
+    );
+
+    for (const field of REPLACEMENT_PREFILL_FIELDS) {
+      expect(form).toContain(`"${field}"`);
+    }
+    expect(form).toContain("prefill?.[field.name]");
+    expect(form).toContain("prefill?.trials");
+    expect(page).toContain("replacementPrefill(previous.program)");
   });
 
   it("fingerprints the all-family scope apart from a single family", () => {

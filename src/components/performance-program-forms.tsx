@@ -17,6 +17,7 @@ import {
   PERFORMANCE_CLAIMS,
   type FamilyOption,
   type PerformanceClaim,
+  type RegisterPrefill,
 } from "@/lib/performance-program";
 import { cardClass, inputClass, labelClass, primaryButton, quietButton } from "@/lib/styles";
 
@@ -69,21 +70,6 @@ const PROTOCOL_FIELDS = [
   },
 ] as const;
 
-export type RegisterPrefill = {
-  question: string;
-  inclusionRules: string;
-  exclusionRules: string;
-  scoringMethod: string;
-  humanAssistancePolicy: string;
-  failureCriteria: string;
-  claimText: string;
-  trials: number;
-  timeLimitSeconds: number;
-  costLimitCents: number;
-  maxDisagreements: number;
-  minimumEffect: number;
-  noninferiorityMargin: number;
-};
 
 export function RegisterProgramForm({
   workspaceId,
