@@ -210,9 +210,9 @@ async function uiLogin(page, account) {
   await page.keyboard.type(account.email);
   await page.keyboard.press("Tab");
 
-  const password = await activeElement(page);
-  if (password?.id !== "password") {
-    throw new Error(`Tab after email focused ${JSON.stringify(password)}, not the password.`);
+  const focusedAfterEmail = await activeElement(page);
+  if (focusedAfterEmail?.id !== "password") {
+    throw new Error("Tab after email did not focus the password field.");
   }
   await page.keyboard.type(account.password);
   await tabTo(
@@ -531,11 +531,11 @@ async function main() {
   const { goal, task } = await seedGoal(sessionA, accountA);
   await openGoalByKeyboard(pageA, goal);
   await openTaskByKeyboard(pageA, goal, task);
-  await reopenTask(pageA, sessionA, goal, task);
   await runWorkflow(sessionA, accountA, pageA);
   const exportPath = await exportGoal(pageA);
   await importGoal(pageB, exportPath);
   await verifyIsolation(sessionA, sessionB, goal);
+  await reopenTask(pageA, sessionA, goal, task);
 }
 
 let failure = null;
