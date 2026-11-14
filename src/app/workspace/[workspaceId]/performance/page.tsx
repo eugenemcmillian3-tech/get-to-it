@@ -1,11 +1,17 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { RegisterProgramForm } from "@/components/performance-program-forms";
+import {
+  RegisterProgramForm,
+  type RegisterPrefill,
+} from "@/components/performance-program-forms";
 import { SetupNotice } from "@/components/setup-notice";
 import { SiteHeader } from "@/components/site-header";
 import { requireSession } from "@/lib/auth";
-import { listPerformancePrograms } from "@/lib/data/performance-program";
+import {
+  listPerformancePrograms,
+  readPerformanceReport,
+} from "@/lib/data/performance-program";
 import { getIdentity } from "@/lib/identity";
 import {
   CLAIM_LABELS,
@@ -19,6 +25,7 @@ import {
   familyLabel,
 } from "@/lib/performance-program";
 import { cardClass, chipClass } from "@/lib/styles";
+import { isUuid } from "@/lib/validation";
 import { getSupabaseSettings } from "@/lib/supabase/config";
 
 export const metadata: Metadata = { title: "Performance program — GET TO IT" };
@@ -28,7 +35,7 @@ export default async function PerformanceProgramPage({
   searchParams,
 }: {
   params: Promise<{ workspaceId: string }>;
-  searchParams: Promise<{ scope?: string; claim?: string }>;
+  searchParams: Promise<{ scope?: string; claim?: string; from?: string }>;
 }) {
   const [{ workspaceId }, query] = await Promise.all([params, searchParams]);
   const requestedClaim = PERFORMANCE_CLAIMS.find((claim) => claim === query.claim);
@@ -46,6 +53,28 @@ export default async function PerformanceProgramPage({
     listPerformancePrograms(session, workspaceId),
   ]);
   if (!list) notFound();
+
+  let prefill: RegisterPrefill | undefined;
+  if (query.from && isUuid(query.from)) {
+    const previous = await readPerformanceReport(session, query.from).catch(() => null);
+    if (previous && previous.program.workspaceId === workspaceId) {
+      prefill = {
+        question: previous.program.question,
+        inclusionRules: previous.program.inclusionRules,
+        exclusionRules: previous.program.exclusionRules,
+        scoringMethod: previous.program.scoringMethod,
+        humanAssistancePolicy: previous.program.humanAssistancePolicy,
+        failureCriteria: previous.program.failureCriteria,
+        claimText: previous.program.claimText,
+        trials: previous.program.trials,
+        timeLimitSeconds: previous.program.timeLimitSeconds,
+        costLimitCents: previous.program.costLimitCents,
+        maxDisagreements: previous.program.maxDisagreements,
+        minimumEffect: previous.program.minimumEffect,
+        noninferiorityMargin: previous.program.noninferiorityMargin,
+      };
+    }
+  }
 
   const registered = list.programs.filter((program) => program.status !== "draft");
   const withTrials = registered.filter((program) => program.trialRows > 0);
@@ -96,6 +125,7 @@ export default async function PerformanceProgramPage({
           families={PERFORMANCE_FAMILY_OPTIONS}
           defaultAllFamilies={query.scope === "all_families"}
           defaultClaim={requestedClaim}
+          prefill={prefill}
         />
 
         <section aria-labelledby="programs-heading" className="mt-10">

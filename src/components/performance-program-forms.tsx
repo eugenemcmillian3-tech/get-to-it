@@ -69,16 +69,34 @@ const PROTOCOL_FIELDS = [
   },
 ] as const;
 
+export type RegisterPrefill = {
+  question: string;
+  inclusionRules: string;
+  exclusionRules: string;
+  scoringMethod: string;
+  humanAssistancePolicy: string;
+  failureCriteria: string;
+  claimText: string;
+  trials: number;
+  timeLimitSeconds: number;
+  costLimitCents: number;
+  maxDisagreements: number;
+  minimumEffect: number;
+  noninferiorityMargin: number;
+};
+
 export function RegisterProgramForm({
   workspaceId,
   families,
   defaultAllFamilies = false,
   defaultClaim,
+  prefill,
 }: {
   workspaceId: string;
   families: FamilyOption[];
   defaultAllFamilies?: boolean;
   defaultClaim?: PerformanceClaim;
+  prefill?: RegisterPrefill;
 }) {
   const [state, action] = useActionState(registerPerformanceProgramAction, idleBuildState);
   const [allFamilies, setAllFamilies] = useState(defaultAllFamilies);
@@ -105,6 +123,13 @@ export function RegisterProgramForm({
         numbers exist, not chosen from them.
       </p>
 
+      {prefill ? (
+        <p className="mt-3 rounded-xl border border-line bg-card px-3 py-2 text-xs text-muted">
+          Prefilled from the comparison you came from. The family set and claim come from the link;
+          review every other field and give this comparison its own title before registering.
+        </p>
+      ) : null}
+
       <form action={action} className="mt-4 grid gap-4">
         <input type="hidden" name="workspaceId" value={workspaceId} />
         <input
@@ -126,6 +151,7 @@ export function RegisterProgramForm({
             minLength={20}
             maxLength={1000}
             rows={2}
+            defaultValue={prefill?.question}
             className={inputClass}
           />
         </label>
@@ -184,6 +210,7 @@ export function RegisterProgramForm({
               rows={field.rows}
               minLength={field.name === "exclusionRules" ? 10 : 20}
               maxLength={2000}
+              defaultValue={prefill?.[field.name]}
               className={inputClass}
             />
             <span className="text-xs text-muted">{field.hint}</span>
@@ -226,7 +253,7 @@ export function RegisterProgramForm({
               name="trials"
               min={1}
               max={20}
-              defaultValue={3}
+              defaultValue={prefill?.trials ?? 3}
               required
               className={inputClass}
             />
@@ -238,7 +265,7 @@ export function RegisterProgramForm({
               name="timeLimitSeconds"
               min={10}
               max={3600}
-              defaultValue={120}
+              defaultValue={prefill?.timeLimitSeconds ?? 120}
               required
               className={inputClass}
             />
@@ -250,7 +277,7 @@ export function RegisterProgramForm({
               name="costLimitCents"
               min={0}
               max={100000}
-              defaultValue={20}
+              defaultValue={prefill?.costLimitCents ?? 20}
               required
               className={inputClass}
             />
@@ -262,7 +289,7 @@ export function RegisterProgramForm({
               name="maxDisagreements"
               min={0}
               max={100}
-              defaultValue={0}
+              defaultValue={prefill?.maxDisagreements ?? 0}
               required
               className={inputClass}
             />
@@ -300,6 +327,7 @@ export function RegisterProgramForm({
             minLength={20}
             maxLength={500}
             rows={2}
+            defaultValue={prefill?.claimText}
             placeholder="On these twelve authored intents, the candidate reaches the expected tool at least 20% more often than the shipped policy."
             className={inputClass}
           />
@@ -318,7 +346,7 @@ export function RegisterProgramForm({
               min={0}
               max={100}
               step="0.01"
-              defaultValue={0.2}
+              defaultValue={prefill?.minimumEffect ?? 0.2}
               required
               className={inputClass}
             />
@@ -331,7 +359,7 @@ export function RegisterProgramForm({
               min={0}
               max={1}
               step="0.01"
-              defaultValue={0}
+              defaultValue={prefill?.noninferiorityMargin ?? 0}
               required
               className={inputClass}
             />
