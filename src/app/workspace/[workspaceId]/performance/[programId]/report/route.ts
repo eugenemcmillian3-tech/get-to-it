@@ -1,5 +1,9 @@
 import { getSession } from "@/lib/auth";
-import { readPerformanceReport, type PerformanceReport } from "@/lib/data/performance-program";
+import {
+  listInstalledFamilies,
+  readPerformanceReport,
+  type PerformanceReport,
+} from "@/lib/data/performance-program";
 import {
   CLAIM_LABELS,
   CLAIM_UNITS,
@@ -100,6 +104,9 @@ export async function GET(
   }
 
   const allFamilies = report.program.scope === "all_families" && report.families.length > 0;
+  const installed = await listInstalledFamilies(session);
+  const registeredFamilyKeys = new Set(report.families.map((entry) => entry.key));
+  const laterFamilies = installed.filter((entry) => !registeredFamilyKeys.has(entry.key));
   const results = allFamilies
     ? `Each family below is reported on its own rows. No pooled score is computed.\n\n${familyResults(report)}`
     : `${statTable(report.baseline, report.candidate, report.program.baselineLabel, report.program.candidateLabel)}\n\nScore difference: ${formatScore(report.effect.scoreGain)} points. Cost difference: ${formatPercent(report.effect.costReductionPct)} lower mean cost. Latency difference: ${formatPercent(report.effect.latencyReductionPct)} lower median latency.\n\nConditions: within non-inferiority ${report.effect.withinNoninferiority ? "yes" : "no"}; assistance matched ${report.effect.assistanceMatched ? "yes" : "no"}; within registered limits ${report.effect.withinLimits ? "yes" : "no"}.`;
@@ -134,6 +141,7 @@ ${line("Cost limit", `${formatCents(report.program.costLimitCents)} per trial`)}
 ${line("Trials", `${report.program.trials} per task; ${report.plan.expectedRows} rows expected per configuration`)}
 ${line("Human assistance policy", report.program.humanAssistancePolicy)}
 ${line("Failure criteria", report.program.failureCriteria)}
+${allFamilies ? line("Installed after registration", laterFamilies.length > 0 ? laterFamilies.map((entry) => `${entry.key} ${entry.version}`).join(", ") : "none - every installed family is part of this comparison") : ""}
 ${line("Protocol fingerprint", report.program.fingerprint ?? "not recorded")}
 ${line("Registered at", report.program.registeredAt ?? "not registered")}
 ${line("Status", report.program.status)}
