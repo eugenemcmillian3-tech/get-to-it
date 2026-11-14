@@ -68,18 +68,35 @@ const checks = [
 ];
 
 let passed = 0;
+const notVerified = [];
 for (const [label, command, args] of checks) {
   if (run(label, command, args)) passed += 1;
 }
 
+// The browser check needs a Chromium build with its system libraries. It is
+// enforced in the CI browser job; a local run without those libraries reports
+// the gap instead of failing unrelated release work or pretending it passed.
+const browserCheck = spawnSync("node", ["scripts/release-browser-check.mjs"], {
+  stdio: "inherit",
+  env: { ...process.env, RELEASE_BROWSER_ALLOW_SKIP: "1" },
+});
+if (browserCheck.status === 0) {
+  passed += 1;
+} else if (browserCheck.status === 2) {
+  notVerified.push(
+    "browser keyboard/mobile check: Chromium or its system libraries are unavailable; run `npx playwright install --with-deps chromium`",
+  );
+} else {
+  process.exitCode = 1;
+}
+const totalChecks = checks.length + 1;
+
 console.log("\nManual checks that remain manual:");
-console.log("  - keyboard-only pass through sign-in, a goal, a workflow and /data");
-console.log("  - mobile widths at 360 px and 414 px, no horizontal scroll");
+console.log("  - keyboard-only pass through an authenticated goal, workflow and /data");
 console.log("  - error recovery: stop the database, confirm the health check is 503");
 
 // A check that ran but compared nothing is not the same as a check that passed,
 // and a green release record should not imply coverage it did not have.
-const notVerified = [];
 const driftArmed = Boolean(
   (process.env.SCHEMA_DRIFT_DATABASE_URL ?? process.env.DATABASE_URL)
   || ((process.env.SUPABASE_MANAGEMENT_API ?? "")
@@ -97,7 +114,7 @@ console.log(
 );
 
 console.log(
-  `\n${passed}/${checks.length} automated checks passed for revision ${short}${dirty ? " (dirty)" : ""}.`,
+  `\n${passed}/${totalChecks} automated checks passed for revision ${short}${dirty ? " (dirty)" : ""}.`,
 );
 
 process.exit(process.exitCode ?? 0);
