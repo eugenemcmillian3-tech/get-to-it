@@ -24,10 +24,12 @@ export const metadata: Metadata = { title: "Performance program — GET TO IT" }
 
 export default async function PerformanceProgramPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ workspaceId: string }>;
+  searchParams: Promise<{ scope?: string }>;
 }) {
-  const { workspaceId } = await params;
+  const [{ workspaceId }, query] = await Promise.all([params, searchParams]);
   if (!getSupabaseSettings()) {
     return (
       <main className="mx-auto w-full max-w-3xl px-5 py-10">
@@ -87,7 +89,11 @@ export default async function PerformanceProgramPage({
           {withTrials.length} with recorded trials
         </p>
 
-        <RegisterProgramForm workspaceId={workspaceId} families={PERFORMANCE_FAMILY_OPTIONS} />
+        <RegisterProgramForm
+          workspaceId={workspaceId}
+          families={PERFORMANCE_FAMILY_OPTIONS}
+          defaultAllFamilies={query.scope === "all_families"}
+        />
 
         <section aria-labelledby="programs-heading" className="mt-10">
           <h2 id="programs-heading" className="text-xl font-bold">
