@@ -92,8 +92,10 @@ if (browserCheck.status === 0) {
 const totalChecks = checks.length + 1;
 
 console.log("\nManual checks that remain manual:");
-console.log("  - keyboard-only pass through an authenticated goal, workflow and /data");
 console.log("  - error recovery: stop the database, confirm the health check is 503");
+console.log(
+  "Authenticated keyboard traversal runs in the authenticated-e2e CI job.",
+);
 
 // A check that ran but compared nothing is not the same as a check that passed,
 // and a green release record should not imply coverage it did not have.
