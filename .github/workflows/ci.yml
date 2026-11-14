@@ -106,3 +106,34 @@ jobs:
           # Required: without a credential this step fails instead of
           # reporting that it compared nothing.
           SCHEMA_DRIFT_REQUIRED: "1"
+
+  browser:
+    # The release gate's keyboard and mobile-width check, enforced with a real
+    # Chromium. The build uses placeholder public Supabase settings so the
+    # sign-in form renders; no account, database row or paid call is created.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:9"
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "browser-check-placeholder"
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium and system libraries
+        run: npx playwright install --with-deps chromium --no-shell
+
+      - name: Build the production app
+        run: npm run build
+
+      - name: Keyboard navigation and mobile widths
+        run: node scripts/release-browser-check.mjs
