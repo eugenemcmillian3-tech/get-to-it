@@ -10,6 +10,7 @@ import { getIdentity } from "@/lib/identity";
 import {
   CLAIM_LABELS,
   ERROR_RECOVERY_FAMILY_VERSION,
+  PERFORMANCE_CLAIMS,
   PERFORMANCE_FAMILY_OPTIONS,
   PERFORMANCE_FAMILY_VERSION,
   PERFORMANCE_STATUS_LABELS,
@@ -27,9 +28,10 @@ export default async function PerformanceProgramPage({
   searchParams,
 }: {
   params: Promise<{ workspaceId: string }>;
-  searchParams: Promise<{ scope?: string }>;
+  searchParams: Promise<{ scope?: string; claim?: string }>;
 }) {
   const [{ workspaceId }, query] = await Promise.all([params, searchParams]);
+  const requestedClaim = PERFORMANCE_CLAIMS.find((claim) => claim === query.claim);
   if (!getSupabaseSettings()) {
     return (
       <main className="mx-auto w-full max-w-3xl px-5 py-10">
@@ -93,6 +95,7 @@ export default async function PerformanceProgramPage({
           workspaceId={workspaceId}
           families={PERFORMANCE_FAMILY_OPTIONS}
           defaultAllFamilies={query.scope === "all_families"}
+          defaultClaim={requestedClaim}
         />
 
         <section aria-labelledby="programs-heading" className="mt-10">
