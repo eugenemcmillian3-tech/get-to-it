@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import {
   HumanBaselineForm,
   PrepareLiveTrialForm,
+  RequestCapabilityReviewForm,
   RunCapabilityEvalForm,
   RunLiveTrialForm,
 } from "@/components/capability-eval-forms";
@@ -63,7 +64,17 @@ export default async function CapabilityEvalPage({
   ]);
   if (!detail) notFound();
 
-  const { evaluation, versions, tasks, runs, humanBaselines, linkedExperimentName } = detail;
+  const {
+    evaluation,
+    versions,
+    tasks,
+    runs,
+    humanBaselines,
+    linkedExperimentName,
+    linkedWorkspaceId,
+    reviewers,
+    reviews,
+  } = detail;
   const byDomain = summarizeCapabilityByDomain(runs);
   const byDifficulty = summarizeCapabilityByDifficulty(runs);
   const comparison = compareCapabilityVersions(runs, versions);
@@ -177,6 +188,89 @@ export default async function CapabilityEvalPage({
             </table>
           </div>
           <p className="mt-3 text-xs leading-relaxed text-muted">{CAPABILITY_PERMISSION_NOTE}</p>
+        </section>
+
+        <section aria-labelledby="review-heading" className={`${cardClass} mt-6`}>
+          <h2 id="review-heading" className="text-lg font-bold">
+            Independent review
+          </h2>
+          <p className="mt-1 text-sm text-muted">
+            A review is recorded by a different active member of the workspace the linked
+            experiment belongs to. The reviewer reads a summary of this version only; answer keys
+            and submissions are never included. A completed review is evidence, not a release.
+          </p>
+          {!linkedWorkspaceId ? (
+            <p className="mt-3 text-sm text-muted">
+              Link this evaluation to a workspace experiment before requesting a review. The
+              workspace supplies the reviewer.
+            </p>
+          ) : versions.length === 0 ? (
+            <p className="mt-3 text-sm text-muted">No version is recorded yet.</p>
+          ) : (
+            <ul className="mt-3 grid gap-4">
+              {versions.map((version) => {
+                const review =
+                  reviews.find(
+                    (row) => row.version_id === version.id && row.status !== "declined",
+                  ) ?? null;
+                return (
+                  <li key={version.id} className="rounded-xl border border-line bg-paper p-3">
+                    <h3 className="text-sm font-bold">
+                      {version.label} · v{version.version}
+                    </h3>
+                    {review?.status === "completed" ? (
+                      <div className="mt-2 space-y-1 text-sm">
+                        <span className={chipClass}>
+                          Independently reviewed{" "}
+                          {review.reviewed_at
+                            ? new Date(review.reviewed_at).toLocaleDateString("en-GB", {
+                                day: "2-digit",
+                                month: "short",
+                                year: "numeric",
+                              })
+                            : ""}
+                        </span>
+                        <p>
+                          <span className="font-semibold">Findings:</span> {review.findings}
+                        </p>
+                        <p>
+                          <span className="font-semibold">Limitations:</span> {review.limitations}
+                        </p>
+                        <Link
+                          href={`/capability-eval/reviews/${review.id}`}
+                          className="inline-block underline"
+                        >
+                          Review record
+                        </Link>
+                      </div>
+                    ) : review ? (
+                      <div className="mt-2 text-sm">
+                        <span className={chipClass}>Review requested</span>
+                        <p className="mt-1 text-muted">
+                          Only the named reviewer can complete or decline it.{" "}
+                          <Link
+                            href={`/capability-eval/reviews/${review.id}`}
+                            className="underline"
+                          >
+                            Open the review
+                          </Link>
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="mt-2">
+                        <RequestCapabilityReviewForm
+                          evalId={evaluation.id}
+                          versionId={version.id}
+                          versionLabel={`${version.label} v${version.version}`}
+                          reviewers={reviewers}
+                        />
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </section>
 
         <section aria-labelledby="run-heading" className={`${cardClass} mt-6`}>

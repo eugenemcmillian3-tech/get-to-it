@@ -4694,3 +4694,239 @@ describeKnowledge("performance research program across every family", () => {
     expect(row.rows[0].family_keys).toEqual(["tool_selection", "error_recovery"]);
   });
 });
+
+describeKnowledge("capability evaluation independent review", () => {
+  let client: Client;
+  const owner = randomUUID();
+  const reviewer = randomUUID();
+  const reviewerTwo = randomUUID();
+  const outsider = randomUUID();
+  const workspaceId = randomUUID();
+  const experimentId = randomUUID();
+  const evalId = randomUUID();
+  const versionId = randomUUID();
+  const taskId = randomUUID();
+
+  beforeAll(async () => {
+    client = new Client({ connectionString });
+    await client.connect();
+    await assertIsolatedDatabase(client);
+
+    for (const user of [owner, reviewer, reviewerTwo, outsider]) {
+      await client.query("insert into auth.users (id, email) values ($1, $2)", [
+        user,
+        `review-${user.slice(0, 8)}@example.test`,
+      ]);
+    }
+    await client.query(
+      "insert into public.workspaces (id, name, created_by) values ($1, 'Review workspace', $2)",
+      [workspaceId, owner],
+    );
+    for (const user of [owner, reviewer, reviewerTwo]) {
+      await client.query(
+        `insert into public.workspace_members (workspace_id, user_id, role, status)
+         values ($1, $2, $3, 'active')`,
+        [workspaceId, user, user === owner ? "owner" : "member"],
+      );
+    }
+    await client.query(
+      `insert into public.experiments
+         (id, workspace_id, created_by, question, hypothesis, target_users,
+          proposed_prototype, success_criteria, failure_criteria, time_limit_minutes,
+          privacy_requirements, consent_requirements, stop_conditions, review_at)
+       values ($1,$2,$3,
+         'Does the orchestrated system select tools better?',
+         'It should select the expected tool more often.',
+         'Review fixtures',
+         'Run the authored suite.',
+         'More verified tasks.',
+         'No improvement.',
+         120,
+         'No personal data.',
+         'Consent recorded for fixtures.',
+         'Stop on a permission violation.',
+         '2026-12-01')`,
+      [experimentId, workspaceId, owner],
+    );
+    await client.query(
+      `insert into public.capability_evals
+         (id, user_id, name, description, linked_experiment_id, dataset_version, status)
+       values ($1,$2,'Review fixture evaluation','Four authored runs.',$3,'dataset-v1','active')`,
+      [evalId, owner, experimentId],
+    );
+    await client.query(
+      `insert into public.capability_eval_versions
+         (id, eval_id, user_id, label, version, baseline_kind, model_version,
+          orchestration_version, prompt_version, dataset_version, human_assistance,
+          autonomy_permission, spend_limit_cents, runtime_limit_seconds)
+       values ($1,$2,$3,'Orchestrated v1',1,'orchestrated_system','model-a','orch-a',
+         'prompt-a','dataset-v1','none','none',100,900)`,
+      [versionId, evalId, owner],
+    );
+    await client.query(
+      `insert into public.capability_eval_tasks
+         (id, eval_id, user_id, domain, difficulty, split, title, task_spec, dataset_version,
+          spend_limit_cents, runtime_seconds)
+       values ($1,$2,$3,'tool_selection_execution','medium','held_out',
+         'Review fixture task','{}','dataset-v1',100,900)`,
+      [taskId, evalId, owner],
+    );
+    for (const [trial, verified, cost] of [
+      [1, true, 10],
+      [2, true, 20],
+      [3, false, 30],
+    ] as [number, boolean, number][]) {
+      await client.query(
+        `insert into public.capability_eval_runs
+           (eval_id, version_id, task_id, user_id, domain, difficulty, split, trial,
+            outcome, verified_success, cost_cents, latency_ms, failure_category)
+         values ($1,$2,$3,$4,'tool_selection_execution','medium','held_out',$5,$6,$7,$8,100,$9)`,
+        [
+          evalId,
+          versionId,
+          taskId,
+          owner,
+          trial,
+          verified ? "verified_success" : "failed",
+          verified,
+          cost,
+          verified ? null : "wrong_tool",
+        ],
+      );
+    }
+  });
+
+  afterAll(async () => {
+    await client.end();
+  });
+
+  const failure = async (run: () => Promise<unknown>): Promise<string> => {
+    try {
+      await run();
+      return "";
+    } catch (error) {
+      return (error as Error).message;
+    }
+  };
+
+  const request = (reviewerId: string) =>
+    asUser(client, owner, () =>
+      client.query<{ id: string }>(
+        `insert into public.capability_eval_reviews
+           (eval_id, version_id, workspace_id, requested_by, reviewer_id)
+         values ($1,$2,$3,$4,$5) returning id`,
+        [evalId, versionId, workspaceId, owner, reviewerId],
+      ),
+    );
+
+  it("refuses self review and a reviewer outside the workspace", async () => {
+    const self = await failure(() => request(owner));
+    expect(self).toContain("cannot independently review");
+
+    const outside = await failure(() => request(outsider));
+    expect(outside).toContain("active workspace member");
+  });
+
+  it("lets only the named reviewer complete the review, with findings and limits", async () => {
+    const created = await request(reviewer);
+    const reviewId = created.rows[0].id;
+
+    const ownerAttempt = await asUser(client, owner, () =>
+      client.query(
+        `update public.capability_eval_reviews
+           set status = 'completed', findings = 'Owner tries to complete this review themselves.',
+               limitations = 'None stated.'
+         where id = $1`,
+        [reviewId],
+      ),
+    );
+    expect(ownerAttempt.rowCount).toBe(0);
+
+    const short = await failure(() =>
+      asUser(client, reviewer, () =>
+        client.query(
+          `update public.capability_eval_reviews
+             set status = 'completed', findings = 'Too short.', limitations = 'None.'
+           where id = $1`,
+          [reviewId],
+        ),
+      ),
+    );
+    expect(short).toContain("findings of at least 20 characters");
+
+    await asUser(client, reviewer, () =>
+      client.query(
+        `update public.capability_eval_reviews
+           set status = 'completed',
+               findings = 'Two of three held-out runs verified; the failure is a wrong tool.',
+               limitations = 'Only three runs were available and one task was used.'
+         where id = $1`,
+        [reviewId],
+      ),
+    );
+
+    const row = await client.query<{
+      status: string;
+      reviewed_at: string | null;
+      findings: string;
+    }>("select status, reviewed_at, findings from public.capability_eval_reviews where id = $1", [
+      reviewId,
+    ]);
+    expect(row.rows[0].status).toBe("completed");
+    expect(row.rows[0].reviewed_at).not.toBeNull();
+    expect(row.rows[0].findings).toContain("wrong tool");
+
+    const again = await failure(() => request(reviewer));
+    expect(again).toContain("duplicate key");
+  });
+
+  it("shows the reviewer a brief without keys or submissions, and nobody else", async () => {
+    await client.query("delete from public.capability_eval_reviews where version_id = $1", [
+      versionId,
+    ]);
+    const created = await request(reviewer);
+    const reviewId = created.rows[0].id;
+
+    const brief = await asUser(client, reviewer, () =>
+      client.query<{ brief: Record<string, unknown> }>(
+        "select public.capability_eval_review_brief($1) as brief",
+        [reviewId],
+      ),
+    );
+    const payload = brief.rows[0].brief;
+    expect(payload.ok).toBe(true);
+    const totals = payload.totals as { runs: number; verified: number; contaminated: number };
+    expect(totals.runs).toBe(3);
+    expect(totals.verified).toBe(2);
+    // Two later trials repeat the same task and version, so exposure is recorded.
+    expect(totals.contaminated).toBe(2);
+    const text = JSON.stringify(payload);
+    expect(text).not.toContain("submission");
+    expect(text).not.toContain("scoring_detail");
+    expect(text).not.toContain("answer");
+
+    const outsiderBrief = await asUser(client, outsider, () =>
+      client.query<{ brief: { code?: string } }>(
+        "select public.capability_eval_review_brief($1) as brief",
+        [reviewId],
+      ),
+    );
+    expect(outsiderBrief.rows[0].brief.code).toBe("not-allowed");
+  });
+
+  it("allows a different reviewer after a decline", async () => {
+    await client.query("delete from public.capability_eval_reviews where version_id = $1", [
+      versionId,
+    ]);
+    const created = await request(reviewer);
+    const reviewId = created.rows[0].id;
+    await asUser(client, reviewer, () =>
+      client.query("update public.capability_eval_reviews set status = 'declined' where id = $1", [
+        reviewId,
+      ]),
+    );
+
+    const replacement = await request(reviewerTwo);
+    expect(replacement.rows[0].id).toBeTruthy();
+  });
+});

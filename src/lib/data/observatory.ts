@@ -26,6 +26,14 @@ export type ObservatoryExperiment = {
   question: string;
 };
 
+export type ObservatoryReview = {
+  id: string;
+  versionId: string;
+  findings: string;
+  limitations: string;
+  reviewedAt: string;
+};
+
 export type ObservatoryEvaluation = {
   id: string;
   name: string;
@@ -35,6 +43,7 @@ export type ObservatoryEvaluation = {
   experimentQuestion: string;
   versions: CapabilityVersionRecord[];
   runs: CapabilityRunRecord[];
+  reviews: ObservatoryReview[];
 };
 
 export type ObservatoryMission = {
@@ -211,7 +220,7 @@ export async function getObservatory(
   const evalRows = (evaluationsResult.data ?? []) as EvalRow[];
   const evalIds = evalRows.map((row) => row.id);
 
-  const [versionsResult, runsResult] = await Promise.all([
+  const [versionsResult, runsResult, reviewsResult] = await Promise.all([
     evalIds.length === 0
       ? { data: [], error: null }
       : session.supabase
@@ -230,10 +239,37 @@ export async function getObservatory(
           .in("eval_id", evalIds)
           .order("created_at", { ascending: false })
           .limit(OBSERVATORY_LIMITS.maxRunsPerEvaluation * OBSERVATORY_LIMITS.maxEvaluations),
+    evalIds.length === 0
+      ? { data: [], error: null }
+      : session.supabase
+          .from("capability_eval_reviews")
+          .select("id, eval_id, version_id, findings, limitations, reviewed_at")
+          .eq("requested_by", session.user.id)
+          .eq("status", "completed")
+          .in("eval_id", evalIds)
+          .order("reviewed_at", { ascending: false })
+          .limit(OBSERVATORY_LIMITS.maxEvaluations * OBSERVATORY_LIMITS.maxVersionsPerEvaluation),
   ]);
+
+  if (reviewsResult.error) fail(reviewsResult.error.message);
 
   if (versionsResult.error) fail(versionsResult.error.message);
   if (runsResult.error) fail(runsResult.error.message);
+  const reviewRows = ((reviewsResult.data ?? []) as Array<{
+    id: string;
+    eval_id: string;
+    version_id: string;
+    findings: string;
+    limitations: string;
+    reviewed_at: string;
+  }>).map((row) => ({
+    id: row.id,
+    evalId: row.eval_id,
+    versionId: row.version_id,
+    findings: row.findings,
+    limitations: row.limitations,
+    reviewedAt: row.reviewed_at,
+  }));
 
   const versions = (versionsResult.data ?? []) as CapabilityVersionRecord[];
   const runs = (runsResult.data ?? []) as RunRow[];
@@ -251,6 +287,15 @@ export async function getObservatory(
         experimentQuestion: experiment?.question ?? "Experiment not readable",
         versions: versions.filter((version) => version.eval_id === row.id),
         runs: runs.filter((run) => run.eval_id === row.id),
+        reviews: reviewRows
+          .filter((review) => review.evalId === row.id)
+          .map((review) => ({
+            id: review.id,
+            versionId: review.versionId,
+            findings: review.findings,
+            limitations: review.limitations,
+            reviewedAt: review.reviewedAt,
+          })),
       };
     });
 

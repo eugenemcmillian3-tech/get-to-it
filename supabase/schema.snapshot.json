@@ -1083,6 +1083,33 @@
       "check": "(user_id = ( SELECT auth.uid() AS uid))"
     },
     {
+      "key": "capability_eval_reviews.owners and reviewers read capability reviews",
+      "table": "capability_eval_reviews",
+      "name": "owners and reviewers read capability reviews",
+      "cmd": "SELECT",
+      "roles": "{authenticated}",
+      "qual": "((requested_by = ( SELECT auth.uid() AS uid)) OR (reviewer_id = ( SELECT auth.uid() AS uid)))",
+      "check": ""
+    },
+    {
+      "key": "capability_eval_reviews.owners request capability reviews",
+      "table": "capability_eval_reviews",
+      "name": "owners request capability reviews",
+      "cmd": "INSERT",
+      "roles": "{authenticated}",
+      "qual": "",
+      "check": "(requested_by = ( SELECT auth.uid() AS uid))"
+    },
+    {
+      "key": "capability_eval_reviews.reviewers decide capability reviews",
+      "table": "capability_eval_reviews",
+      "name": "reviewers decide capability reviews",
+      "cmd": "UPDATE",
+      "roles": "{authenticated}",
+      "qual": "((reviewer_id = ( SELECT auth.uid() AS uid)) AND (status = 'requested'::text))",
+      "check": "(reviewer_id = ( SELECT auth.uid() AS uid))"
+    },
+    {
       "key": "capability_eval_runs.owners read capability runs",
       "table": "capability_eval_runs",
       "name": "owners read capability runs",
@@ -8820,6 +8847,83 @@
       "name": "capability_eval_human_baselines_user_id_fkey",
       "type": "f",
       "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "capability_eval_reviews.capability_eval_reviews_check",
+      "table": "capability_eval_reviews",
+      "name": "capability_eval_reviews_check",
+      "type": "c",
+      "definition": "CHECK ((reviewer_id <> requested_by))"
+    },
+    {
+      "key": "capability_eval_reviews.capability_eval_reviews_check1",
+      "table": "capability_eval_reviews",
+      "name": "capability_eval_reviews_check1",
+      "type": "c",
+      "definition": "CHECK (((status <> 'completed'::text) OR ((findings IS NOT NULL) AND ((char_length(btrim(findings)) >= 20) AND (char_length(btrim(findings)) <= 4000)) AND (limitations IS NOT NULL) AND ((char_length(btrim(limitations)) >= 10) AND (char_length(btrim(limitations)) <= 2000)) AND (reviewed_at IS NOT NULL))))"
+    },
+    {
+      "key": "capability_eval_reviews.capability_eval_reviews_eval_id_fkey",
+      "table": "capability_eval_reviews",
+      "name": "capability_eval_reviews_eval_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (eval_id) REFERENCES capability_evals(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "capability_eval_reviews.capability_eval_reviews_findings_check",
+      "table": "capability_eval_reviews",
+      "name": "capability_eval_reviews_findings_check",
+      "type": "c",
+      "definition": "CHECK (((findings IS NULL) OR (char_length(findings) <= 4000)))"
+    },
+    {
+      "key": "capability_eval_reviews.capability_eval_reviews_limitations_check",
+      "table": "capability_eval_reviews",
+      "name": "capability_eval_reviews_limitations_check",
+      "type": "c",
+      "definition": "CHECK (((limitations IS NULL) OR (char_length(limitations) <= 2000)))"
+    },
+    {
+      "key": "capability_eval_reviews.capability_eval_reviews_pkey",
+      "table": "capability_eval_reviews",
+      "name": "capability_eval_reviews_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "capability_eval_reviews.capability_eval_reviews_requested_by_fkey",
+      "table": "capability_eval_reviews",
+      "name": "capability_eval_reviews_requested_by_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (requested_by) REFERENCES auth.users(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "capability_eval_reviews.capability_eval_reviews_reviewer_id_fkey",
+      "table": "capability_eval_reviews",
+      "name": "capability_eval_reviews_reviewer_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (reviewer_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "capability_eval_reviews.capability_eval_reviews_status_check",
+      "table": "capability_eval_reviews",
+      "name": "capability_eval_reviews_status_check",
+      "type": "c",
+      "definition": "CHECK ((status = ANY (ARRAY['requested'::text, 'completed'::text, 'declined'::text])))"
+    },
+    {
+      "key": "capability_eval_reviews.capability_eval_reviews_version_id_fkey",
+      "table": "capability_eval_reviews",
+      "name": "capability_eval_reviews_version_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (version_id) REFERENCES capability_eval_versions(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "capability_eval_reviews.capability_eval_reviews_workspace_id_fkey",
+      "table": "capability_eval_reviews",
+      "name": "capability_eval_reviews_workspace_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE"
     },
     {
       "key": "capability_eval_runs.capability_eval_runs_cost_cents_check",
@@ -17993,6 +18097,30 @@
       "table": "capability_eval_human_baselines",
       "name": "capability_eval_human_baselines_pkey",
       "definition": "CREATE UNIQUE INDEX capability_eval_human_baselines_pkey ON public.capability_eval_human_baselines USING btree (id)"
+    },
+    {
+      "key": "capability_eval_reviews.capability_eval_reviews_eval_idx",
+      "table": "capability_eval_reviews",
+      "name": "capability_eval_reviews_eval_idx",
+      "definition": "CREATE INDEX capability_eval_reviews_eval_idx ON public.capability_eval_reviews USING btree (eval_id, created_at DESC)"
+    },
+    {
+      "key": "capability_eval_reviews.capability_eval_reviews_pkey",
+      "table": "capability_eval_reviews",
+      "name": "capability_eval_reviews_pkey",
+      "definition": "CREATE UNIQUE INDEX capability_eval_reviews_pkey ON public.capability_eval_reviews USING btree (id)"
+    },
+    {
+      "key": "capability_eval_reviews.capability_eval_reviews_reviewer_idx",
+      "table": "capability_eval_reviews",
+      "name": "capability_eval_reviews_reviewer_idx",
+      "definition": "CREATE INDEX capability_eval_reviews_reviewer_idx ON public.capability_eval_reviews USING btree (reviewer_id, status, created_at DESC)"
+    },
+    {
+      "key": "capability_eval_reviews.capability_eval_reviews_version_idx",
+      "table": "capability_eval_reviews",
+      "name": "capability_eval_reviews_version_idx",
+      "definition": "CREATE UNIQUE INDEX capability_eval_reviews_version_idx ON public.capability_eval_reviews USING btree (version_id) WHERE (status <> 'declined'::text)"
     },
     {
       "key": "capability_eval_runs.capability_eval_runs_eval_idx",

@@ -12,6 +12,7 @@ import {
   RELEASE_REVIEW_AREAS,
   RESEARCH_AREA,
   authorityExpandsFromScore,
+  buildCapabilityClaims,
   candidateEvidenceLabel,
   capabilityEvidenceLabel,
   claimTraceProblems,
@@ -321,6 +322,72 @@ describe("observatory results", () => {
       interventions: 3,
     });
     expect(rows[1]).toMatchObject({ versionLabel: "No help", runs: 1, interventions: 0 });
+  });
+});
+
+describe("capability independent review claims", () => {
+  const source = () => ({
+    id: "eval-1",
+    name: "Tool evaluation",
+    datasetVersion: "dataset-v1",
+    linkedExperimentId: "experiment-1",
+    experimentQuestion: "Does the orchestrated system select tools better?",
+    versions: [version()],
+    runs: [run({ id: "run-1" }), run({ id: "run-2", verified_success: false, outcome: "failed" })],
+    reviews: [] as { versionId: string; reviewedAt: string | null }[],
+  });
+
+  it("labels a version independently reviewed only after a completed review of that version", () => {
+    const before = buildCapabilityClaims(source(), "workspace-1");
+    expect(before).toHaveLength(1);
+    expect(before[0].label).toBe("tested");
+    expect(before[0].classification).toBe("experimental");
+
+    const after = buildCapabilityClaims(
+      {
+        ...source(),
+        reviews: [{ versionId: "version-1", reviewedAt: "2026-11-14T00:00:00.000Z" }],
+      },
+      "workspace-1",
+    );
+    expect(after[0].label).toBe("independently_reviewed");
+    expect(after[0].classification).toBe("demonstrated");
+
+    const otherVersion = buildCapabilityClaims(
+      {
+        ...source(),
+        reviews: [{ versionId: "version-other", reviewedAt: "2026-11-14T00:00:00.000Z" }],
+      },
+      "workspace-1",
+    );
+    expect(otherVersion[0].label).toBe("tested");
+
+    const pending = buildCapabilityClaims(
+      { ...source(), reviews: [{ versionId: "version-1", reviewedAt: null }] },
+      "workspace-1",
+    );
+    expect(pending[0].label).toBe("tested");
+  });
+
+  it("keeps a contaminated version inconclusive even after a review", () => {
+    const claims = buildCapabilityClaims(
+      {
+        ...source(),
+        runs: [run({ contaminated: true, split: "held_out" }), run({ id: "run-2" })],
+        reviews: [{ versionId: "version-1", reviewedAt: "2026-11-14T00:00:00.000Z" }],
+      },
+      "workspace-1",
+    );
+    expect(claims[0].label).toBe("inconclusive");
+    expect(claims[0].classification).toBe("experimental");
+  });
+
+  it("keeps the workspace, version and evaluation links on the claim", () => {
+    const [claim] = buildCapabilityClaims(source(), "workspace-9");
+    expect(claim.version.href).toBe("/capability-eval/eval-1");
+    expect(claim.evaluation.href).toBe("/capability-eval/eval-1");
+    expect(claim.experiment?.href).toBe("/workspace/workspace-9/experiments/experiment-1");
+    expect(claimTraceProblems(claim)).toEqual([]);
   });
 });
 

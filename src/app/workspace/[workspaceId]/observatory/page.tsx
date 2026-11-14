@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { SetupNotice } from "@/components/setup-notice";
 import { SiteHeader } from "@/components/site-header";
 import { requireSession } from "@/lib/auth";
-import { getObservatory, type ObservatoryEvaluation } from "@/lib/data/observatory";
+import { getObservatory } from "@/lib/data/observatory";
 import { getIdentity } from "@/lib/identity";
 import {
   AUTHORITY_AREAS,
@@ -13,6 +13,7 @@ import {
   NO_AUTOMATIC_AUTHORITY_NOTE,
   RELEASE_REVIEW_AREAS,
   RESEARCH_AREA,
+  buildCapabilityClaims,
   capabilityEvidenceLabel,
   candidateEvidenceLabel,
   classificationFor,
@@ -52,54 +53,6 @@ const LATENCY = (ms: number) => `${Math.round(ms)} ms`;
 
 const DELTA = (value: number | null) =>
   value === null ? "Not measurable" : `${value > 0 ? "+" : ""}${value.toFixed(1)}%`;
-
-function claimsForEvaluation(
-  evaluation: ObservatoryEvaluation,
-  workspaceId: string,
-): CapabilityClaim[] {
-  const claims: CapabilityClaim[] = [];
-  for (const version of evaluation.versions) {
-    const runs = evaluation.runs.filter((run) => run.version_id === version.id);
-    if (runs.length === 0) continue;
-    const verified = runs.filter((run) => run.verified_success).length;
-    const contaminated = runs.filter((run) => run.contaminated).length;
-    const domains = new Set(runs.map((run) => run.domain)).size;
-    const label = capabilityEvidenceLabel({
-      runs: runs.length,
-      verified,
-      contaminated,
-      reviewed: false,
-    });
-    claims.push({
-      id: `${evaluation.id}:${version.id}`,
-      statement: `${version.label} verified ${verified} of ${runs.length} recorded tasks across ${COUNT(domains, "domain")} in ${evaluation.datasetVersion}.`,
-      label,
-      classification: classificationFor(label),
-      version: {
-        kind: "system_version",
-        label: `${version.label} · model ${version.model_version} · prompt ${version.prompt_version}`,
-        href: `/capability-eval/${evaluation.id}`,
-      },
-      experiment: {
-        kind: "experiment",
-        label: evaluation.experimentQuestion,
-        href: `/workspace/${workspaceId}/experiments/${evaluation.linkedExperimentId}`,
-      },
-      evaluation: {
-        kind: "evaluation",
-        label: evaluation.name,
-        href: `/capability-eval/${evaluation.id}`,
-      },
-      evidence: {
-        kind: "evidence",
-        label: `${COUNT(runs.length, "recorded run")}, ${contaminated} contaminated`,
-        href: `/capability-eval/${evaluation.id}`,
-      },
-      releaseDecision: null,
-    });
-  }
-  return claims;
-}
 
 export default async function ObservatoryPage({
   params,
@@ -168,7 +121,7 @@ export default async function ObservatoryPage({
     });
 
   const claims = renderableClaims([
-    ...evaluations.flatMap((evaluation) => claimsForEvaluation(evaluation, workspaceId)),
+    ...evaluations.flatMap((evaluation) => buildCapabilityClaims(evaluation, workspaceId)),
     ...promotionClaims,
   ]);
 
@@ -177,7 +130,16 @@ export default async function ObservatoryPage({
   const failedClaims = claims.filter((claim) => claim.classification === "unsupported");
 
   const allRuns = evaluations.flatMap((evaluation) => evaluation.runs);
-  const reviewedVersions = 0;
+  const reviewedVersions = evaluations.reduce(
+    (sum, evaluation) =>
+      sum +
+      new Set(
+        evaluation.reviews
+          .filter((review) => review.reviewedAt !== null)
+          .map((review) => review.versionId),
+      ).size,
+    0,
+  );
   const openIncidents = data.incidents.filter(
     (incident) => incident.status !== "resolved" && incident.status !== "dismissed",
   );
@@ -512,7 +474,9 @@ export default async function ObservatoryPage({
                     runs: runs.length,
                     verified,
                     contaminated,
-                    reviewed: false,
+                    reviewed: evaluation.reviews.some(
+                      (row) => row.versionId === version.id && row.reviewedAt !== null,
+                    ),
                   });
                   return { version, runs, verified, contaminated, label };
                 });
@@ -548,11 +512,17 @@ export default async function ObservatoryPage({
                             <th className="py-2 pr-3">Contaminated</th>
                             <th className="py-2 pr-3">Mean cost</th>
                             <th className="py-2 pr-3">Mean latency</th>
-                            <th className="py-2">Evidence label</th>
+                            <th className="py-2 pr-3">Evidence label</th>
+                            <th className="py-2">Independent review</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {versions.map(({ version, runs, verified, contaminated, label }) => (
+                          {versions.map(({ version, runs, verified, contaminated, label }) => {
+                            const review = evaluation.reviews.find(
+                              (row) =>
+                                row.versionId === version.id && row.reviewedAt !== null,
+                            );
+                            return (
                             <tr key={version.id} className="border-b border-line">
                               <td className="py-2 pr-3">
                                 {version.label} · v{version.version}
@@ -578,9 +548,15 @@ export default async function ObservatoryPage({
                                         runs.length,
                                     )}
                               </td>
-                              <td className="py-2">{EVIDENCE_LABEL_INFO[label].label}</td>
+                              <td className="py-2 pr-3">{EVIDENCE_LABEL_INFO[label].label}</td>
+                              <td className="py-2">
+                                {review
+                                  ? `Reviewed ${DATE(review.reviewedAt)}`
+                                  : "Not reviewed"}
+                              </td>
                             </tr>
-                          ))}
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
@@ -672,6 +648,36 @@ export default async function ObservatoryPage({
                         )}
                       </div>
                     </div>
+
+                    {evaluation.reviews.filter((review) => review.reviewedAt !== null).length > 0 ? (
+                      <div className="mt-4 rounded-xl border border-line bg-paper p-3">
+                        <h4 className="text-sm font-bold">Independent review evidence</h4>
+                        <ul className="mt-1 grid gap-2 text-sm">
+                          {evaluation.reviews
+                            .filter((review) => review.reviewedAt !== null)
+                            .map((review) => (
+                              <li key={review.id}>
+                                <span className="font-semibold">
+                                  {evaluation.versions.find(
+                                    (version) => version.id === review.versionId,
+                                  )?.label ?? "Version"}
+                                  :
+                                </span>{" "}
+                                {review.findings}
+                                <span className="block text-xs text-muted">
+                                  Limitations: {review.limitations} ·{" "}
+                                  <Link
+                                    href={`/capability-eval/reviews/${review.id}`}
+                                    className="underline"
+                                  >
+                                    review record
+                                  </Link>
+                                </span>
+                              </li>
+                            ))}
+                        </ul>
+                      </div>
+                    ) : null}
                   </div>
                 );
               })}

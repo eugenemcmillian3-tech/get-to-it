@@ -693,3 +693,162 @@ export async function runLiveCapabilityTrialAction(
     return fail(`${ollamaErrorMessage(error)} No trial was recorded.`);
   }
 }
+
+/* -------------------------------------------------------------------------- */
+/* Independent review                                                         */
+/* -------------------------------------------------------------------------- */
+
+export async function requestCapabilityReviewAction(
+  _prev: BuildState,
+  formData: FormData,
+): Promise<BuildState> {
+  const session = await getSession();
+  if (!session) return fail(SESSION_EXPIRED);
+
+  const evalId = readText(formData, "evalId");
+  const versionId = readText(formData, "versionId");
+  const reviewerId = readText(formData, "reviewerId");
+  if (!isUuid(versionId) || !isUuid(reviewerId)) {
+    return fail("Choose a version and a workspace member to review it.");
+  }
+
+  const evaluation = await ownerEval(session, evalId);
+  if (!evaluation) return fail(NOT_AVAILABLE);
+  if (!evaluation.linked_experiment_id) {
+    return fail("Link this evaluation to a workspace experiment before requesting a review.");
+  }
+
+  const { data: version } = await session.supabase
+    .from("capability_eval_versions")
+    .select("id, eval_id")
+    .eq("id", versionId)
+    .eq("user_id", session.user.id)
+    .maybeSingle();
+  if (!version || (version as { eval_id: string }).eval_id !== evalId) {
+    return fail(NOT_AVAILABLE);
+  }
+
+  const { data: experiment } = await session.supabase
+    .from("experiments")
+    .select("workspace_id")
+    .eq("id", evaluation.linked_experiment_id)
+    .maybeSingle();
+  const workspaceId = (experiment as { workspace_id?: string } | null)?.workspace_id;
+  if (!workspaceId) return fail("The linked experiment is not readable any more.");
+
+  const { data, error } = await session.supabase
+    .from("capability_eval_reviews")
+    .insert({
+      eval_id: evalId,
+      version_id: versionId,
+      workspace_id: workspaceId,
+      requested_by: session.user.id,
+      reviewer_id: reviewerId,
+    })
+    .select("id")
+    .single();
+
+  if (error) {
+    if (error.code === "23505") {
+      return fail("A review is already requested or recorded for this version.");
+    }
+    if (
+      /active workspace member|owner cannot|link the evaluation|experiment workspace/.test(
+        error.message,
+      )
+    ) {
+      return fail(error.message);
+    }
+    console.error("requestCapabilityReviewAction failed:", error.message);
+    return fail("We couldn't request that review. Try again.");
+  }
+
+  refresh(evalId);
+  revalidatePath(`/capability-eval/reviews/${(data as { id: string }).id}`);
+  return done("Independent review requested. Only the named reviewer can complete it.");
+}
+
+export async function completeCapabilityReviewAction(
+  _prev: BuildState,
+  formData: FormData,
+): Promise<BuildState> {
+  const session = await getSession();
+  if (!session) return fail(SESSION_EXPIRED);
+
+  const reviewId = readText(formData, "reviewId");
+  const findings = readText(formData, "findings").trim();
+  const limitations = readText(formData, "limitations").trim();
+  if (!isUuid(reviewId)) return fail("That review isn't available to you.");
+  if (findings.length < 20) return fail("Record findings of at least 20 characters.");
+  if (findings.length > 4000) return fail("Keep the findings under 4,000 characters.");
+  if (limitations.length < 10) return fail("Record the limitations of the review.");
+  if (limitations.length > 2000) return fail("Keep the limitations under 2,000 characters.");
+
+  const { data: review } = await session.supabase
+    .from("capability_eval_reviews")
+    .select("id, eval_id, status, reviewer_id")
+    .eq("id", reviewId)
+    .eq("reviewer_id", session.user.id)
+    .eq("status", "requested")
+    .maybeSingle();
+  if (!review) {
+    return fail("That review was already decided, or it was not assigned to you.");
+  }
+
+  const row = review as { eval_id: string };
+  const { error } = await session.supabase
+    .from("capability_eval_reviews")
+    .update({
+      status: "completed",
+      findings,
+      limitations,
+    })
+    .eq("id", reviewId)
+    .eq("reviewer_id", session.user.id)
+    .eq("status", "requested");
+  if (error) {
+    console.error("completeCapabilityReviewAction failed:", error.message);
+    return fail("We couldn't record that review. Try again.");
+  }
+
+  revalidatePath(`/capability-eval/reviews/${reviewId}`);
+  refresh(row.eval_id);
+  return done("Review recorded. The version can now be shown as independently reviewed.");
+}
+
+export async function declineCapabilityReviewAction(
+  _prev: BuildState,
+  formData: FormData,
+): Promise<BuildState> {
+  const session = await getSession();
+  if (!session) return fail(SESSION_EXPIRED);
+
+  const reviewId = readText(formData, "reviewId");
+  if (!isUuid(reviewId)) return fail("That review isn't available to you.");
+
+  const { data: review } = await session.supabase
+    .from("capability_eval_reviews")
+    .select("id, eval_id, status, reviewer_id")
+    .eq("id", reviewId)
+    .eq("reviewer_id", session.user.id)
+    .eq("status", "requested")
+    .maybeSingle();
+  if (!review) {
+    return fail("That review was already decided, or it was not assigned to you.");
+  }
+
+  const { error } = await session.supabase
+    .from("capability_eval_reviews")
+    .update({ status: "declined" })
+    .eq("id", reviewId)
+    .eq("reviewer_id", session.user.id)
+    .eq("status", "requested");
+  if (error) {
+    console.error("declineCapabilityReviewAction failed:", error.message);
+    return fail("We couldn't decline that review. Try again.");
+  }
+
+  revalidatePath(`/capability-eval/reviews/${reviewId}`);
+  refresh((review as { eval_id: string }).eval_id);
+  return done("Review declined. The owner can request a different reviewer.");
+}

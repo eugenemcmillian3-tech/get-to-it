@@ -2414,9 +2414,19 @@ auditability, rollback readiness and the accuracy of customer-facing claims,
 stating where an area holds only with limits. It is a design-level review by the
 builder, not an external audit.
 
+A measured version can be sent for independent review. The evaluation owner
+names a different active member of the workspace the linked experiment belongs
+to; that reviewer, and only that reviewer, can complete or decline. The reviewer
+reads a security-definer brief with run counts by domain and split, contamination,
+cost, latency and failure categories, never answer keys, submissions or scoring
+detail. The database refuses a self-review and refuses a completion by anyone
+other than the named reviewer. A declined request leaves room for a different
+reviewer. A completed review is evidence: it moves the version to the observatory's
+Independently reviewed label and releases nothing.
+
 Limits worth stating: observatory reads are workspace-scoped, while capability
-evaluations remain owner-scoped, so another member's evaluation is not shown;
-no independent capability review record exists yet, so measured capability
-stays experimental; and nothing here deploys, publishes, spends or changes a
+evaluations remain owner-scoped, so another member's evaluation is not shown
+outside the review brief; a review covers one version and one summary, not the
+raw submissions; and nothing here deploys, publishes, spends or changes a
 permission. The page is a server-rendered read with no form and no action.
 

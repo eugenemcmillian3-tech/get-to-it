@@ -171,6 +171,77 @@ export function renderableClaims(claims: CapabilityClaim[]): CapabilityClaim[] {
   return claims.filter((claim) => claimTraceProblems(claim).length === 0);
 }
 
+export type CapabilityClaimSource = {
+  id: string;
+  name: string;
+  datasetVersion: string;
+  linkedExperimentId: string;
+  experimentQuestion: string;
+  versions: CapabilityVersionRecord[];
+  runs: CapabilityRunRecord[];
+  reviews: { versionId: string; reviewedAt: string | null }[];
+};
+
+/**
+ * One claim per measured version. A version carries the independently-reviewed
+ * label only when a completed review exists for that exact version; a review of
+ * another version, or a proposal review, never counts.
+ */
+export function buildCapabilityClaims(
+  source: CapabilityClaimSource,
+  workspaceId: string,
+): CapabilityClaim[] {
+  const reviewed = new Set(
+    source.reviews
+      .filter((review) => review.reviewedAt !== null)
+      .map((review) => review.versionId),
+  );
+  const claims: CapabilityClaim[] = [];
+  for (const version of source.versions) {
+    const runs = source.runs.filter((run) => run.version_id === version.id);
+    if (runs.length === 0) continue;
+    const verified = runs.filter((run) => run.verified_success).length;
+    const contaminated = runs.filter((run) => run.contaminated).length;
+    const domains = new Set(runs.map((run) => run.domain)).size;
+    const label = capabilityEvidenceLabel({
+      runs: runs.length,
+      verified,
+      contaminated,
+      reviewed: reviewed.has(version.id),
+    });
+    claims.push({
+      id: `${source.id}:${version.id}`,
+      statement: `${version.label} verified ${verified} of ${runs.length} recorded tasks across ${domains} ${
+        domains === 1 ? "domain" : "domains"
+      } in ${source.datasetVersion}.`,
+      label,
+      classification: classificationFor(label),
+      version: {
+        kind: "system_version",
+        label: `${version.label} · model ${version.model_version} · prompt ${version.prompt_version}`,
+        href: `/capability-eval/${source.id}`,
+      },
+      experiment: {
+        kind: "experiment",
+        label: source.experimentQuestion,
+        href: `/workspace/${workspaceId}/experiments/${source.linkedExperimentId}`,
+      },
+      evaluation: {
+        kind: "evaluation",
+        label: source.name,
+        href: `/capability-eval/${source.id}`,
+      },
+      evidence: {
+        kind: "evidence",
+        label: `${runs.length} recorded ${runs.length === 1 ? "run" : "runs"}, ${contaminated} contaminated`,
+        href: `/capability-eval/${source.id}`,
+      },
+      releaseDecision: null,
+    });
+  }
+  return claims;
+}
+
 /* -------------------------------------------------------------------------- */
 /* Evidence labels for existing records                                       */
 /* -------------------------------------------------------------------------- */

@@ -4,7 +4,10 @@ import { CreateCapabilityEvalForm } from "@/components/capability-eval-forms";
 import { SetupNotice } from "@/components/setup-notice";
 import { SiteHeader } from "@/components/site-header";
 import { requireSession } from "@/lib/auth";
-import { listCapabilityEvals } from "@/lib/data/capability-eval";
+import {
+  listAssignedCapabilityReviews,
+  listCapabilityEvals,
+} from "@/lib/data/capability-eval";
 import { CAPABILITY_NO_SCORE_NOTE, CAPABILITY_PERMISSION_NOTE } from "@/lib/capability-eval";
 import { getIdentity } from "@/lib/identity";
 import { cardClass, chipClass, focusRing } from "@/lib/styles";
@@ -22,9 +25,10 @@ export default async function CapabilityEvalIndexPage() {
   }
 
   const session = await requireSession();
-  const [identity, evaluations] = await Promise.all([
+  const [identity, evaluations, assignedReviews] = await Promise.all([
     getIdentity(session),
     listCapabilityEvals(session),
+    listAssignedCapabilityReviews(session),
   ]);
 
   return (
@@ -45,6 +49,38 @@ export default async function CapabilityEvalIndexPage() {
             {CAPABILITY_NO_SCORE_NOTE} {CAPABILITY_PERMISSION_NOTE}
           </p>
         </header>
+
+        {assignedReviews.length > 0 ? (
+          <section aria-labelledby="assigned-heading" className={`${cardClass} mt-6`}>
+            <h2 id="assigned-heading" className="text-lg font-bold">
+              Reviews requested from you
+            </h2>
+            <p className="mt-1 text-sm text-muted">
+              Another member asked you to review one measured version. The summary never includes
+              answer keys or submissions, and completing it releases nothing.
+            </p>
+            <ul className="mt-3 grid gap-2 text-sm">
+              {assignedReviews.map((review) => (
+                <li key={review.id}>
+                  <Link
+                    href={`/capability-eval/reviews/${review.id}`}
+                    className="underline decoration-line underline-offset-4"
+                  >
+                    {review.evalName} · {review.versionLabel}
+                  </Link>{" "}
+                  <span className="text-xs text-muted">
+                    requested{" "}
+                    {new Date(review.created_at).toLocaleDateString("en-GB", {
+                      day: "2-digit",
+                      month: "short",
+                      year: "numeric",
+                    })}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
 
         <section aria-labelledby="new-heading" className={`${cardClass} mt-6`}>
           <h2 id="new-heading" className="text-lg font-bold">New evaluation</h2>
