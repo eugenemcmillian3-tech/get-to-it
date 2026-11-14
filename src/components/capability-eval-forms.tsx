@@ -4,12 +4,16 @@ import { useActionState } from "react";
 import { SubmitButton } from "@/components/submit-button";
 import { idleBuildState, type BuildState } from "@/lib/action-state";
 import {
+  completeCapabilityReviewAction,
   createCapabilityEvalAction,
+  declineCapabilityReviewAction,
   prepareLiveCapabilityAction,
   recordHumanBaselineAction,
+  requestCapabilityReviewAction,
   runCapabilityEvalAction,
   runLiveCapabilityTrialAction,
 } from "@/lib/actions/capability-eval";
+import type { CapabilityReviewer } from "@/lib/data/capability-eval";
 import { AI_MODELS } from "@/lib/ai/models";
 import {
   LIVE_TRIAL_COST_CENTS,
@@ -285,6 +289,102 @@ export function RunLiveTrialForm({
         {LIVE_TRIAL_COST_CENTS} cents) and records the real cost against the
         configuration&apos;s ceiling. The expected answer is never sent to the model.
       </p>
+      <Note state={state} />
+    </form>
+  );
+}
+
+
+export function RequestCapabilityReviewForm({
+  evalId,
+  versionId,
+  versionLabel,
+  reviewers,
+}: {
+  evalId: string;
+  versionId: string;
+  versionLabel: string;
+  reviewers: CapabilityReviewer[];
+}) {
+  const [state, action] = useActionState(requestCapabilityReviewAction, idleBuildState);
+  if (reviewers.length === 0) {
+    return (
+      <p className="text-sm text-muted">
+        This experiment workspace has no other active member to review {versionLabel}. Invite a
+        member first; a review by the evaluation owner is not independent.
+      </p>
+    );
+  }
+  return (
+    <form action={action} className="space-y-2">
+      <input type="hidden" name="evalId" value={evalId} />
+      <input type="hidden" name="versionId" value={versionId} />
+      <label className="block text-sm font-semibold">
+        Ask a workspace member to review {versionLabel}
+        <select name="reviewerId" required className={`${inputClass} mt-1 max-w-72`}>
+          <option value="">Choose a reviewer</option>
+          {reviewers.map((reviewer) => (
+            <option key={reviewer.user_id} value={reviewer.user_id}>
+              {reviewer.display_name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="text-xs text-muted">
+        The reviewer sees a read-only summary of this version: run counts by domain and split,
+        contamination, cost, latency and failure categories. Never answer keys or submissions.
+      </p>
+      <SubmitButton className={secondaryButton}>Request independent review</SubmitButton>
+      <Note state={state} />
+    </form>
+  );
+}
+
+export function CompleteCapabilityReviewForm({ reviewId }: { reviewId: string }) {
+  const [state, action] = useActionState(completeCapabilityReviewAction, idleBuildState);
+  return (
+    <form action={action} className="space-y-3">
+      <input type="hidden" name="reviewId" value={reviewId} />
+      <label className="block text-sm font-semibold">
+        Findings
+        <textarea
+          name="findings"
+          required
+          minLength={20}
+          maxLength={4000}
+          rows={5}
+          className={`${inputClass} mt-1`}
+          placeholder="What the recorded numbers do and do not support, and anything inconsistent."
+        />
+      </label>
+      <label className="block text-sm font-semibold">
+        Limitations of this review
+        <textarea
+          name="limitations"
+          required
+          minLength={10}
+          maxLength={2000}
+          rows={3}
+          className={`${inputClass} mt-1`}
+          placeholder="What you could not check from the summary."
+        />
+      </label>
+      <p className="text-xs text-muted">
+        Completing this review does not release, deploy or permit anything. It records that a
+        second person examined the measured evidence.
+      </p>
+      <SubmitButton className={primaryButton}>Record review</SubmitButton>
+      <Note state={state} />
+    </form>
+  );
+}
+
+export function DeclineCapabilityReviewForm({ reviewId }: { reviewId: string }) {
+  const [state, action] = useActionState(declineCapabilityReviewAction, idleBuildState);
+  return (
+    <form action={action} className="space-y-2">
+      <input type="hidden" name="reviewId" value={reviewId} />
+      <SubmitButton className={secondaryButton}>Decline this review</SubmitButton>
       <Note state={state} />
     </form>
   );
