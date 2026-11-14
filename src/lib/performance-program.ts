@@ -291,6 +291,62 @@ export function familyDistribution(familyKey: string = PERFORMANCE_FAMILY_KEY): 
 }
 
 /**
+ * The protocol text and limits a replacement comparison starts with. Kept in one
+ * place so a renamed protocol field cannot silently stop being carried over: the
+ * page builds it with `replacementPrefill`, the form reads it by the same keys,
+ * and a unit test pins the whole set.
+ */
+export type RegisterPrefill = {
+  question: string;
+  inclusionRules: string;
+  exclusionRules: string;
+  scoringMethod: string;
+  humanAssistancePolicy: string;
+  failureCriteria: string;
+  claimText: string;
+  trials: number;
+  timeLimitSeconds: number;
+  costLimitCents: number;
+  maxDisagreements: number;
+  minimumEffect: number;
+  noninferiorityMargin: number;
+};
+
+export const REPLACEMENT_PREFILL_FIELDS = [
+  "question",
+  "inclusionRules",
+  "exclusionRules",
+  "scoringMethod",
+  "humanAssistancePolicy",
+  "failureCriteria",
+  "claimText",
+  "trials",
+  "timeLimitSeconds",
+  "costLimitCents",
+  "maxDisagreements",
+  "minimumEffect",
+  "noninferiorityMargin",
+] as const;
+
+export function replacementPrefill(program: RegisterPrefill): RegisterPrefill {
+  return {
+    question: program.question,
+    inclusionRules: program.inclusionRules,
+    exclusionRules: program.exclusionRules,
+    scoringMethod: program.scoringMethod,
+    humanAssistancePolicy: program.humanAssistancePolicy,
+    failureCriteria: program.failureCriteria,
+    claimText: program.claimText,
+    trials: program.trials,
+    timeLimitSeconds: program.timeLimitSeconds,
+    costLimitCents: program.costLimitCents,
+    maxDisagreements: program.maxDisagreements,
+    minimumEffect: program.minimumEffect,
+    noninferiorityMargin: program.noninferiorityMargin,
+  };
+}
+
+/**
  * A stable hash of everything a reader would need to know what was registered.
  * The report repeats the protocol so this can be recomputed, and a trial cannot
  * be recorded against a program whose distribution differs from the family.

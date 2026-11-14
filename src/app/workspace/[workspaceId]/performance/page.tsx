@@ -1,10 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import {
-  RegisterProgramForm,
-  type RegisterPrefill,
-} from "@/components/performance-program-forms";
+import { RegisterProgramForm } from "@/components/performance-program-forms";
 import { SetupNotice } from "@/components/setup-notice";
 import { SiteHeader } from "@/components/site-header";
 import { requireSession } from "@/lib/auth";
@@ -21,6 +18,8 @@ import {
   PERFORMANCE_FAMILY_VERSION,
   PERFORMANCE_STATUS_LABELS,
   REFUSED_CLAIM_NOTE,
+  replacementPrefill,
+  type RegisterPrefill,
   REQUEST_CLARITY_VERSION,
   familyLabel,
 } from "@/lib/performance-program";
@@ -58,21 +57,7 @@ export default async function PerformanceProgramPage({
   if (query.from && isUuid(query.from)) {
     const previous = await readPerformanceReport(session, query.from).catch(() => null);
     if (previous && previous.program.workspaceId === workspaceId) {
-      prefill = {
-        question: previous.program.question,
-        inclusionRules: previous.program.inclusionRules,
-        exclusionRules: previous.program.exclusionRules,
-        scoringMethod: previous.program.scoringMethod,
-        humanAssistancePolicy: previous.program.humanAssistancePolicy,
-        failureCriteria: previous.program.failureCriteria,
-        claimText: previous.program.claimText,
-        trials: previous.program.trials,
-        timeLimitSeconds: previous.program.timeLimitSeconds,
-        costLimitCents: previous.program.costLimitCents,
-        maxDisagreements: previous.program.maxDisagreements,
-        minimumEffect: previous.program.minimumEffect,
-        noninferiorityMargin: previous.program.noninferiorityMargin,
-      };
+      prefill = replacementPrefill(previous.program);
     }
   }
 
