@@ -14,6 +14,7 @@ import {
 } from "./support/phase37-db";
 import {
   ERROR_RECOVERY_FAMILY,
+  REQUEST_CLARITY_FAMILY,
   TOOL_SELECTION_FAMILY,
 } from "@/lib/performance-families";
 import {
@@ -4427,7 +4428,7 @@ describeKnowledge("performance research program across every family", () => {
   });
 
   function familyEntries() {
-    return [TOOL_SELECTION_FAMILY, ERROR_RECOVERY_FAMILY].map((family) => ({
+    return [TOOL_SELECTION_FAMILY, ERROR_RECOVERY_FAMILY, REQUEST_CLARITY_FAMILY].map((family) => ({
       key: family.key,
       version: family.version,
       digest: family.digest,
@@ -4553,12 +4554,18 @@ describeKnowledge("performance research program across every family", () => {
     const programId = await insertProgram();
     await record(programId, TOOL_SELECTION_FAMILY, 6, 12);
     await record(programId, ERROR_RECOVERY_FAMILY, 4, 12);
+    await record(programId, REQUEST_CLARITY_FAMILY, 6, 12);
 
     const report = await readReport(programId);
 
-    expect(report.families.map((row) => row.key)).toEqual(["tool_selection", "error_recovery"]);
+    expect(report.families.map((row) => row.key)).toEqual([
+      "tool_selection",
+      "error_recovery",
+      "request_clarity",
+    ]);
     expect(report.families[0].effect.score_gain).toBeCloseTo(0.5, 3);
     expect(report.families[1].effect.score_gain).toBeCloseTo(0.6667, 3);
+    expect(report.families[2].effect.score_gain).toBeCloseTo(0.5, 3);
     expect(report.families.every((row) => row.claim.supported)).toBe(true);
     expect(report.claims.supported).toBe(true);
     expect(report.claims.verdict).toBe("supported");
@@ -4570,11 +4577,13 @@ describeKnowledge("performance research program across every family", () => {
     // The pooled mean gain (0.4167) would clear the 0.2 minimum; tool selection alone does not.
     await record(programId, TOOL_SELECTION_FAMILY, 10, 12);
     await record(programId, ERROR_RECOVERY_FAMILY, 4, 12);
+    await record(programId, REQUEST_CLARITY_FAMILY, 6, 12);
 
     const report = await readReport(programId);
 
     expect(report.families[0].claim.supported).toBe(false);
     expect(report.families[1].claim.supported).toBe(true);
+    expect(report.families[2].claim.supported).toBe(true);
     expect(report.claims.supported).toBe(false);
     expect(report.claims.verdict).toBe("not_supported");
     expect(report.claims.pooled).toBe(true);
@@ -4583,10 +4592,105 @@ describeKnowledge("performance research program across every family", () => {
   it("refuses a program that registers only one of the installed families", async () => {
     let message = "";
     try {
-      await insertProgram(familyEntries().slice(0, 1));
+      await insertProgram(familyEntries().slice(0, 2));
     } catch (error) {
       message = (error as Error).message;
     }
-    expect(message).toContain("must register all 2 installed families");
+    expect(message).toContain("must register all 3 installed families");
+  });
+
+  it("keeps a program registered before the third family on its own two families", async () => {
+    const programId = randomUUID();
+    const entries = familyEntries().slice(0, 2);
+    const distribution = {
+      suite: "all",
+      version: "2026-11-13.2",
+      digest: "b".repeat(64),
+      task_keys: entries.flatMap((entry) => entry.task_keys),
+      tasks: entries.reduce((total, entry) => total + entry.tasks, 0),
+      families: entries,
+    };
+
+    // Triggers are bypassed for this row because it represents a program
+    // registered while only two families were installed, before 0086 existed.
+    await client.query("set session_replication_role = replica");
+    try {
+      await client.query(
+        `insert into public.performance_programs
+           (id, workspace_id, user_id, title, question, task_family, scope, family_keys,
+            distribution, inclusion_rules, exclusion_rules, scoring_method, baseline_label,
+            baseline_config, candidate_label, candidate_config, permitted_tools,
+            time_limit_seconds, cost_limit_cents, trials, human_assistance_policy,
+            failure_criteria, supported_claim, claim_text, minimum_effect,
+            noninferiority_margin, max_disagreements, status, fingerprint, registered_at,
+            registered_by)
+         values ($1,$2,$3,$4,$5,$6,'all_families',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,
+                 $19,$20,$21,$22,$23,$24,$25,0,'registered',$26,now(),$3)`,
+        [
+          programId,
+          workspaceId,
+          owner,
+          "Registered while only two families existed",
+          "Does the older program keep reporting only the families it registered, even after a third is installed?",
+          entries[0].key,
+          entries.map((entry) => entry.key),
+          JSON.stringify(distribution),
+          "The families installed when this comparison was registered.",
+          "Anything outside those families and any paid model call.",
+          "One authored case is one trial: the chosen action either matches the expected action or it does not.",
+          "Each registered family's installed baseline policy",
+          JSON.stringify({ policies: { [entries[0].key]: "shipped", [entries[1].key]: "retry-everything" } }),
+          "Each registered family's installed candidate policy",
+          JSON.stringify({ policies: { [entries[0].key]: "channel-lookup", [entries[1].key]: "classified-retry" } }),
+          ["SLACK_SEND_MESSAGE", "SLACK_LIST_ALL_CHANNELS", "GITHUB_CREATE_AN_ISSUE"],
+          120,
+          20,
+          1,
+          "A person may help, and any help is recorded on the trial.",
+          "Any family failing its own claim, or a review disagreement above the allowance.",
+          "benchmark",
+          "On these authored cases each registered family's candidate reaches the expected action at least twenty percent more often than its own baseline.",
+          0.2,
+          0,
+          "b".repeat(64),
+        ],
+      );
+    } finally {
+      await client.query("reset session_replication_role");
+    }
+
+    let message = "";
+    try {
+      await asUser(client, owner, () =>
+        client.query(
+          `insert into public.performance_trials
+             (program_id, workspace_id, config, task_key, trial, outcome, score, recorded_by)
+           values ($1,$2,'baseline',$3,1,'pass',1,$4)`,
+          [programId, workspaceId, REQUEST_CLARITY_FAMILY.taskKeys[0], owner],
+        ),
+      );
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain("belongs to a family this comparison did not register");
+
+    await asUser(client, owner, () =>
+      client.query(
+        `insert into public.performance_trials
+           (program_id, workspace_id, config, task_key, trial, outcome, score, recorded_by)
+         values ($1,$2,'baseline',$3,1,'pass',1,$4)`,
+        [programId, workspaceId, TOOL_SELECTION_FAMILY.taskKeys[0], owner],
+      ),
+    );
+
+    const report = await readReport(programId);
+    expect(report.families.map((row) => row.key)).toEqual(["tool_selection", "error_recovery"]);
+    expect(report.claims.pooled).toBe(true);
+
+    const row = await client.query<{ family_keys: string[] }>(
+      "select family_keys from public.performance_programs where id = $1",
+      [programId],
+    );
+    expect(row.rows[0].family_keys).toEqual(["tool_selection", "error_recovery"]);
   });
 });

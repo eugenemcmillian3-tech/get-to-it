@@ -2289,12 +2289,14 @@ attempt is kept in `improvement_boundary_blocks` so the refusal is visible.
 
 ## Controlled performance research (Phase 41)
 
-`/workspace/{workspaceId}/performance` is a pre-registered comparison program. Two
-narrow task families are installed, and each answers its own fixed question: on
-twelve authored intents about which connector tool to use, does a candidate policy
-reach the expected tool more often than the shipped one; and after twelve authored
-connector failures, does classifying the error before retrying reach the right next
-action more often than retrying everything? Each family is a record with its
+`/workspace/{workspaceId}/performance` is a pre-registered comparison program.
+Three narrow task families are installed, and each answers its own fixed question:
+on twelve authored intents about which connector tool to use, does a candidate
+policy reach the expected tool more often than the shipped one; after twelve
+authored connector failures, does classifying the error before retrying reach the
+right next action more often than retrying everything; and on twelve authored
+requests, does refusing one that never names what to send or where, instead of
+inventing the missing referent, reach the right action more often? Each family is a record with its
 version, its twelve task keys and a SHA-256 digest of its cases, so a program can
 only draw its tasks from one of those lists. A family also fixes its own baseline
 and the candidate policies that may be tested against it, so the two comparisons
