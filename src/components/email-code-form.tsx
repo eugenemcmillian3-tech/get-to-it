@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { SubmitButton } from "@/components/submit-button";
 import { idleAuthState } from "@/lib/action-state";
 import {
@@ -8,6 +8,8 @@ import {
   verifyEmailCodeAction,
 } from "@/lib/actions/auth";
 import { hintClass, inputClass, labelClass, secondaryButton } from "@/lib/styles";
+
+const RESEND_SECONDS = 60;
 
 /**
  * Passwordless email-code sign-in.
@@ -19,6 +21,7 @@ import { hintClass, inputClass, labelClass, secondaryButton } from "@/lib/styles
 export function EmailCodeForm({ nextPath }: { nextPath?: string }) {
   const [email, setEmail] = useState("");
   const [codeRequested, setCodeRequested] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
   const [requestState, requestAction] = useActionState(
     sendEmailCodeAction,
     idleAuthState,
@@ -29,6 +32,14 @@ export function EmailCodeForm({ nextPath }: { nextPath?: string }) {
   );
 
   const showCode = codeRequested || verifyState.status !== "idle";
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = setTimeout(() => {
+      setCooldown((seconds) => Math.max(0, seconds - 1));
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [cooldown]);
 
   return (
     <section className="mt-7 border-t border-line pt-6" aria-labelledby="email-code-heading">
@@ -43,7 +54,10 @@ export function EmailCodeForm({ nextPath }: { nextPath?: string }) {
       <form
         action={requestAction}
         className="mt-4 space-y-3"
-        onSubmit={() => setCodeRequested(true)}
+        onSubmit={() => {
+          setCodeRequested(true);
+          setCooldown(RESEND_SECONDS);
+        }}
       >
         <div>
           <label className={labelClass} htmlFor="code-email">
@@ -76,10 +90,27 @@ export function EmailCodeForm({ nextPath }: { nextPath?: string }) {
           </p>
         ) : null}
 
-        <SubmitButton pendingLabel="Sending your code…" className={`${secondaryButton} w-full`}>
+        <SubmitButton
+          pendingLabel="Sending your code…"
+          className={`${secondaryButton} w-full`}
+          disabled={cooldown > 0}
+        >
           Email me a code
         </SubmitButton>
       </form>
+
+      {requestState.status === "success" ? (
+        <div className="mt-3 rounded-xl border border-line bg-paper/60 px-3 py-2 text-sm text-ink-soft">
+          <p>
+            Check {email || "your inbox"} and the spam or promotions folder. The
+            sender is “Get To It”.
+          </p>
+          <p className="mt-1">
+            Use the newest code. It is 6–10 digits and expires in ten minutes.
+            Older codes may stop working.
+          </p>
+        </div>
+      ) : null}
 
       {showCode ? (
         <form action={verifyAction} className="mt-4 space-y-3">
@@ -103,7 +134,8 @@ export function EmailCodeForm({ nextPath }: { nextPath?: string }) {
               className={`mt-1.5 ${inputClass}`}
             />
             <p id="code-token-hint" className={hintClass}>
-              Check the email sent to {email || "your address"}.
+              Enter the 6–10 digit code sent to {email || "your address"}. If it
+              is not there, check spam or promotions.
             </p>
           </div>
 
@@ -125,6 +157,31 @@ export function EmailCodeForm({ nextPath }: { nextPath?: string }) {
             Verify code and sign in
           </SubmitButton>
         </form>
+      ) : null}
+
+      {showCode ? (
+        <div className="mt-4 border-t border-line pt-3">
+          <form
+            action={requestAction}
+            onSubmit={() => setCooldown(RESEND_SECONDS)}
+          >
+            <input type="hidden" name="email" value={email} />
+            <button
+              type="submit"
+              disabled={cooldown > 0}
+              className={`${secondaryButton} w-full`}
+            >
+              {cooldown > 0
+                ? `Resend code in ${cooldown}s`
+                : "Resend code"}
+            </button>
+          </form>
+          <p className={`mt-2 text-center ${hintClass}`} aria-live="polite">
+            {cooldown > 0
+              ? `You can request another code in ${cooldown} seconds.`
+              : "Use the newest email. If it does not arrive, resend once."}
+          </p>
+        </div>
       ) : null}
     </section>
   );
