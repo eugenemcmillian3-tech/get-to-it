@@ -99,6 +99,7 @@ export async function createGoalFromTemplateAction(
     deadline: readText(formData, "deadline"),
     time_available_minutes: readText(formData, "time_available_minutes"),
     category: readText(formData, "category"),
+    blocker: readText(formData, "blocker"),
     steps: readStepsFromForm(formData),
   });
 
@@ -116,6 +117,7 @@ export async function createGoalFromTemplateAction(
       desired_outcome: goalInput.desired_outcome,
       deadline: goalInput.deadline === "" ? null : goalInput.deadline,
       time_available_minutes: goalInput.time_available_minutes,
+      blocker: goalInput.blocker === "" ? null : goalInput.blocker,
       category: goalInput.category === "" ? null : goalInput.category,
       template_id: kind === "personal" ? key : staticTemplateId,
     })

@@ -9,12 +9,17 @@ import { formatMinutes } from "@/lib/format";
 import { EXAMPLE_LABEL } from "@/lib/templates/helpers";
 import { TEMPLATE_CATEGORIES } from "@/lib/templates/library";
 import {
+  suggestionForCategory,
+  suggestedDeadline,
+} from "@/lib/templates/suggestions";
+import {
   cardClass,
   focusRing,
   hintClass,
   inputClass,
   labelClass,
   primaryButton,
+  secondaryButton,
 } from "@/lib/styles";
 import type { GoalCategory, TemplateStep } from "@/lib/types";
 
@@ -66,6 +71,16 @@ export function TemplateUseForm({
     (total, step) => total + (Number.isFinite(step.minutes) ? step.minutes : 0),
     0,
   );
+  const suggestion = suggestionForCategory(category);
+  const [deadline, setDeadline] = useState("");
+  const [timeAvailable, setTimeAvailable] = useState(30);
+  const [blocker, setBlocker] = useState("");
+
+  function useSuggestions() {
+    setDeadline(suggestedDeadline(suggestion.deadlineDays));
+    setTimeAvailable(suggestion.timeAvailable);
+    setBlocker(suggestion.blocker);
+  }
 
   function updateStep(index: number, patch: Partial<DraftStep>) {
     setDraft((current) =>
@@ -86,6 +101,18 @@ export function TemplateUseForm({
         Change anything below. Nothing is saved until you press the button, and
         the template you started from stays exactly as it was.
       </p>
+
+      <div className="mt-4 rounded-xl border border-dashed border-brand/30 bg-brand-soft/30 p-3.5">
+        <p className="text-sm font-semibold">A suggestion for this template</p>
+        <p className="mt-1 text-sm leading-relaxed text-muted">{suggestion.focus}</p>
+        <button
+          type="button"
+          onClick={useSuggestions}
+          className={`${secondaryButton} mt-3`}
+        >
+          Fill suggested deadline, time and obstacle
+        </button>
+      </div>
 
       <div className="mt-5 space-y-4">
         <div>
@@ -145,6 +172,8 @@ export function TemplateUseForm({
               id="template-goal-deadline"
               name="deadline"
               type="date"
+              value={deadline}
+              onChange={(event) => setDeadline(event.target.value)}
               className={`mt-1.5 ${inputClass}`}
             />
           </div>
@@ -155,7 +184,10 @@ export function TemplateUseForm({
             <select
               id="template-goal-time"
               name="time_available_minutes"
-              defaultValue="30"
+              value={timeAvailable}
+              onChange={(event) =>
+                setTimeAvailable(Number.parseInt(event.target.value, 10) || 5)
+              }
               className={`mt-1.5 ${inputClass}`}
             >
               {TIME_AVAILABLE_OPTIONS.map((minutes) => (
@@ -165,6 +197,27 @@ export function TemplateUseForm({
               ))}
             </select>
           </div>
+        </div>
+
+        <div>
+          <label className={labelClass} htmlFor="template-goal-blocker">
+            What might get in the way?{" "}
+            <span className="font-normal text-muted">(optional)</span>
+          </label>
+          <textarea
+            id="template-goal-blocker"
+            name="blocker"
+            rows={2}
+            maxLength={2000}
+            value={blocker}
+            onChange={(event) => setBlocker(event.target.value)}
+            placeholder={suggestion.blocker}
+            className={`mt-1.5 ${inputClass}`}
+          />
+          <p className={hintClass}>
+            Naming it makes the first step easier. Use the suggestion above or
+            write your own.
+          </p>
         </div>
       </div>
 
