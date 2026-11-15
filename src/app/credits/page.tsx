@@ -15,10 +15,13 @@ import {
   paymentStatusLabel,
 } from "@/lib/credits/format";
 import {
+  creditStatusChips,
+  creditsAccessNote,
+  creditsIntro,
+} from "@/lib/credits/copy";
+import {
   AI_OPERATION_PRICES,
   BUILD_MAX_CREDITS,
-  CREDIT_VALUE_CENTS,
-  CREDIT_VALUE_LABEL,
   WORKFLOW_MAX_CREDITS,
   formatCreditsWithUsd,
   operationLabel,
@@ -91,34 +94,19 @@ export default async function CreditsPage({
           AI credits
         </h1>
         <p className="mt-3 max-w-xl leading-relaxed text-muted">
-          {owner
-            ? "Your owner account is exempt from AI charges. AI requests still run one at a time, and the results are recorded below like any other request."
-            : `AI work is prepaid. There is no free plan and no trial: new accounts start with zero credits, and each credit is worth ${CREDIT_VALUE_LABEL}. Add credits before starting AI work.`}
+          {creditsIntro(owner)}
         </p>
 
         <div className="mt-4 flex flex-wrap gap-2">
-          {owner ? (
-            <>
-              <span className={chipClass}>Owner account</span>
-              <span className={chipClass}>AI requests are not charged</span>
-              <span className={chipClass}>Test mode</span>
-            </>
-          ) : (
-            <>
-              <span className={chipClass}>{formatCredits(summary.balance)} left</span>
-              <span className={chipClass}>
-                {formatUsd(summary.balance * CREDIT_VALUE_CENTS)} value
-              </span>
-              <span className={chipClass}>{CREDIT_VALUE_LABEL} per credit</span>
-              <span className={chipClass}>Test mode</span>
-            </>
-          )}
+          {creditStatusChips(owner, summary.balance).map((chip) => (
+            <span key={chip} className={chipClass}>
+              {chip}
+            </span>
+          ))}
         </div>
 
         <p className="mt-3 rounded-xl border border-line bg-paper p-3 text-sm leading-relaxed">
-          {owner
-            ? "Nothing is charged to this account and no purchase is needed. AI requests are still limited to one in flight at a time so a double click cannot start two calls."
-            : "At zero credits, new paid AI work is blocked. Your existing results, account settings and billing history stay available. Nothing is charged automatically, and no free AI or sample output is substituted."}
+          {creditsAccessNote(owner)}
         </p>
 
         <section aria-labelledby="prices-heading" className="mt-9">

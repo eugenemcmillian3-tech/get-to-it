@@ -130,6 +130,7 @@ export default async function FuturesPage({
           <FuturePathForm
             goals={activeGoals.map((entry) => ({ id: entry.id, title: entry.title }))}
             defaultGoalId={defaultGoalId}
+            owner={identity.isOwner}
           />
         </section>
 

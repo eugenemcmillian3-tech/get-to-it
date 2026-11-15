@@ -7,7 +7,7 @@ import {
 } from "@/lib/action-state";
 import { createLearningPlanAction } from "@/lib/actions/learning";
 import { AI_MODELS, DEFAULT_AI_MODEL } from "@/lib/ai/models";
-import { operationChargeLabel } from "@/lib/credits/pricing";
+import { aiChargeLabel } from "@/lib/credits/copy";
 import {
   LEARNING_EXPERIENCE_OPTIONS,
   GENERATED_CONTENT_NOTE,
@@ -21,7 +21,13 @@ import {
  * Sets up learning mode for one goal. This is the only place a path is
  * generated, and the button says what it costs: one AI request.
  */
-export function LearningSetupForm({ goalId }: { goalId: string }) {
+export function LearningSetupForm({
+  goalId,
+  owner,
+}: {
+  goalId: string;
+  owner?: boolean;
+}) {
   const [state, formAction] = useActionState(
     createLearningPlanAction,
     idleLearningPlanState,
@@ -130,7 +136,7 @@ export function LearningSetupForm({ goalId }: { goalId: string }) {
             ))}
           </select>
           <p className={hintClass}>
-            This request: {operationChargeLabel("learning")}. Served by Ollama;
+            This request: {aiChargeLabel("learning", owner)}. Served by Ollama;
             the key stays on the server.
           </p>
         </div>

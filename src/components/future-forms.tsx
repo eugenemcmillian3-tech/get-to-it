@@ -12,7 +12,7 @@ import {
   updateScenarioAction,
 } from "@/lib/actions/futures";
 import { AI_MODELS, DEFAULT_AI_MODEL } from "@/lib/ai/models";
-import { operationChargeLabel } from "@/lib/credits/pricing";
+import { aiChargeLabel } from "@/lib/credits/copy";
 import {
   ASSUMPTION_BASED_NOTE,
   HORIZONS,
@@ -46,9 +46,11 @@ import {
 export function FuturePathForm({
   goals,
   defaultGoalId,
+  owner,
 }: {
   goals: { id: string; title: string }[];
   defaultGoalId: string;
+  owner?: boolean;
 }) {
   const [state, formAction] = useActionState(
     createFuturePathAction,
@@ -200,7 +202,7 @@ export function FuturePathForm({
             ))}
           </select>
           <p className={hintClass}>
-            This request: {operationChargeLabel("future_paths")}. The key stays on
+            This request: {aiChargeLabel("future_paths", owner)}. The key stays on
             the server.
           </p>
         </div>

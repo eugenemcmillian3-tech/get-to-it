@@ -24,7 +24,7 @@ import {
   PERSPECTIVE_QUESTIONS,
   SAME_MODEL_NOTE,
   TRANSPARENCY_NOTE,
-  USAGE_NOTE,
+  reviewUsageNote,
   disagreementRows,
   experimentRows,
   missingInfoRows,
@@ -70,10 +70,12 @@ function StageCard({
   stage,
   canRun,
   reviewId,
+  owner,
 }: {
   stage: ReviewStageRecord;
   canRun: boolean;
   reviewId: string;
+  owner: boolean;
 }) {
   const perspective = stage.perspective as Perspective;
 
@@ -96,6 +98,7 @@ function StageCard({
           <RunPerspectiveForm
             reviewId={reviewId}
             label={PERSPECTIVE_LABELS[perspective]}
+            owner={owner}
           />
         ) : null}
       </li>
@@ -378,7 +381,9 @@ export default async function ReviewPage({
           <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted">
             {NO_TOOLS_NOTE}
           </p>
-          <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted">{USAGE_NOTE}</p>
+          <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted">
+            {reviewUsageNote(identity.isOwner)}
+          </p>
         </header>
 
         <details className={`${cardClass} mt-5`}>
@@ -450,6 +455,7 @@ export default async function ReviewPage({
               <RunPerspectiveForm
                 reviewId={review.id}
                 label={PERSPECTIVE_LABELS[next.perspective as Perspective]}
+                owner={identity.isOwner}
               />
             ) : (
               <p className="mt-2 text-sm text-muted">
@@ -481,6 +487,7 @@ export default async function ReviewPage({
                   stage={stage}
                   canRun={canRun && stage.id === next?.id}
                   reviewId={review.id}
+                  owner={identity.isOwner}
                 />
               ))}
           </ol>

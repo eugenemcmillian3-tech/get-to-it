@@ -20,7 +20,8 @@ import {
   updateWorkflowAction,
 } from "@/lib/actions/workflows";
 import { CONNECTORS, NO_REAL_CONNECTOR_NOTE, getConnector } from "@/lib/connectors";
-import { WORKFLOW_MAX_CREDITS, operationChargeLabel } from "@/lib/credits/pricing";
+import { WORKFLOW_MAX_CREDITS } from "@/lib/credits/pricing";
+import { aiChargeLabel } from "@/lib/credits/copy";
 import {
   MAX_DRAFT_LENGTH,
   MAX_INPUT_NOTES,
@@ -452,7 +453,7 @@ export function StartWorkflowForm({
     <form action={formAction} className="space-y-3">
       <input type="hidden" name="workflow_id" value={workflowId} />
       <label className="block text-sm font-medium">
-        Maximum AI credits
+        {owner ? "Maximum AI drafts" : "Maximum AI credits"}
         <input
           type="number"
           name="max_credits"
@@ -465,7 +466,7 @@ export function StartWorkflowForm({
       <p className="text-xs text-muted">
         {owner
           ? "Owner account: drafts are not charged. The run still stops starting new drafts at this limit; completed steps keep their output."
-          : `Each AI draft costs ${operationChargeLabel("workflow_draft")}. The run stops starting new drafts at this limit; completed steps keep their output.`}
+          : `Each AI draft: ${aiChargeLabel("workflow_draft", false)}. The run stops starting new drafts at this limit; completed steps keep their output.`}
       </p>
       <Message state={state} />
       <SubmitButton pendingLabel="Starting…" className={primaryButton}>
@@ -666,10 +667,11 @@ export function WorkflowRunPanel({
           {progress.done} of {progress.total} steps done ({progress.percent}%).
         </p>
         <p className="mt-1 text-xs text-muted">
-          AI credits: {run.credits_spent ?? 0} of {run.credit_budget ?? WORKFLOW_MAX_CREDITS} used.{" "}
+          {owner ? "AI drafts" : "AI credits"}: {run.credits_spent ?? 0} of{" "}
+          {run.credit_budget ?? WORKFLOW_MAX_CREDITS} used.{" "}
           {owner
             ? "Owner account: drafts are not charged."
-            : `Each draft costs ${operationChargeLabel("workflow_draft")}.`}
+            : `Each draft: ${aiChargeLabel("workflow_draft", false)}.`}
         </p>
 
         {terminal ? (
@@ -816,8 +818,10 @@ export function WorkflowRunPanel({
             <form action={draftAction} className="mt-4 space-y-2">
               <input type="hidden" name="run_id" value={run.id} />
               <p className="text-sm leading-relaxed text-muted">
-                The draft uses only your notes and the selected completed work.
-                It costs one AI request and is not sent anywhere.
+                The draft uses only your notes and the selected completed work.{" "}
+                {owner
+                  ? "It is not charged on your owner account and is not sent anywhere."
+                  : "It costs one AI request and is not sent anywhere."}
               </p>
               <Message state={draftState} />
               <SubmitButton pendingLabel="Drafting…" className={primaryButton}>

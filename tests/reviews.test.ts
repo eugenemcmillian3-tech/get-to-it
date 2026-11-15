@@ -18,6 +18,7 @@ import {
   reviewInputSchema,
   reviewOutcomeSchema,
   reviewStatusFor,
+  reviewUsageNote,
   type Perspective,
   type ReviewInput,
   type ReviewStageOutput,
@@ -212,6 +213,13 @@ describe("call order and limits", () => {
     expect(USAGE_NOTE).toContain("at most 5 AI requests");
     expect(SAME_MODEL_NOTE).toContain("not independent evidence");
     expect(TRANSPARENCY_NOTE).toContain("not its hidden internal reasoning");
+  });
+
+  it("tells an owner the requests are not charged", () => {
+    expect(reviewUsageNote(true)).toContain("at most 5 AI requests");
+    expect(reviewUsageNote(true)).toContain("not charged");
+    expect(reviewUsageNote(true)).not.toContain("counts against");
+    expect(reviewUsageNote(false)).toContain("counts against");
   });
 });
 

@@ -12,13 +12,13 @@ import {
   updateReviewPrioritiesAction,
 } from "@/lib/actions/reviews";
 import { AI_MODELS, DEFAULT_AI_MODEL } from "@/lib/ai/models";
-import { operationChargeLabel } from "@/lib/credits/pricing";
+import { aiChargeLabel } from "@/lib/credits/copy";
 import {
   HUMAN_DECISION_NOTE,
   MAX_CHOSEN_OPTION,
   NO_TOOLS_NOTE,
   SAME_MODEL_NOTE,
-  USAGE_NOTE,
+  reviewUsageNote,
 } from "@/lib/reviews";
 import type { Review } from "@/lib/types";
 import {
@@ -36,7 +36,7 @@ import {
  * here: the cost is stated before anything is spent, and every later stage is a
  * separate click.
  */
-export function ReviewForm() {
+export function ReviewForm({ owner }: { owner?: boolean }) {
   const [state, formAction] = useActionState(createReviewAction, idleReviewState);
   const [model, setModel] = useState(DEFAULT_AI_MODEL);
 
@@ -148,7 +148,7 @@ export function ReviewForm() {
       </div>
 
       <div className="mt-4 space-y-1 rounded-xl border border-line bg-card p-3 text-xs leading-relaxed text-muted">
-        <p>{USAGE_NOTE}</p>
+        <p>{reviewUsageNote(Boolean(owner))}</p>
         <p>{NO_TOOLS_NOTE}</p>
         <p>{SAME_MODEL_NOTE}</p>
       </div>
@@ -157,8 +157,10 @@ export function ReviewForm() {
         <input type="checkbox" name="acknowledge" value="yes" required className="mt-1" />
         <span>
           I understand this review can make up to five AI requests, one per
-          perspective, at {operationChargeLabel("review")} each, and that I start
-          each one.
+          perspective,{" "}
+          {owner
+            ? "at no charge on my owner account, and that I start each one."
+            : `at ${aiChargeLabel("review", false)} each, and that I start each one.`}
         </span>
       </label>
 
@@ -220,9 +222,11 @@ export function PrioritiesForm({ review }: { review: Review }) {
 export function RunPerspectiveForm({
   reviewId,
   label,
+  owner,
 }: {
   reviewId: string;
   label: string;
+  owner?: boolean;
 }) {
   const [state, formAction] = useActionState(
     runNextPerspectiveAction,
@@ -233,7 +237,7 @@ export function RunPerspectiveForm({
     <form action={formAction} className="mt-3">
       <input type="hidden" name="review_id" value={reviewId} />
       <SubmitButton pendingLabel="Thinking…" className={primaryButton}>
-        Run {label} ({operationChargeLabel("review")})
+        Run {label} ({aiChargeLabel("review", owner)})
       </SubmitButton>
       <p aria-live="polite" className="mt-2 min-h-5 text-sm">
         {state.status === "error" ? (
