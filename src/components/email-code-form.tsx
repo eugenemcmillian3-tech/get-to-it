@@ -36,7 +36,7 @@ export function EmailCodeForm({ nextPath }: { nextPath?: string }) {
         Email me a sign-in code
       </h2>
       <p className={`mt-1 ${hintClass}`}>
-        No password needed. We&apos;ll email a six-digit code that expires in ten
+        No password needed. We&apos;ll email a one-time code that expires in ten
         minutes.
       </p>
 
@@ -88,7 +88,7 @@ export function EmailCodeForm({ nextPath }: { nextPath?: string }) {
 
           <div>
             <label className={labelClass} htmlFor="code-token">
-              Six-digit code
+              Email code
             </label>
             <input
               id="code-token"
@@ -96,8 +96,8 @@ export function EmailCodeForm({ nextPath }: { nextPath?: string }) {
               type="text"
               inputMode="numeric"
               autoComplete="one-time-code"
-              pattern="\d{6}"
-              maxLength={6}
+              pattern="\d{6,10}"
+              maxLength={10}
               required
               aria-describedby="code-token-hint"
               className={`mt-1.5 ${inputClass}`}

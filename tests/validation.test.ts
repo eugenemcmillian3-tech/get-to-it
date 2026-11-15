@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  emailCodeVerifySchema,
   firstErrorMessage,
   goalInputSchema,
   isUuid,
@@ -196,6 +197,44 @@ describe("auth schemas", () => {
   it("rejects a malformed email", () => {
     expect(
       signInSchema.safeParse({ email: "sam", password: "a-good-password" }).success,
+    ).toBe(false);
+  });
+});
+
+describe("emailCodeVerifySchema", () => {
+  it("accepts six to ten digits, including Supabase's eight-digit default", () => {
+    expect(
+      emailCodeVerifySchema.safeParse({
+        email: "owner@example.test",
+        token: "123456",
+      }).success,
+    ).toBe(true);
+    expect(
+      emailCodeVerifySchema.safeParse({
+        email: "owner@example.test",
+        token: "12345678",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects letters and codes outside the supported length", () => {
+    expect(
+      emailCodeVerifySchema.safeParse({
+        email: "owner@example.test",
+        token: "12345",
+      }).success,
+    ).toBe(false);
+    expect(
+      emailCodeVerifySchema.safeParse({
+        email: "owner@example.test",
+        token: "12345678901",
+      }).success,
+    ).toBe(false);
+    expect(
+      emailCodeVerifySchema.safeParse({
+        email: "owner@example.test",
+        token: "12a456",
+      }).success,
     ).toBe(false);
   });
 });
