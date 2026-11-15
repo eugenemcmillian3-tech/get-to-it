@@ -871,13 +871,16 @@ spent, adjustments, payment states and webhook failures. Access is checked in
 the database, not the browser, and no task title, note or saved work is selected.
 Manual adjustments require a note and land in the same ledger. An owner also
 passes every paid-entitlement gate (premium templates, release features and the
-other billing grants) without a purchase. AI credits are still metered because
-each call pays a provider.
+other billing grants) without a purchase. Owner AI calls reserve zero credits
+and skip the shared daily cap; every other account stays metered because each
+call pays a provider.
 
-**Email-code sign-in.** The sign-in page also sends a six-digit code to an
-existing account. The response does not reveal whether an address is registered,
-Supabase applies its own expiry and rate limits, and the code is verified by a
-server action that sets the session cookie.
+**Email-code sign-in.** The sign-in page sends a one-time code (6-10 digits) to
+an existing account. Owner accounts cannot use the password form. The response
+does not reveal whether an address is registered, Supabase applies its own
+expiry and rate limits, and the code is verified by a server action that sets the
+session cookie. Verification accepts both the standard email and recovery token
+types Supabase may issue from the same request.
 
 **Granting the owner role.** `public.app_owners` is operator-managed: no route
 and no server action writes it, and the browser roles have no grants on the

@@ -37,7 +37,7 @@ function friendlyAuthError(message: string): string {
     return "Too many tries in a short time. Wait a minute, then try again.";
   }
   if (text.includes("invalid otp") || text.includes("token has expired") || text.includes("expired")) {
-    return "That code didn't work. Check the six digits, or send a new code.";
+    return "That code didn't work. Check the digits, or send a new code.";
   }
   if (text.includes("password")) {
     return "Use at least 8 characters for your password.";
@@ -200,7 +200,7 @@ export async function sendEmailCodeAction(
   return {
     status: "success",
     message:
-      "If that email has an account, a six-digit code is on its way. It expires in 10 minutes.",
+      "If that email has an account, a one-time code is on its way. It expires in 10 minutes.",
   };
 }
 

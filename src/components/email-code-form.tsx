@@ -13,7 +13,7 @@ import { hintClass, inputClass, labelClass, secondaryButton } from "@/lib/styles
  * Passwordless email-code sign-in.
  *
  * The request response never says whether an account exists. The person can
- * request a fresh six-digit code and then verify it; Supabase applies its own
+ * request a fresh one-time code and then verify it; Supabase applies its own
  * expiry and rate limits, and the session is set by the server action.
  */
 export function EmailCodeForm({ nextPath }: { nextPath?: string }) {
