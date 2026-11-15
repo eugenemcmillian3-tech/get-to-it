@@ -11,6 +11,13 @@ import {
   REFUND_POLICY,
 } from "@/lib/credits/format";
 import {
+  OWNER_NO_CHARGE,
+  aiChargeLabel,
+  creditStatusChips,
+  creditsAccessNote,
+  creditsIntro,
+} from "@/lib/credits/copy";
+import {
   AI_OPERATION_CREDIT_COSTS,
   AI_OPERATION_PRICES,
   BUILD_MAX_CREDITS,
@@ -222,6 +229,34 @@ describe("operation prices", () => {
   it("keeps the build and workflow caps in one place", () => {
     expect(BUILD_MAX_CREDITS).toBe(6);
     expect(WORKFLOW_MAX_CREDITS).toBe(10);
+  });
+});
+
+describe("owner credit copy", () => {
+  it("replaces a price with the owner exemption only for owners", () => {
+    expect(aiChargeLabel("review", true)).toBe(OWNER_NO_CHARGE);
+    expect(aiChargeLabel("app_repair", true)).not.toContain("$");
+    expect(aiChargeLabel("review", false)).toBe("1 credit ($0.10)");
+    expect(aiChargeLabel("app_repair", false)).toBe("2 credits ($0.20)");
+  });
+
+  it("shows owner access instead of a zero-credit block", () => {
+    const ownerChips = creditStatusChips(true, 0);
+    expect(ownerChips).toEqual([
+      "Owner account",
+      "AI requests are not charged",
+      "Test mode",
+    ]);
+    expect(ownerChips.join(" ")).not.toContain("0 credits left");
+    expect(creditsIntro(true)).toContain("exempt from AI charges");
+    expect(creditsAccessNote(true)).toContain("no purchase is needed");
+    expect(creditsAccessNote(true)).not.toContain("blocked");
+  });
+
+  it("keeps the paid balance and block copy for everyone else", () => {
+    expect(creditStatusChips(false, 0)).toContain("0 credits left");
+    expect(creditsIntro(false)).toContain("new accounts start with zero credits");
+    expect(creditsAccessNote(false)).toContain("blocked");
   });
 });
 

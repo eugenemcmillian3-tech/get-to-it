@@ -81,7 +81,12 @@ export default async function LearningStepPage({
         </section>
 
         <div className="mt-5">
-          <LearningWorkspace goalId={goalId} step={step} record={record} />
+          <LearningWorkspace
+            goalId={goalId}
+            step={step}
+            record={record}
+            owner={identity.isOwner}
+          />
         </div>
       </main>
     </div>

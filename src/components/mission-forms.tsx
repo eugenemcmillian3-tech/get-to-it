@@ -20,7 +20,7 @@ import {
   updateMissionAction,
 } from "@/lib/actions/missions";
 import { AI_MODELS, DEFAULT_AI_MODEL } from "@/lib/ai/models";
-import { operationChargeLabel } from "@/lib/credits/pricing";
+import { aiChargeLabel } from "@/lib/credits/copy";
 import {
   EVIDENCE_KINDS,
   MISSION_CATEGORIES,
@@ -643,7 +643,13 @@ export function DeleteOutcomeButton({
   );
 }
 
-export function AssistanceForm({ mission }: { mission: Mission }) {
+export function AssistanceForm({
+  mission,
+  owner,
+}: {
+  mission: Mission;
+  owner?: boolean;
+}) {
   const [state, formAction] = useActionState(
     requestAssistanceAction,
     idleMissionState,
@@ -656,7 +662,7 @@ export function AssistanceForm({ mission }: { mission: Mission }) {
       <input type="hidden" name="mission_id" value={mission.id} />
       <h3 className="text-base font-bold">Ask for assistance</h3>
       <p className="mt-1 text-sm leading-relaxed text-muted">
-        One request ({operationChargeLabel("mission_assist")}), one suggestion.
+        One request ({aiChargeLabel("mission_assist", owner)}), one suggestion.
         AI cannot vote, cannot be a decision owner, cannot speak as a participant
         and cannot publish anything. Personal stories without recorded consent
         are not sent to the model.
@@ -698,12 +704,16 @@ export function AssistanceForm({ mission }: { mission: Mission }) {
       <p aria-live="polite" className="mt-3 min-h-5 text-sm">
         <StateNote
           state={state}
-          idle={`Each request reserves ${operationChargeLabel("mission_assist")}. A failed request releases it.`}
+          idle={
+            owner
+              ? "Owner account: each request is not charged. A failed request releases it."
+              : `Each request reserves ${aiChargeLabel("mission_assist", false)}. A failed request releases it.`
+          }
         />
       </p>
 
       <SubmitButton className={secondaryButton} pendingLabel="Asking…">
-        Request one suggestion ({operationChargeLabel("mission_assist")})
+        Request one suggestion ({aiChargeLabel("mission_assist", owner)})
       </SubmitButton>
     </form>
   );

@@ -427,7 +427,7 @@ export default async function MissionPage({
             decides or speaks for anyone.
           </p>
 
-          <AssistanceForm mission={mission} />
+          <AssistanceForm mission={mission} owner={identity.isOwner} />
 
           {suggestions.length === 0 ? (
             <p className={`${cardClass} mt-4 text-sm text-muted`}>

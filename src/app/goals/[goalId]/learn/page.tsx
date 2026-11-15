@@ -88,7 +88,7 @@ export default async function LearningPage({
 
         {!learning ? (
           <div className="mt-5">
-            <LearningSetupForm goalId={goalId} />
+            <LearningSetupForm goalId={goalId} owner={identity.isOwner} />
           </div>
         ) : (
           <>

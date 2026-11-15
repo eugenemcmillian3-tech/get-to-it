@@ -73,7 +73,15 @@ export const MAX_SUMMARY = 900;
 export const MAX_DECISION = 4000;
 export const MAX_CHOSEN_OPTION = 200;
 
-export const USAGE_NOTE = `A review makes at most ${MAX_REVIEW_REQUESTS} AI requests: one per perspective, and you start each one. Each request counts against your daily allowance or credits. You can stop between stages.`;
+export function reviewUsageNote(owner: boolean): string {
+  return `A review makes at most ${MAX_REVIEW_REQUESTS} AI requests: one per perspective, and you start each one. ${
+    owner
+      ? "Owner account requests are not charged."
+      : "Each request counts against your daily allowance or credits."
+  } You can stop between stages.`;
+}
+
+export const USAGE_NOTE = reviewUsageNote(false);
 
 export const TRANSPARENCY_NOTE =
   "Each perspective shows a concise written explanation, its assumptions and the evidence it cites. That is the model's summary of its answer, not its hidden internal reasoning — no such reasoning is exposed or claimed.";

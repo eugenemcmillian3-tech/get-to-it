@@ -13,7 +13,7 @@ import {
   PERSPECTIVE_LABELS,
   SAME_MODEL_NOTE,
   TRANSPARENCY_NOTE,
-  USAGE_NOTE,
+  reviewUsageNote,
 } from "@/lib/reviews";
 import { cardClass, chipClass, focusRing, secondaryButton } from "@/lib/styles";
 import { formatFutureDay } from "@/lib/futures";
@@ -63,7 +63,9 @@ export default async function ReviewsPage() {
           research reviewer, human-impact reviewer and synthesizer. They run one at
           a time, from the same record, and you decide what to do with the result.
         </p>
-        <p className="mt-2 text-xs leading-relaxed text-muted">{USAGE_NOTE}</p>
+        <p className="mt-2 text-xs leading-relaxed text-muted">
+          {reviewUsageNote(identity.isOwner)}
+        </p>
 
         <section aria-labelledby="review-list-heading" className="mt-8">
           <h2 id="review-list-heading" className="text-lg font-bold">
@@ -117,7 +119,7 @@ export default async function ReviewsPage() {
           <h2 id="new-review-heading" className="sr-only">
             New review
           </h2>
-          <ReviewForm />
+          <ReviewForm owner={identity.isOwner} />
         </section>
 
         <section aria-labelledby="perspectives-heading" className={`${cardClass} mt-8`}>

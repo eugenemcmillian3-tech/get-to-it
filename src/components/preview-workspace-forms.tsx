@@ -3,7 +3,7 @@
 import { useActionState } from "react";
 import { SubmitButton } from "@/components/submit-button";
 import { idleBuildState, type BuildState } from "@/lib/action-state";
-import { operationChargeLabel } from "@/lib/credits/pricing";
+import { aiChargeLabel } from "@/lib/credits/copy";
 import {
   previewWorkspaceAction,
   repairWorkspaceAction,
@@ -75,9 +75,11 @@ export function RunChecksForm({ projectId }: { projectId: string }) {
 export function RepairWorkspaceForm({
   projectId,
   disabled,
+  owner,
 }: {
   projectId: string;
   disabled: boolean;
+  owner?: boolean;
 }) {
   const [state, formAction] = useActionState(repairWorkspaceAction, idleBuildState);
   return (
@@ -89,7 +91,11 @@ export function RepairWorkspaceForm({
       <p className="mt-2 text-sm">
         <Note
           state={state}
-          idle={`One AI repair costs ${operationChargeLabel("app_repair")}. Applies only existing source files, never tests or configs, then reruns every check. Maximum three attempts and six credits per workspace.`}
+          idle={
+            owner
+              ? "AI repairs are not charged on your owner account. Applies only existing source files, never tests or configs, then reruns every check. Maximum three attempts per workspace."
+              : `One AI repair: ${aiChargeLabel("app_repair", false)}. Applies only existing source files, never tests or configs, then reruns every check. Maximum three attempts and six credits per workspace.`
+          }
         />
       </p>
     </form>

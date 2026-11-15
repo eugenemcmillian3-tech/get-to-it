@@ -102,7 +102,9 @@ export default async function WorkspacePage({
                   {workspace.iterations}/{PREVIEW_LIMITS.maxRepairIterations} repairs
                 </span>
                 <span className={chipClass}>
-                  {workspace.credits_spent ?? 0}/{workspace.credit_budget ?? BUILD_MAX_CREDITS} AI credits
+                  {identity.isOwner
+                    ? "Owner account: AI repairs not charged"
+                    : `${workspace.credits_spent ?? 0}/${workspace.credit_budget ?? BUILD_MAX_CREDITS} AI credits`}
                 </span>
               </>
             ) : null}
@@ -126,10 +128,13 @@ export default async function WorkspacePage({
         <section aria-labelledby="controls-heading" className={`${cardClass} mt-6`}>
           <h2 id="controls-heading" className="text-lg font-bold">Controls</h2>
           <p className="mt-1 text-sm leading-relaxed text-muted">
-            Limits: {PREVIEW_LIMITS.maxRepairIterations} repair iterations ({" "}
-            {BUILD_REPAIR_CREDITS} credits each), {PREVIEW_LIMITS.maxAiRequests} AI requests,{" "}
-            {BUILD_MAX_CREDITS} credits per workspace, {Math.round(PREVIEW_LIMITS.maxRuntimeMs / 60_000)} minutes,
-            and {PREVIEW_LIMITS.maxLogChars.toLocaleString()} characters of log per run.
+            Limits: {PREVIEW_LIMITS.maxRepairIterations} repair iterations
+            {identity.isOwner
+              ? " (not charged on your owner account)"
+              : ` (${BUILD_REPAIR_CREDITS} credits each), ${BUILD_MAX_CREDITS} credits per workspace`}
+            , {PREVIEW_LIMITS.maxAiRequests} AI requests,{" "}
+            {Math.round(PREVIEW_LIMITS.maxRuntimeMs / 60_000)} minutes, and{" "}
+            {PREVIEW_LIMITS.maxLogChars.toLocaleString()} characters of log per run.
           </p>
 
           <div className="mt-4 flex flex-wrap items-start gap-x-6 gap-y-5">
@@ -138,7 +143,11 @@ export default async function WorkspacePage({
               <>
                 <RunChecksForm projectId={project.id} />
                 <PreviewForm projectId={project.id} />
-                <RepairWorkspaceForm projectId={project.id} disabled={!canRepair} />
+                <RepairWorkspaceForm
+                  projectId={project.id}
+                  disabled={!canRepair}
+                  owner={identity.isOwner}
+                />
                 <StopWorkspaceForm projectId={project.id} />
               </>
             ) : null}
