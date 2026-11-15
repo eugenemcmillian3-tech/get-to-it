@@ -94,6 +94,24 @@ export async function signInAction(
     return { status: "error", message: friendlyAuthError(error.message) };
   }
 
+  const { data: owner, error: ownerError } = await supabase.rpc("app_is_owner");
+  if (ownerError) {
+    await supabase.auth.signOut();
+    return {
+      status: "error",
+      message:
+        "We couldn't confirm the sign-in policy for this account, so the password sign-in was cancelled. Try the email code instead.",
+    };
+  }
+  if (owner === true) {
+    await supabase.auth.signOut();
+    return {
+      status: "error",
+      message:
+        "Owner accounts must sign in with the email code below. Enter the email and choose “Email me a code” — a password is not accepted for this account.",
+    };
+  }
+
   revalidatePath("/", "layout");
   redirect(safeNextPath(readText(formData, "next")));
 }

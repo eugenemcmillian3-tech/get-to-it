@@ -5,6 +5,7 @@ import type { BuildState } from "@/lib/action-state";
 import { DEFAULT_AI_MODEL } from "@/lib/ai/models";
 import { chatWithOllama, ollamaErrorMessage } from "@/lib/ai/ollama";
 import { finishAiRequest, reserveAiRequest } from "@/lib/ai/limits";
+import { isOwner } from "@/lib/data/credits";
 import { getSession } from "@/lib/auth";
 import { BUILD_REPAIR_CREDITS } from "@/lib/credits/pricing";
 import {
@@ -388,7 +389,10 @@ export async function repairWorkspaceAction(
   if (workspace.iterations >= PREVIEW_LIMITS.maxRepairIterations) {
     return fail("This workspace has used its three repair attempts. Fix the source yourself, or start a new workspace after the limit resets.");
   }
-  if (workspace.credits_spent + BUILD_REPAIR_CREDITS > workspace.credit_budget) {
+  if (
+    !(await isOwner(session)) &&
+    workspace.credits_spent + BUILD_REPAIR_CREDITS > workspace.credit_budget
+  ) {
     return fail(
       `This workspace has used its ${workspace.credit_budget}-credit AI budget. A repair costs ${BUILD_REPAIR_CREDITS} credits, so no further AI repair was started.`,
     );

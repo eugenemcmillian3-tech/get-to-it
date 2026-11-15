@@ -58,6 +58,10 @@ export default async function SignInPage({
         </>
       }
     >
+      <p className="mb-4 rounded-xl border border-line bg-paper/60 px-3 py-2 text-sm text-ink-soft">
+        Owner account? Use the email code below. The password form is kept for
+        other accounts and will refuse an owner sign-in.
+      </p>
       <AuthForm
         mode="sign-in"
         nextPath={nextPath === "/dashboard" ? undefined : nextPath}
