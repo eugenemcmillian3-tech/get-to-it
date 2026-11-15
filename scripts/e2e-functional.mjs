@@ -5,14 +5,17 @@
  * Exercises the browser path that unit tests and an HTTP crawl cannot:
  * signing in, opening a goal and its task, reopening the task, starting and
  * advancing a workflow, downloading an export, and importing it into a second
- * account. Every browser action in that path is performed with the keyboard.
- * By default it stops before the AI draft, so it needs no provider key and
- * spends no AI request.
+ * account. After those checks, it grants the disposable first account owner
+ * access and asserts that the learning, mission, workflow and preview-repair
+ * pages show owner copy with no per-request credit price. Every browser action
+ * in that path is performed with the keyboard. By default it stops before the
+ * AI draft, so it needs no provider key and spends no AI request.
  *
  * Required environment:
  *   E2E_SERVICE_ROLE_KEY  Supabase service-role key, used only to create and
- *                         delete the two disposable accounts. Never put it in
- *                         .env.local or a NEXT_PUBLIC_ variable.
+ *                         delete the two disposable accounts and seed the
+ *                         owner-copy fixture. Never put it in .env.local or a
+ *                         NEXT_PUBLIC_ variable.
  *
  * Optional:
  *   E2E_BASE_URL          Defaults to http://127.0.0.1:3100.
@@ -54,6 +57,8 @@ let browser = null;
 let pageA = null;
 let pageB = null;
 let workDir = null;
+const ownerFixture = { workspaceId: null, projectId: null };
+const PER_REQUEST_CREDIT_PRICE = /\b[1-9]\d*\s+credits?\s*\(\s*\$\d+\.\d{2}\s*\)/i;
 
 function readLocalEnv() {
   try {
@@ -160,6 +165,23 @@ async function rest(session, path, options = {}) {
       },
     },
     `REST ${path}`,
+  );
+}
+
+async function serviceRest(path, options = {}) {
+  return jsonRequest(
+    `${SUPABASE_URL}/rest/v1/${path}`,
+    {
+      ...options,
+      headers: {
+        apikey: SERVICE_KEY,
+        Authorization: `Bearer ${SERVICE_KEY}`,
+        "content-type": "application/json",
+        Prefer: "return=representation",
+        ...(options.headers ?? {}),
+      },
+    },
+    `Service REST ${path}`,
   );
 }
 
@@ -336,6 +358,7 @@ async function runWorkflow(sessionA, accountA, page) {
     "the Start a run button",
   );
   await page.waitForURL(/\/workflows\/runs\/[0-9a-f-]{36}$/, { timeout: 20_000 });
+  const runId = page.url().split("/").filter(Boolean).pop();
   check("workflow run starts from the detail page with the keyboard", true);
 
   await tabTo(
@@ -364,7 +387,7 @@ async function runWorkflow(sessionA, accountA, page) {
   }
   check("workflow input server action advances to the draft step", true);
 
-  if (!FULL_WORKFLOW) return;
+  if (!FULL_WORKFLOW) return { workflowId: workflow.id, runId };
 
   await page.getByRole("button", { name: "Generate the draft" }).click();
   try {
@@ -409,6 +432,180 @@ async function runWorkflow(sessionA, accountA, page) {
     throw new Error(`Confirming the checkpoint did not complete the run.${detail ? ` ${detail}` : ""}`);
   }
   check("confirmed checkpoint completes the workflow run", true);
+  return { workflowId: workflow.id, runId };
+}
+
+async function seedOwnerSurfaces(account) {
+  const [workspace] = await serviceRest("workspaces", {
+    method: "POST",
+    body: JSON.stringify({
+      name: `Owner copy workspace ${stamp}`,
+      description: "Disposable fixture for the owner-copy browser assertion.",
+      created_by: account.id,
+    }),
+  });
+  ownerFixture.workspaceId = workspace.id;
+
+  await serviceRest("workspace_members", {
+    method: "POST",
+    body: JSON.stringify({
+      workspace_id: workspace.id,
+      user_id: account.id,
+      role: "owner",
+      status: "active",
+    }),
+  });
+
+  const [mission] = await serviceRest("missions", {
+    method: "POST",
+    body: JSON.stringify({
+      workspace_id: workspace.id,
+      created_by: account.id,
+      title: `Owner copy mission ${stamp}`,
+      category: "learning",
+      problem: "Disposable fixture for owner-facing mission copy.",
+      stakeholders: "One test account",
+      desired_outcome: "Read the owner copy without a per-request price.",
+      constraints: "",
+      status: "active",
+      decision_owner_id: account.id,
+    }),
+  });
+
+  const [project] = await serviceRest("app_projects", {
+    method: "POST",
+    body: JSON.stringify({
+      user_id: account.id,
+      name: `Owner copy project ${stamp}`,
+      purpose: "Verify owner-facing preview repair copy in a browser.",
+      target_users: "The disposable owner account",
+      workflows: "Open the preview workspace and read the owner copy.",
+      required_pages: "Preview workspace",
+      entities: "",
+      auth_requirements: "none",
+      integrations: "",
+      definition_of_done: "The owner copy renders without a per-request price.",
+    }),
+  });
+  ownerFixture.projectId = project.id;
+
+  const [appWorkspace] = await serviceRest("app_workspaces", {
+    method: "POST",
+    body: JSON.stringify({
+      project_id: project.id,
+      user_id: account.id,
+      runner_key: randomBytes(16).toString("hex"),
+      status: "checks_failed",
+      expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      iterations: 0,
+      ai_requests: 0,
+      credit_budget: 6,
+      credits_spent: 0,
+    }),
+  });
+
+  await serviceRest("app_workspace_runs", {
+    method: "POST",
+    body: JSON.stringify({
+      workspace_id: appWorkspace.id,
+      project_id: project.id,
+      user_id: account.id,
+      kind: "checks",
+      status: "failed",
+      iteration: 0,
+      checks: [
+        { name: "typecheck", label: "Typecheck", status: "failed", code: 1 },
+      ],
+      log: "Seeded failure for the owner-copy browser assertion.",
+      changed_files: [],
+      diff: "",
+      ai_requests: 0,
+      error: null,
+    }),
+  });
+
+  return { workspaceId: workspace.id, missionId: mission.id, projectId: project.id };
+}
+
+async function expectOwnerPage(page, path, label, copy) {
+  const response = await page.goto(`${BASE}${path}`, { waitUntil: "domcontentloaded" });
+  check(`${label} returns 200`, response?.status() === 200, {
+    status: response?.status(),
+  });
+  await page.getByText(copy).first().waitFor({ timeout: 20_000 });
+
+  const body = (await page.locator("body").textContent()) ?? "";
+  const price = body.match(PER_REQUEST_CREDIT_PRICE);
+  check(`${label} shows no per-request credit price`, !price, price ? { price: price[0] } : {});
+  check(`${label} stays signed in`, !new URL(page.url()).pathname.startsWith("/sign-in"));
+}
+
+async function verifyOwnerCopy(page, account, goal, workflow) {
+  await serviceRest("app_owners", {
+    method: "POST",
+    body: JSON.stringify({ user_id: account.id }),
+  });
+  const fixture = await seedOwnerSurfaces(account);
+
+  await expectOwnerPage(
+    page,
+    `/goals/${goal.id}/learn`,
+    "owner learning page",
+    "This request: no charge on your owner account.",
+  );
+  await expectOwnerPage(
+    page,
+    `/workspace/${fixture.workspaceId}/missions/${fixture.missionId}`,
+    "owner mission page",
+    "One request (no charge on your owner account), one suggestion.",
+  );
+  await expectOwnerPage(
+    page,
+    `/workflows/${workflow.workflowId}`,
+    "owner workflow page",
+    "Owner account: drafts are not charged.",
+  );
+  await expectOwnerPage(
+    page,
+    `/workflows/runs/${workflow.runId}`,
+    "owner workflow run page",
+    "Owner account: drafts are not charged.",
+  );
+  await expectOwnerPage(
+    page,
+    `/build/${fixture.projectId}/workspace`,
+    "owner preview-repair page",
+    "Owner account: AI repairs not charged",
+  );
+}
+
+async function cleanupOwnerSurfaces() {
+  const errors = [];
+  const { workspaceId, projectId } = ownerFixture;
+  ownerFixture.workspaceId = null;
+  ownerFixture.projectId = null;
+
+  if (projectId) {
+    try {
+      await serviceRest(`app_projects?id=eq.${projectId}`, {
+        method: "DELETE",
+        headers: { Prefer: "return=minimal" },
+      });
+    } catch (error) {
+      errors.push(`app project: ${error.message}`);
+    }
+  }
+  if (workspaceId) {
+    try {
+      await serviceRest(`workspaces?id=eq.${workspaceId}`, {
+        method: "DELETE",
+        headers: { Prefer: "return=minimal" },
+      });
+    } catch (error) {
+      errors.push(`workspace: ${error.message}`);
+    }
+  }
+  if (errors.length > 0) throw new Error(errors.join(" "));
 }
 
 async function exportGoal(page) {
@@ -544,11 +741,12 @@ async function main() {
   const { goal, task } = await seedGoal(sessionA, accountA);
   await openGoalByKeyboard(pageA, goal);
   await openTaskByKeyboard(pageA, goal, task);
-  await runWorkflow(sessionA, accountA, pageA);
+  const workflow = await runWorkflow(sessionA, accountA, pageA);
   const exportPath = await exportGoal(pageA);
   await importGoal(pageB, exportPath);
   await verifyIsolation(sessionA, sessionB, goal);
   await reopenTask(pageA, sessionA, goal, task);
+  await verifyOwnerCopy(pageA, accountA, goal, workflow);
 }
 
 let failure = null;
@@ -572,6 +770,13 @@ try {
 } finally {
   if (browser) await browser.close().catch(() => {});
   if (workDir) rmSync(workDir, { recursive: true, force: true });
+
+  try {
+    await cleanupOwnerSurfaces();
+  } catch (error) {
+    console.error(`Disposable owner fixture cleanup failed: ${error.message}`);
+    if (!failure) failure = new Error("Disposable owner fixture cleanup failed.");
+  }
 
   for (const account of accounts) {
     try {
