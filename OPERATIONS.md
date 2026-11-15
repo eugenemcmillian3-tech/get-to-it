@@ -497,8 +497,9 @@ Then check by hand, and record the result rather than assuming it:
 - [ ] Keyboard only: skip link, header, forms, dialogs, `/data` file input and
       confirmation field, with a visible focus ring throughout.
 - [ ] Mobile widths 360 px and 414 px: no horizontal scroll, tap targets usable.
-- [ ] Error recovery: a missing `OLLAMA_API_KEY` shows a setup message; stopping the
-      database makes `/api/health` return 503 and pages show an error, not a crash.
+- [ ] Error recovery: a missing `OLLAMA_API_KEY` shows a setup message. The
+      database-down `/api/health` 503 response is automated by
+      `node scripts/release-health-check.mjs`.
 - [ ] `/api/health` shows the revision you intended to release.
 
 What this does **not** cover: there is no automated accessibility audit, no

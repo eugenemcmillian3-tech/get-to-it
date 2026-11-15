@@ -93,6 +93,11 @@ jobs:
       - name: Nullable guard audit
         run: npm run check:nullable-guards
 
+      # Starts a development server pointed at a closed database port and
+      # requires /api/health to report 503 with the database unavailable.
+      - name: Database-down health check
+        run: node scripts/release-health-check.mjs
+
       # Compares live function bodies with the migrations when a direct database
       # URL is configured; skips cleanly when the secret is absent.
       - name: Schema drift check
