@@ -71,6 +71,7 @@ export default async function CreditsPage({
   ]);
 
   const { summary, packs, payments, ledger, usage } = overview;
+  const owner = summary.is_owner;
   const stripeState = stripeConfigState();
   const stripeReady = stripeState === "ready";
 
@@ -90,24 +91,34 @@ export default async function CreditsPage({
           AI credits
         </h1>
         <p className="mt-3 max-w-xl leading-relaxed text-muted">
-          AI work is prepaid. There is no free plan and no trial: new accounts
-          start with zero credits, and each credit is worth {CREDIT_VALUE_LABEL}.
-          Add credits before starting AI work.
+          {owner
+            ? "Your owner account is exempt from AI charges. AI requests still run one at a time, and the results are recorded below like any other request."
+            : `AI work is prepaid. There is no free plan and no trial: new accounts start with zero credits, and each credit is worth ${CREDIT_VALUE_LABEL}. Add credits before starting AI work.`}
         </p>
 
         <div className="mt-4 flex flex-wrap gap-2">
-          <span className={chipClass}>{formatCredits(summary.balance)} left</span>
-          <span className={chipClass}>
-            {formatUsd(summary.balance * CREDIT_VALUE_CENTS)} value
-          </span>
-          <span className={chipClass}>{CREDIT_VALUE_LABEL} per credit</span>
-          <span className={chipClass}>Test mode</span>
+          {owner ? (
+            <>
+              <span className={chipClass}>Owner account</span>
+              <span className={chipClass}>AI requests are not charged</span>
+              <span className={chipClass}>Test mode</span>
+            </>
+          ) : (
+            <>
+              <span className={chipClass}>{formatCredits(summary.balance)} left</span>
+              <span className={chipClass}>
+                {formatUsd(summary.balance * CREDIT_VALUE_CENTS)} value
+              </span>
+              <span className={chipClass}>{CREDIT_VALUE_LABEL} per credit</span>
+              <span className={chipClass}>Test mode</span>
+            </>
+          )}
         </div>
 
         <p className="mt-3 rounded-xl border border-line bg-paper p-3 text-sm leading-relaxed">
-          At zero credits, new paid AI work is blocked. Your existing results,
-          account settings and billing history stay available. Nothing is charged
-          automatically, and no free AI or sample output is substituted.
+          {owner
+            ? "Nothing is charged to this account and no purchase is needed. AI requests are still limited to one in flight at a time so a double click cannot start two calls."
+            : "At zero credits, new paid AI work is blocked. Your existing results, account settings and billing history stay available. Nothing is charged automatically, and no free AI or sample output is substituted."}
         </p>
 
         <section aria-labelledby="prices-heading" className="mt-9">
@@ -115,8 +126,9 @@ export default async function CreditsPage({
             What AI work costs
           </h2>
           <p className="mt-1 text-sm leading-relaxed text-muted">
-            Each request reserves its price before the model call and releases it
-            if the call fails. These are fixed estimates, not token counts.
+            {owner
+              ? "These are the prices other accounts pay. Your owner account is not charged; the list is shown so the amounts stay visible."
+              : "Each request reserves its price before the model call and releases it if the call fails. These are fixed estimates, not token counts."}
           </p>
           <ul className="mt-3 divide-y divide-line rounded-2xl border border-line bg-card">
             {AI_OPERATION_PRICES.map((operation) => (
@@ -156,6 +168,18 @@ export default async function CreditsPage({
           </p>
         ) : null}
 
+        {owner ? (
+          <section aria-labelledby="owner-access-heading" className="mt-9">
+            <h2 id="owner-access-heading" className="text-lg font-bold">
+              Owner access
+            </h2>
+            <p className="mt-1 text-sm leading-relaxed text-muted">
+              You do not need to buy credits. Owner AI requests are recorded with
+              no charge, and this account keeps access while the exemption is in
+              place.
+            </p>
+          </section>
+        ) : (
         <section aria-labelledby="packs-heading" className="mt-9">
           <h2 id="packs-heading" className="text-lg font-bold">
             Buy credits
@@ -195,6 +219,7 @@ export default async function CreditsPage({
             page on its own is not proof of payment.
           </p>
         </section>
+        )}
 
         {payments.length > 0 ? (
           <section aria-labelledby="payments-heading" className="mt-10">

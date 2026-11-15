@@ -8,7 +8,13 @@ import { remainingNote } from "@/lib/ai/limits";
 import { AI_MODELS, aiModelLabel, DEFAULT_AI_MODEL } from "@/lib/ai/models";
 import { focusRing, hintClass, inputClass, labelClass, secondaryButton } from "@/lib/styles";
 
-export function UnstuckPanel({ goalId }: { goalId: string }) {
+export function UnstuckPanel({
+  goalId,
+  owner,
+}: {
+  goalId: string;
+  owner?: boolean;
+}) {
   const [state, formAction] = useActionState(getUnstuckAction, idleAiHelpState);
   const selectedModel = state.model ? aiModelLabel(state.model) : null;
 
@@ -55,7 +61,9 @@ export function UnstuckPanel({ goalId }: { goalId: string }) {
         </SubmitButton>
 
         <p className="text-xs text-muted">
-          {remainingNote("unstuck")}
+          {owner
+            ? "Owner account: this request is not charged."
+            : remainingNote("unstuck")}
         </p>
       </form>
 

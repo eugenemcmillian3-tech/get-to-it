@@ -14,10 +14,12 @@ export function TaskWorkspace({
   goalId,
   task,
   result,
+  owner,
 }: {
   goalId: string;
   task: Task;
   result: TaskResult | null;
+  owner?: boolean;
 }) {
   const initialContent = result?.content ?? "";
   const [content, setContent] = useState(initialContent);
@@ -36,6 +38,7 @@ export function TaskWorkspace({
         goalId={goalId}
         taskId={task.id}
         content={content}
+        owner={owner}
         onUseSuggestion={(text) =>
           setContent((current) => mergeSuggestion(current, text))
         }

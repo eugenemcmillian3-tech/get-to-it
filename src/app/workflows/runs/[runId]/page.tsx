@@ -70,7 +70,7 @@ export default async function WorkflowRunPage({
         ) : null}
 
         <div className="mt-5">
-          <WorkflowRunPanel detail={detail} />
+          <WorkflowRunPanel detail={detail} owner={identity.isOwner} />
         </div>
       </main>
     </div>

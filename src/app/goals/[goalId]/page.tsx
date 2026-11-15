@@ -118,7 +118,7 @@ export default async function GoalPage({
             Small steps, in any order. You decide when one is done.
           </p>
 
-          <PlanPanel goalId={goal.id} />
+          <PlanPanel goalId={goal.id} owner={identity.isOwner} />
 
           <div className="mt-4 rounded-2xl border border-line bg-card p-4">
             <p className="text-sm font-semibold">Learning mode</p>
@@ -248,7 +248,7 @@ export default async function GoalPage({
           )}
         </section>
 
-        <UnstuckPanel goalId={goal.id} />
+        <UnstuckPanel goalId={goal.id} owner={identity.isOwner} />
 
         <section
           aria-labelledby="settings-heading"

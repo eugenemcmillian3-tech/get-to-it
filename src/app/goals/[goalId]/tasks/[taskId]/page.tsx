@@ -127,7 +127,12 @@ export default async function TaskPage({
         </div>
 
         <div className="mt-5">
-          <TaskWorkspace goalId={goal.id} task={task} result={result} />
+          <TaskWorkspace
+            goalId={goal.id}
+            task={task}
+            result={result}
+            owner={identity.isOwner}
+          />
         </div>
 
         <p className="mt-8 text-sm text-muted">
