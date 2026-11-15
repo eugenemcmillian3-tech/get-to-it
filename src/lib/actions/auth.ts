@@ -223,14 +223,27 @@ export async function verifyEmailCodeAction(
     return { status: "error", message: SETUP_REQUIRED_MESSAGE };
   }
 
-  const { error } = await supabase.auth.verifyOtp({
+  const emailAttempt = await supabase.auth.verifyOtp({
     email: parsed.data.email,
     token: parsed.data.token,
     type: "email",
   });
 
-  if (error) {
-    return { status: "error", message: friendlyAuthError(error.message) };
+  if (emailAttempt.error) {
+    // Supabase can issue a recovery token from the same /otp request for an
+    // existing account. The same emailed digits verify with that type.
+    const recoveryAttempt = await supabase.auth.verifyOtp({
+      email: parsed.data.email,
+      token: parsed.data.token,
+      type: "recovery",
+    });
+
+    if (recoveryAttempt.error) {
+      return {
+        status: "error",
+        message: friendlyAuthError(recoveryAttempt.error.message),
+      };
+    }
   }
 
   revalidatePath("/", "layout");

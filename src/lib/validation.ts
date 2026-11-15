@@ -247,7 +247,7 @@ export const emailCodeVerifySchema = z.object({
   token: z
     .string()
     .trim()
-    .regex(/^\d{6}$/, "Enter the six-digit code from your email."),
+    .regex(/^\d{6,10}$/, "Enter the code from your email."),
 });
 
 /** Safely read a form value as a trimmed string. */
