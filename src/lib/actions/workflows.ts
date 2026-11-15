@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { FormState } from "@/lib/action-state";
 import { finishAiRequest, reserveAiRequest } from "@/lib/ai/limits";
+import { isOwner } from "@/lib/data/credits";
 import { aiModelLabel, DEFAULT_AI_MODEL, isAiModel } from "@/lib/ai/models";
 import { chatWithOllama, OllamaError, ollamaErrorMessage } from "@/lib/ai/ollama";
 import { getSession, type Session } from "@/lib/auth";
@@ -504,7 +505,10 @@ export async function generateWorkflowDraftAction(
   const model = isAiModel(requestedModel) ? requestedModel : DEFAULT_AI_MODEL;
 
   const draftCost = AI_OPERATION_CREDIT_COSTS.workflow_draft;
-  if (detail.run.credits_spent + draftCost > detail.run.credit_budget) {
+  if (
+    !(await isOwner(session)) &&
+    detail.run.credits_spent + draftCost > detail.run.credit_budget
+  ) {
     return {
       status: "error",
       message: `This run has reached its ${detail.run.credit_budget}-credit AI budget. No further draft was started.`,

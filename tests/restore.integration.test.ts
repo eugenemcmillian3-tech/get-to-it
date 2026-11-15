@@ -4370,6 +4370,41 @@ describeRestore("isolated restore and authorization drill", () => {
     expect(blocked.ok).toBe(false);
     expect(blocked.code).toBe("needs-credits");
 
+    // An owner is not stopped by a zero balance and is never charged.
+    const ownerId = randomUUID();
+    await client.query(
+      "insert into auth.users (id, email, instance_id) values ($1,$2,'00000000-0000-0000-0000-000000000000')",
+      [ownerId, `restore-owner-${ownerId}@example.test`],
+    );
+    await client.query(
+      "insert into public.app_owners (user_id) values ($1) on conflict do nothing",
+      [ownerId],
+    );
+    const ownerReserved = await asUser(ownerId, async () => {
+      const result = await client.query<{
+        r: { ok: boolean; request_id: string; credits: number; free: boolean }
+      }>("select public.reserve_ai_request('unstuck','glm-5.3-flash') as r");
+      return result.rows[0].r;
+    });
+    expect(ownerReserved.ok).toBe(true);
+    expect(ownerReserved.credits).toBe(0);
+    expect(ownerReserved.free).toBe(true);
+
+    await asUser(ownerId, async () => {
+      await client.query(
+        "select public.finish_ai_request($1,'succeeded',null,10,10)",
+        [ownerReserved.request_id],
+      );
+    });
+
+    const ownerLedger = await client.query<{ total: string }>(
+      "select coalesce(sum(delta),0)::text as total from public.credit_ledger where user_id = $1",
+      [ownerId],
+    );
+    expect(Number(ownerLedger.rows[0].total)).toBe(0);
+    await client.query("delete from public.app_owners where user_id = $1", [ownerId]);
+    await client.query("delete from auth.users where id = $1", [ownerId]);
+
     async function buy(label: string) {
       const created = await asUser(accountA.userId, async () => {
         const result = await client.query<{
