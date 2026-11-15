@@ -439,7 +439,13 @@ export function WorkflowEditor({
   );
 }
 
-export function StartWorkflowForm({ workflowId }: { workflowId: string }) {
+export function StartWorkflowForm({
+  workflowId,
+  owner,
+}: {
+  workflowId: string;
+  owner?: boolean;
+}) {
   const [state, formAction] = useActionState(startWorkflowRunAction, idleFormState);
 
   return (
@@ -457,8 +463,9 @@ export function StartWorkflowForm({ workflowId }: { workflowId: string }) {
         />
       </label>
       <p className="text-xs text-muted">
-        Each AI draft costs {operationChargeLabel("workflow_draft")}. The run stops
-        starting new drafts at this limit; completed steps keep their output.
+        {owner
+          ? "Owner account: drafts are not charged. The run still stops starting new drafts at this limit; completed steps keep their output."
+          : `Each AI draft costs ${operationChargeLabel("workflow_draft")}. The run stops starting new drafts at this limit; completed steps keep their output.`}
       </p>
       <Message state={state} />
       <SubmitButton pendingLabel="Starting…" className={primaryButton}>
@@ -588,7 +595,13 @@ function ActionCard({
   );
 }
 
-export function WorkflowRunPanel({ detail }: { detail: WorkflowRunDetail }) {
+export function WorkflowRunPanel({
+  detail,
+  owner,
+}: {
+  detail: WorkflowRunDetail;
+  owner?: boolean;
+}) {
   const { run, steps, actions, approvals, work } = detail;
   const context = parseRunContext(run.context);
   const progress = runProgress(steps);
@@ -653,8 +666,10 @@ export function WorkflowRunPanel({ detail }: { detail: WorkflowRunDetail }) {
           {progress.done} of {progress.total} steps done ({progress.percent}%).
         </p>
         <p className="mt-1 text-xs text-muted">
-          AI credits: {run.credits_spent ?? 0} of {run.credit_budget ?? WORKFLOW_MAX_CREDITS} used.
-          Each draft costs {operationChargeLabel("workflow_draft")}.
+          AI credits: {run.credits_spent ?? 0} of {run.credit_budget ?? WORKFLOW_MAX_CREDITS} used.{" "}
+          {owner
+            ? "Owner account: drafts are not charged."
+            : `Each draft costs ${operationChargeLabel("workflow_draft")}.`}
         </p>
 
         {terminal ? (

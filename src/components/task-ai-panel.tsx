@@ -32,10 +32,12 @@ export function TaskAiPanel({
   goalId,
   taskId,
   content,
+  owner,
   onUseSuggestion,
 }: {
   goalId: string;
   taskId: string;
+  owner?: boolean;
   /** The editor as it stands, so reviews include unsaved typing. */
   content: string;
   /** Appends accepted text to the editor. Never writes to the database. */
@@ -45,7 +47,9 @@ export function TaskAiPanel({
   const [model, setModel] = useState(DEFAULT_AI_MODEL);
 
   const hasNotes = content.trim() !== "";
-  const note = remainingNote("task_help");
+  const note = owner
+    ? "Owner account: this request is not charged."
+    : remainingNote("task_help");
 
   return (
     <section

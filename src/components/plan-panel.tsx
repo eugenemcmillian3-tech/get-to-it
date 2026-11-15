@@ -29,7 +29,7 @@ type DraftField = "title" | "instructions" | "first_action" | "expected_delivera
  * generation nonce, so a fresh plan replaces it, a failed regeneration leaves
  * the edits in place, and discarding simply returns to the start state.
  */
-export function PlanPanel({ goalId }: { goalId: string }) {
+export function PlanPanel({ goalId, owner }: { goalId: string; owner?: boolean }) {
   const [planState, generate] = useActionState(planGoalAction, idlePlanState);
   const [saveState, savePlan] = useActionState(savePlanAction, idlePlanState);
   const [model, setModel] = useState(DEFAULT_AI_MODEL);
@@ -46,7 +46,9 @@ export function PlanPanel({ goalId }: { goalId: string }) {
       ? planState
       : null;
   const savedVisible = saveState.status === "saved" && !dismissed;
-  const note = remainingNote("plan");
+  const note = owner
+    ? "Owner account: this request is not charged."
+    : remainingNote("plan");
 
   return (
     <section

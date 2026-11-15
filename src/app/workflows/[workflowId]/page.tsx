@@ -77,7 +77,10 @@ export default async function WorkflowDetailPage({
             <WorkflowPreview steps={steps} />
           </div>
           <div className="mt-4">
-            <StartWorkflowForm workflowId={detail.workflow.id} />
+            <StartWorkflowForm
+              workflowId={detail.workflow.id}
+              owner={identity.isOwner}
+            />
           </div>
         </section>
 
