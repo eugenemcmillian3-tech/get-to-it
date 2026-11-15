@@ -13,6 +13,8 @@ import {
   SETUP_REQUIRED_MESSAGE,
 } from "@/lib/supabase/config";
 import {
+  emailCodeRequestSchema,
+  emailCodeVerifySchema,
   firstErrorMessage,
   readText,
   safeNextPath,
@@ -33,6 +35,9 @@ function friendlyAuthError(message: string): string {
   }
   if (text.includes("rate limit") || text.includes("too many")) {
     return "Too many tries in a short time. Wait a minute, then try again.";
+  }
+  if (text.includes("invalid otp") || text.includes("token has expired") || text.includes("expired")) {
+    return "That code didn't work. Check the six digits, or send a new code.";
   }
   if (text.includes("password")) {
     return "Use at least 8 characters for your password.";
@@ -137,6 +142,81 @@ export async function signUpAction(
 
   revalidatePath("/", "layout");
   redirect("/dashboard");
+}
+
+export async function sendEmailCodeAction(
+  _previous: AuthState,
+  formData: FormData,
+): Promise<AuthState> {
+  const parsed = emailCodeRequestSchema.safeParse({
+    email: readText(formData, "email"),
+  });
+  if (!parsed.success) {
+    return { status: "error", message: firstErrorMessage(parsed.error) };
+  }
+
+  let supabase: ServerSupabaseClient;
+  try {
+    supabase = await clientOrSetupError();
+  } catch {
+    return { status: "error", message: SETUP_REQUIRED_MESSAGE };
+  }
+
+  const { error } = await supabase.auth.signInWithOtp({
+    email: parsed.data.email,
+    options: { shouldCreateUser: false },
+  });
+
+  if (error) {
+    console.error("sendEmailCodeAction failed:", error.message);
+    // Do not reveal whether an address has an account. Rate limits are the one
+    // failure the person can act on, so keep that message specific.
+    if (/rate limit|too many/i.test(error.message)) {
+      return {
+        status: "error",
+        message: "Too many codes requested. Wait a minute, then try again.",
+      };
+    }
+  }
+
+  return {
+    status: "success",
+    message:
+      "If that email has an account, a six-digit code is on its way. It expires in 10 minutes.",
+  };
+}
+
+export async function verifyEmailCodeAction(
+  _previous: AuthState,
+  formData: FormData,
+): Promise<AuthState> {
+  const parsed = emailCodeVerifySchema.safeParse({
+    email: readText(formData, "email"),
+    token: readText(formData, "token"),
+  });
+  if (!parsed.success) {
+    return { status: "error", message: firstErrorMessage(parsed.error) };
+  }
+
+  let supabase: ServerSupabaseClient;
+  try {
+    supabase = await clientOrSetupError();
+  } catch {
+    return { status: "error", message: SETUP_REQUIRED_MESSAGE };
+  }
+
+  const { error } = await supabase.auth.verifyOtp({
+    email: parsed.data.email,
+    token: parsed.data.token,
+    type: "email",
+  });
+
+  if (error) {
+    return { status: "error", message: friendlyAuthError(error.message) };
+  }
+
+  revalidatePath("/", "layout");
+  redirect(safeNextPath(readText(formData, "next")));
 }
 
 export async function signOutAction(): Promise<void> {

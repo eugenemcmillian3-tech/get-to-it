@@ -869,7 +869,15 @@ taking real money is a deliberate step, not a side effect of pasting a key.
 tasks, AI outcomes, reported tokens, known versus unknown cost, credits sold and
 spent, adjustments, payment states and webhook failures. Access is checked in
 the database, not the browser, and no task title, note or saved work is selected.
-Manual adjustments require a note and land in the same ledger.
+Manual adjustments require a note and land in the same ledger. An owner also
+passes every paid-entitlement gate (premium templates, release features and the
+other billing grants) without a purchase. AI credits are still metered because
+each call pays a provider.
+
+**Email-code sign-in.** The sign-in page also sends a six-digit code to an
+existing account. The response does not reveal whether an address is registered,
+Supabase applies its own expiry and rate limits, and the code is verified by a
+server action that sets the session cookie.
 
 **Granting the owner role.** `public.app_owners` is operator-managed: no route
 and no server action writes it, and the browser roles have no grants on the

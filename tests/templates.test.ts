@@ -17,6 +17,10 @@ import {
   templateTotalMinutes,
   templatesByCategory,
 } from "@/lib/templates/library";
+import {
+  suggestionForCategory,
+  suggestedDeadline,
+} from "@/lib/templates/suggestions";
 import { templateStepsSchema, templateUseSchema } from "@/lib/validation";
 
 describe("the static template library", () => {
@@ -278,5 +282,43 @@ describe("template use validation", () => {
     expect(templateUseSchema.safeParse({ ...valid, category: "" }).success).toBe(
       true,
     );
+  });
+
+  it("keeps the optional obstacle empty or trimmed", () => {
+    const blank = templateUseSchema.safeParse({ ...valid, blocker: "   " });
+    expect(blank.success && blank.data.blocker).toBe("");
+
+    const trimmed = templateUseSchema.safeParse({
+      ...valid,
+      blocker: "  I keep polishing instead of shipping.  ",
+    });
+    expect(trimmed.success && trimmed.data.blocker).toBe(
+      "I keep polishing instead of shipping.",
+    );
+  });
+});
+
+describe("template suggestions", () => {
+  it("gives every category a usable focus, obstacle, time and deadline", () => {
+    for (const category of TEMPLATE_CATEGORIES) {
+      const suggestion = suggestionForCategory(category.slug);
+      expect(suggestion.focus.length).toBeGreaterThan(10);
+      expect(suggestion.blocker.length).toBeGreaterThan(10);
+      expect(suggestion.timeAvailable).toBeGreaterThanOrEqual(10);
+      expect(suggestion.timeAvailable).toBeLessThanOrEqual(180);
+      expect(suggestion.deadlineDays).toBeGreaterThan(0);
+    }
+  });
+
+  it("falls back cleanly when a personal template has no category", () => {
+    expect(suggestionForCategory(null).timeAvailable).toBe(30);
+  });
+
+  it("formats a suggested future date for a date input", () => {
+    const value = suggestedDeadline(14);
+    expect(value).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    const parsed = new Date(`${value}T00:00:00`);
+    expect(Number.isNaN(parsed.getTime())).toBe(false);
+    expect(value >= new Date().toISOString().slice(0, 10)).toBe(true);
   });
 });

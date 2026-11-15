@@ -10,6 +10,11 @@ export async function hasBillingGrant(
   session: Session,
   grant: BillingGrant,
 ): Promise<boolean> {
+  // The operator account can inspect and use every paid entitlement. This does
+  // not bypass AI credit charges: those pay a real provider for each call.
+  const { data: owner } = await session.supabase.rpc("app_is_owner");
+  if (owner === true) return true;
+
   const { data, error } = await session.supabase.rpc("billing_has_grant", {
     p_grant: grant,
   });

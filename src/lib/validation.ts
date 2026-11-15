@@ -103,6 +103,7 @@ export const templateUseSchema = z.object({
   deadline: optionalDateSchema,
   time_available_minutes: goalTimeSchema,
   category: optionalCategorySchema.default(""),
+  blocker: z.string().trim().max(2000, "Keep this under 2000 characters.").default(""),
   steps: templateStepsSchema,
 });
 
@@ -228,6 +229,25 @@ export const signInSchema = z.object({
     .max(254, "That email is too long.")
     .regex(EMAIL_PATTERN, "That email doesn't look right."),
   password: z.string().min(1, "Enter your password.").max(72, "Passwords are limited to 72 characters."),
+});
+
+const emailCodeEmailSchema = z
+  .string()
+  .trim()
+  .min(1, "Enter your email address.")
+  .max(254, "That email is too long.")
+  .regex(EMAIL_PATTERN, "That email doesn't look right.");
+
+export const emailCodeRequestSchema = z.object({
+  email: emailCodeEmailSchema,
+});
+
+export const emailCodeVerifySchema = z.object({
+  email: emailCodeEmailSchema,
+  token: z
+    .string()
+    .trim()
+    .regex(/^\d{6}$/, "Enter the six-digit code from your email."),
 });
 
 /** Safely read a form value as a trimmed string. */

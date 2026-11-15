@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AuthForm } from "@/components/auth-form";
 import { AuthShell } from "@/components/auth-shell";
+import { EmailCodeForm } from "@/components/email-code-form";
 import { SetupNotice } from "@/components/setup-notice";
 import { getSession } from "@/lib/auth";
 import { getSupabaseSettings } from "@/lib/supabase/config";
@@ -59,6 +60,9 @@ export default async function SignInPage({
     >
       <AuthForm
         mode="sign-in"
+        nextPath={nextPath === "/dashboard" ? undefined : nextPath}
+      />
+      <EmailCodeForm
         nextPath={nextPath === "/dashboard" ? undefined : nextPath}
       />
     </AuthShell>
