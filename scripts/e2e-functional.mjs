@@ -329,7 +329,7 @@ async function runWorkflow(sessionA, accountA, page) {
     }),
   });
 
-  await page.goto(`${BASE}/workflows/${workflow.id}`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${BASE}/workflows/${workflow.id}`, { waitUntil: "networkidle" });
   await activateByKeyboard(
     page,
     (active) => active.tag === "button" && active.text === "Start a run",
@@ -413,8 +413,14 @@ async function runWorkflow(sessionA, accountA, page) {
 
 async function exportGoal(page) {
   const exportPath = join(workDir, "export.json");
-  await page.goto(`${BASE}/data`, { waitUntil: "domcontentloaded" });
-  const downloadPromise = page.waitForEvent("download", { timeout: 30_000 });
+  await page.goto(`${BASE}/data`, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Download JSON export" }).waitFor({
+    timeout: 20_000,
+  });
+  // The button is server-rendered before its click handler is attached. Give
+  // hydration a moment on a cold CI app so Enter is not swallowed.
+  await page.waitForTimeout(750);
+  const downloadPromise = page.waitForEvent("download", { timeout: 60_000 });
   await activateByKeyboard(
     page,
     (active) => active.tag === "button" && active.text === "Download JSON export",
