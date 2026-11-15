@@ -237,10 +237,14 @@ async function openGoalByKeyboard(page, goal) {
     page.waitForURL((url) => url.pathname === `/goals/${goal.id}`, { timeout: 20_000 }),
     page.keyboard.press("Enter"),
   ]);
+  await page
+    .getByRole("heading", { level: 1, name: goal.title })
+    .waitFor({ timeout: 20_000 });
   check("goal opens from the dashboard with the keyboard", true);
 }
 
 async function openTaskByKeyboard(page, goal, task) {
+  await page.getByRole("link", { name: task.title }).waitFor({ timeout: 20_000 });
   await tabTo(
     page,
     (active) =>
@@ -253,6 +257,9 @@ async function openTaskByKeyboard(page, goal, task) {
     }),
     page.keyboard.press("Enter"),
   ]);
+  await page
+    .getByRole("heading", { level: 1, name: task.title })
+    .waitFor({ timeout: 20_000 });
   check("task opens from the goal with the keyboard", true);
 }
 
