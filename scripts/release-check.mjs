@@ -3,8 +3,8 @@
  * Reproducible release checks.
  *
  * Runs typecheck, lint, unit tests, a production build, a dependency audit, a
- * secret pattern scan and the Phase 37 knowledge harness, then prints the source
- * revision the result belongs to. The harness replays every migration into its
+ * secret pattern scan, the Phase 37 knowledge harness and a database-down health
+ * probe, then prints the source revision the result belongs to. The harness replays every migration into its
  * own throwaway database, so a release record shows the schema rules were
  * verified rather than assumed. The restore drill stays separate
  * (`npm run test:restore`) because it is a longer drill.
@@ -89,12 +89,15 @@ if (browserCheck.status === 0) {
 } else {
   process.exitCode = 1;
 }
-const totalChecks = checks.length + 1;
+if (
+  run("Database-down health check", "node", ["scripts/release-health-check.mjs"])
+) {
+  passed += 1;
+}
+const totalChecks = checks.length + 2;
 
-console.log("\nManual checks that remain manual:");
-console.log("  - error recovery: stop the database, confirm the health check is 503");
 console.log(
-  "Authenticated keyboard traversal runs in the authenticated-e2e CI job.",
+  "\nNo checklist items remain manual; authenticated keyboard traversal runs in the authenticated-e2e CI job.",
 );
 
 // A check that ran but compared nothing is not the same as a check that passed,
