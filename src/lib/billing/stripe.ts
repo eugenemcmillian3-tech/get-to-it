@@ -1,9 +1,9 @@
 /**
  * Server-only Stripe Checkout adapter for paid product offers.
  *
- * One-time Checkout only: no subscription is created, nothing renews, and no
- * price is read from the browser. An offer becomes active only after the signed
- * webhook records a completed checkout.
+ * Recurring offers use a server-side Stripe price ID; one-time offers use an
+ * inline price. No amount or price is read from the browser. An offer becomes
+ * active only after the signed webhook records a completed checkout.
  */
 
 import {
@@ -23,9 +23,16 @@ export type BillingCheckoutInput = {
   quantity: number;
   amountCents: number;
   currency: string;
+  billingMode: "one_time" | "subscription";
+  stripePriceId: string | null;
   successUrl: string;
   cancelUrl: string;
 };
+
+export function billingPriceId(offerSlug: string): string | null {
+  const value = process.env[`STRIPE_PRICE_ID_${offerSlug.toUpperCase()}`]?.trim();
+  return value?.startsWith("price_") ? value : null;
+}
 
 export type BillingCheckoutResult =
   | { ok: true; sessionId: string; url: string }
@@ -43,24 +50,40 @@ export async function createBillingCheckoutSession(
   }
 
   const body = new URLSearchParams();
-  body.set("mode", "payment");
   body.set("success_url", input.successUrl);
   body.set("cancel_url", input.cancelUrl);
   body.set("client_reference_id", input.purchaseId);
   body.set("metadata[purchase_id]", input.purchaseId);
   body.set("metadata[user_id]", input.userId);
   body.set("metadata[offer_slug]", input.offerSlug);
-  body.set("payment_intent_data[metadata][purchase_id]", input.purchaseId);
-  body.set("payment_intent_data[metadata][offer_slug]", input.offerSlug);
   if (input.email) body.set("customer_email", input.email);
 
-  body.set("line_items[0][quantity]", "1");
-  body.set("line_items[0][price_data][currency]", input.currency);
-  body.set("line_items[0][price_data][unit_amount]", String(input.amountCents));
-  body.set(
-    "line_items[0][price_data][product_data][name]",
-    input.quantity > 1 ? `${input.label} × ${input.quantity}` : input.label,
-  );
+  if (input.billingMode === "subscription") {
+    if (!input.stripePriceId) {
+      return {
+        ok: false,
+        message:
+          "That subscription's Stripe price is not configured. Nothing was charged.",
+      };
+    }
+    body.set("mode", "subscription");
+    body.set("line_items[0][price]", input.stripePriceId);
+    body.set("line_items[0][quantity]", String(input.quantity));
+    body.set("subscription_data[metadata][purchase_id]", input.purchaseId);
+    body.set("subscription_data[metadata][user_id]", input.userId);
+    body.set("subscription_data[metadata][offer_slug]", input.offerSlug);
+  } else {
+    body.set("mode", "payment");
+    body.set("payment_intent_data[metadata][purchase_id]", input.purchaseId);
+    body.set("payment_intent_data[metadata][offer_slug]", input.offerSlug);
+    body.set("line_items[0][quantity]", "1");
+    body.set("line_items[0][price_data][currency]", input.currency);
+    body.set("line_items[0][price_data][unit_amount]", String(input.amountCents));
+    body.set(
+      "line_items[0][price_data][product_data][name]",
+      input.quantity > 1 ? `${input.label} × ${input.quantity}` : input.label,
+    );
+  }
 
   let response: Response;
   try {
@@ -115,4 +138,49 @@ export async function createBillingCheckoutSession(
   }
 
   return { ok: true, sessionId: record.id, url: record.url };
+}
+
+export async function cancelSubscriptionAtPeriodEnd(
+  subscriptionId: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const key = getStripeKey();
+  if (!key) {
+    return {
+      ok: false,
+      message: liveKeyConfigured() ? STRIPE_LIVE_KEY_MESSAGE : STRIPE_SETUP_MESSAGE,
+    };
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(
+      `${apiBase()}/v1/subscriptions/${encodeURIComponent(subscriptionId)}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${key}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Stripe-Version": "2024-06-20",
+        },
+        body: new URLSearchParams({ cancel_at_period_end: "true" }),
+        signal: AbortSignal.timeout(15_000),
+      },
+    );
+  } catch (error) {
+    console.error(
+      "Stripe subscription cancellation failed:",
+      error instanceof Error ? error.message : "unknown error",
+    );
+    return { ok: false, message: "We couldn't reach the payment provider. Nothing changed." };
+  }
+
+  if (!response.ok) {
+    console.error("Stripe subscription cancellation returned", response.status);
+    return {
+      ok: false,
+      message: "The payment provider refused to cancel that subscription. Nothing changed.",
+    };
+  }
+
+  return { ok: true };
 }

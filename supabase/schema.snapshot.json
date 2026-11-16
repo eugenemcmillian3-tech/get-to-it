@@ -1056,6 +1056,15 @@
       "check": ""
     },
     {
+      "key": "billing_subscriptions.people read their own subscriptions",
+      "table": "billing_subscriptions",
+      "name": "people read their own subscriptions",
+      "cmd": "SELECT",
+      "roles": "{authenticated}",
+      "qual": "(user_id = ( SELECT auth.uid() AS uid))",
+      "check": ""
+    },
+    {
       "key": "capability_eval_human_baselines.owners read human baselines",
       "table": "capability_eval_human_baselines",
       "name": "owners read human baselines",
@@ -8604,11 +8613,18 @@
       "definition": "CHECK (((char_length(type) >= 1) AND (char_length(type) <= 120)))"
     },
     {
+      "key": "billing_offers.billing_offers_billing_interval_check",
+      "table": "billing_offers",
+      "name": "billing_offers_billing_interval_check",
+      "type": "c",
+      "definition": "CHECK ((((billing_interval IS NULL) AND (billing_interval_count IS NULL)) OR ((billing_interval = ANY (ARRAY['day'::text, 'month'::text])) AND ((billing_interval_count >= 1) AND (billing_interval_count <= 365)))))"
+    },
+    {
       "key": "billing_offers.billing_offers_billing_mode_check",
       "table": "billing_offers",
       "name": "billing_offers_billing_mode_check",
       "type": "c",
-      "definition": "CHECK ((billing_mode = 'one_time'::text))"
+      "definition": "CHECK ((billing_mode = ANY (ARRAY['one_time'::text, 'subscription'::text])))"
     },
     {
       "key": "billing_offers.billing_offers_check",
@@ -8672,6 +8688,13 @@
       "name": "billing_offers_quantity_label_check",
       "type": "c",
       "definition": "CHECK (((char_length(btrim(quantity_label)) >= 1) AND (char_length(btrim(quantity_label)) <= 40)))"
+    },
+    {
+      "key": "billing_offers.billing_offers_subscription_shape_check",
+      "table": "billing_offers",
+      "name": "billing_offers_subscription_shape_check",
+      "type": "c",
+      "definition": "CHECK ((((billing_mode = 'one_time'::text) AND (billing_interval IS NULL) AND (billing_interval_count IS NULL)) OR ((billing_mode = 'subscription'::text) AND (billing_interval IS NOT NULL) AND (billing_interval_count IS NOT NULL))))"
     },
     {
       "key": "billing_purchases.billing_purchases_amount_cents_check",
@@ -8754,6 +8777,83 @@
       "key": "billing_purchases.billing_purchases_workspace_id_fkey",
       "table": "billing_purchases",
       "name": "billing_purchases_workspace_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE SET NULL"
+    },
+    {
+      "key": "billing_subscriptions.billing_subscriptions_offer_slug_fkey",
+      "table": "billing_subscriptions",
+      "name": "billing_subscriptions_offer_slug_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (offer_slug) REFERENCES billing_offers(slug)"
+    },
+    {
+      "key": "billing_subscriptions.billing_subscriptions_pkey",
+      "table": "billing_subscriptions",
+      "name": "billing_subscriptions_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "billing_subscriptions.billing_subscriptions_project_id_fkey",
+      "table": "billing_subscriptions",
+      "name": "billing_subscriptions_project_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (project_id) REFERENCES app_projects(id) ON DELETE SET NULL"
+    },
+    {
+      "key": "billing_subscriptions.billing_subscriptions_provider_check",
+      "table": "billing_subscriptions",
+      "name": "billing_subscriptions_provider_check",
+      "type": "c",
+      "definition": "CHECK ((provider = 'stripe'::text))"
+    },
+    {
+      "key": "billing_subscriptions.billing_subscriptions_provider_subscription_id_key",
+      "table": "billing_subscriptions",
+      "name": "billing_subscriptions_provider_subscription_id_key",
+      "type": "u",
+      "definition": "UNIQUE (provider_subscription_id)"
+    },
+    {
+      "key": "billing_subscriptions.billing_subscriptions_purchase_id_fkey",
+      "table": "billing_subscriptions",
+      "name": "billing_subscriptions_purchase_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (purchase_id) REFERENCES billing_purchases(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "billing_subscriptions.billing_subscriptions_purchase_id_key",
+      "table": "billing_subscriptions",
+      "name": "billing_subscriptions_purchase_id_key",
+      "type": "u",
+      "definition": "UNIQUE (purchase_id)"
+    },
+    {
+      "key": "billing_subscriptions.billing_subscriptions_quantity_check",
+      "table": "billing_subscriptions",
+      "name": "billing_subscriptions_quantity_check",
+      "type": "c",
+      "definition": "CHECK (((quantity >= 1) AND (quantity <= 100)))"
+    },
+    {
+      "key": "billing_subscriptions.billing_subscriptions_status_check",
+      "table": "billing_subscriptions",
+      "name": "billing_subscriptions_status_check",
+      "type": "c",
+      "definition": "CHECK ((status = ANY (ARRAY['incomplete'::text, 'incomplete_expired'::text, 'trialing'::text, 'active'::text, 'past_due'::text, 'canceled'::text, 'unpaid'::text, 'paused'::text])))"
+    },
+    {
+      "key": "billing_subscriptions.billing_subscriptions_user_id_fkey",
+      "table": "billing_subscriptions",
+      "name": "billing_subscriptions_user_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "billing_subscriptions.billing_subscriptions_workspace_id_fkey",
+      "table": "billing_subscriptions",
+      "name": "billing_subscriptions_workspace_id_fkey",
       "type": "f",
       "definition": "FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE SET NULL"
     },
@@ -18051,6 +18151,12 @@
       "definition": "CREATE UNIQUE INDEX billing_offers_pkey ON public.billing_offers USING btree (slug)"
     },
     {
+      "key": "billing_offers.billing_offers_stripe_lookup_key_unique",
+      "table": "billing_offers",
+      "name": "billing_offers_stripe_lookup_key_unique",
+      "definition": "CREATE UNIQUE INDEX billing_offers_stripe_lookup_key_unique ON public.billing_offers USING btree (stripe_lookup_key) WHERE (stripe_lookup_key IS NOT NULL)"
+    },
+    {
       "key": "billing_purchases.billing_purchases_pkey",
       "table": "billing_purchases",
       "name": "billing_purchases_pkey",
@@ -18079,6 +18185,42 @@
       "table": "billing_purchases",
       "name": "billing_purchases_workspace_idx",
       "definition": "CREATE INDEX billing_purchases_workspace_idx ON public.billing_purchases USING btree (workspace_id, created_at DESC)"
+    },
+    {
+      "key": "billing_subscriptions.billing_subscriptions_period_idx",
+      "table": "billing_subscriptions",
+      "name": "billing_subscriptions_period_idx",
+      "definition": "CREATE INDEX billing_subscriptions_period_idx ON public.billing_subscriptions USING btree (current_period_end)"
+    },
+    {
+      "key": "billing_subscriptions.billing_subscriptions_pkey",
+      "table": "billing_subscriptions",
+      "name": "billing_subscriptions_pkey",
+      "definition": "CREATE UNIQUE INDEX billing_subscriptions_pkey ON public.billing_subscriptions USING btree (id)"
+    },
+    {
+      "key": "billing_subscriptions.billing_subscriptions_provider_subscription_id_key",
+      "table": "billing_subscriptions",
+      "name": "billing_subscriptions_provider_subscription_id_key",
+      "definition": "CREATE UNIQUE INDEX billing_subscriptions_provider_subscription_id_key ON public.billing_subscriptions USING btree (provider_subscription_id)"
+    },
+    {
+      "key": "billing_subscriptions.billing_subscriptions_purchase_id_key",
+      "table": "billing_subscriptions",
+      "name": "billing_subscriptions_purchase_id_key",
+      "definition": "CREATE UNIQUE INDEX billing_subscriptions_purchase_id_key ON public.billing_subscriptions USING btree (purchase_id)"
+    },
+    {
+      "key": "billing_subscriptions.billing_subscriptions_user_idx",
+      "table": "billing_subscriptions",
+      "name": "billing_subscriptions_user_idx",
+      "definition": "CREATE INDEX billing_subscriptions_user_idx ON public.billing_subscriptions USING btree (user_id, created_at DESC)"
+    },
+    {
+      "key": "billing_subscriptions.billing_subscriptions_workspace_idx",
+      "table": "billing_subscriptions",
+      "name": "billing_subscriptions_workspace_idx",
+      "definition": "CREATE INDEX billing_subscriptions_workspace_idx ON public.billing_subscriptions USING btree (workspace_id, created_at DESC)"
     },
     {
       "key": "capability_eval_answer_keys.capability_eval_answer_keys_pkey",

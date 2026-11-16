@@ -3878,6 +3878,147 @@ describeRestore("isolated restore and authorization drill", () => {
     expect(ledgerAfter.rows[0]).toEqual(ledgerBefore.rows[0]);
   });
 
+  it("tracks subscription periods and cancel-at-period-end without granting AI credits", async () => {
+    const token = `subscription-drill-token-${randomUUID()}`;
+    await client.query(
+      `insert into public.app_secrets (name, value) values ('credit_webhook', $1)
+       on conflict (name) do update set value = excluded.value, updated_at = now()`,
+      [token],
+    );
+
+    const ledgerBefore = await client.query<{ count: string; total: string }>(
+      `select count(*)::text as count, coalesce(sum(delta), 0)::text as total
+         from public.credit_ledger where user_id = $1`,
+      [accountA.userId],
+    );
+
+    const created = await asUser(accountA.userId, async () => {
+      const result = await client.query<{ r: { ok: boolean; workspace_id?: string } }>(
+        "select public.create_workspace('Subscription drill', 'Subscription lifecycle regression.') as r",
+      );
+      return result.rows[0].r;
+    });
+    expect(created.ok, JSON.stringify(created)).toBe(true);
+    const workspaceId = created.workspace_id;
+    if (!workspaceId) throw new Error("workspace was not created");
+
+    const purchase = await asUser(accountA.userId, async () => {
+      const result = await client.query<{
+        r: { ok: boolean; purchase_id?: string; amount_cents?: number };
+      }>(
+        "select public.create_billing_purchase('team_seats',2,$1,null) as r",
+        [workspaceId],
+      );
+      return result.rows[0].r;
+    });
+    expect(purchase.ok, JSON.stringify(purchase)).toBe(true);
+    expect(purchase.amount_cents).toBe(3800);
+    const purchaseId = purchase.purchase_id;
+    if (!purchaseId) throw new Error("purchase was not created");
+
+    const sessionId = `cs_subscription_${randomUUID()}`;
+    await asUser(accountA.userId, async () => {
+      await client.query("select public.attach_billing_session($1,$2)", [purchaseId, sessionId]);
+    });
+    await client.query(
+      "select public.billing_handle_event($1,$2,$3,$4,$5,null) as r",
+      [token, `evt_sub_checkout_${randomUUID()}`, "checkout.session.completed", sessionId, `pi_sub_${randomUUID()}`],
+    );
+
+    const subscriptionId = `sub_${randomUUID()}`;
+    const periodStart = new Date();
+    const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const subscriptionEvent = async (
+      type: string,
+      status: string,
+      end: Date,
+      cancelAtPeriodEnd: boolean,
+    ) => {
+      const result = await client.query<{ r: { ok: boolean; status?: string } }>(
+        `select public.billing_handle_subscription_event(
+           $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12
+         ) as r`,
+        [
+          token,
+          `evt_${type}_${randomUUID()}`,
+          type,
+          subscriptionId,
+          `cus_${randomUUID()}`,
+          status,
+          "price_test_subscription",
+          2,
+          periodStart.toISOString(),
+          end.toISOString(),
+          cancelAtPeriodEnd,
+          purchaseId,
+        ],
+      );
+      return result.rows[0].r;
+    };
+
+    expect(
+      (await subscriptionEvent("customer.subscription.created", "active", periodEnd, false)).ok,
+    ).toBe(true);
+    const subscriptionRow = await client.query<{
+      status: string;
+      quantity: number;
+      cancel_at_period_end: boolean;
+      current_period_end: string;
+    }>(
+      `select status, quantity, cancel_at_period_end, current_period_end
+         from public.billing_subscriptions where provider_subscription_id = $1`,
+      [subscriptionId],
+    );
+    expect(subscriptionRow.rows[0]).toMatchObject({
+      status: "active",
+      quantity: 2,
+      cancel_at_period_end: false,
+    });
+    expect(new Date(subscriptionRow.rows[0].current_period_end).toISOString()).toBe(
+      periodEnd.toISOString(),
+    );
+
+    const entitlement = await client.query<{ status: string; expires_at: string }>(
+      "select status, expires_at from public.billing_entitlements where purchase_id = $1",
+      [purchaseId],
+    );
+    expect(entitlement.rows[0].status).toBe("active");
+    expect(new Date(entitlement.rows[0].expires_at).toISOString()).toBe(
+      periodEnd.toISOString(),
+    );
+
+    const cancelled = await asUser(accountA.userId, async () => {
+      const result = await client.query<{ r: { ok: boolean } }>(
+        "select public.billing_request_cancel_subscription($1) as r",
+        [subscriptionId],
+      );
+      return result.rows[0].r;
+    });
+    expect(cancelled.ok).toBe(true);
+
+    await subscriptionEvent("customer.subscription.updated", "active", periodEnd, true);
+    const activeUntilEnd = await client.query<{ status: string }>(
+      "select status from public.billing_entitlements where purchase_id = $1",
+      [purchaseId],
+    );
+    expect(activeUntilEnd.rows[0].status).toBe("active");
+
+    const pastEnd = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    await subscriptionEvent("customer.subscription.deleted", "canceled", pastEnd, true);
+    const revoked = await client.query<{ status: string }>(
+      "select status from public.billing_entitlements where purchase_id = $1",
+      [purchaseId],
+    );
+    expect(revoked.rows[0].status).toBe("revoked");
+
+    const ledgerAfter = await client.query<{ count: string; total: string }>(
+      `select count(*)::text as count, coalesce(sum(delta), 0)::text as total
+         from public.credit_ledger where user_id = $1`,
+      [accountA.userId],
+    );
+    expect(ledgerAfter.rows[0]).toEqual(ledgerBefore.rows[0]);
+  });
+
   it("enforces team-seat limits for pending invitations, cancellation, active members, and direct inserts", async () => {
     const webhookToken = "seat-boundary-drill-webhook-token-2026-11-07";
     await client.query(

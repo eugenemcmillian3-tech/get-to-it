@@ -3,9 +3,10 @@
 ## Decision
 
 - **Retail value:** one credit costs **$0.10 USD**.
-- **Model:** prepaid AI credits plus optional paid product offers. No free plan, no trial, no promotional credits and no mandatory subscription or auto-renewal.
+- **Model:** prepaid AI credits plus optional paid product offers. No free plan, no trial, no promotional credits and no mandatory subscription.
 - **New accounts:** zero credits. Nothing is granted at signup.
 - **Credit packs:** one-time purchases only.
+- **Product offers:** five are auto-renewing subscriptions; premium templates and white-label remain one-time.
 
 | Pack | Price | Credits | Price per credit |
 | --- | ---: | ---: | ---: |
@@ -26,19 +27,22 @@ paid product entitlements and **never add AI credits or an AI allowance**:
 
 | Offer | Default price | Access |
 | --- | ---: | --- |
-| Team seats | $19 per seat / 30 days | Raises the workspace seat limit. The owner is seat one. |
-| Pro bundle | $49 / 30 days | Premium templates, priority support, white-label and onboarding. |
-| Automation add-on | $19 / 30 days | 500 calls and 100 writes per project per day instead of 100 and 25. |
-| Build & release pack | $79 / 90 days | Production deployment. Checks and explicit approval still apply. |
-| Premium templates | $29 | The two premium static templates. |
-| White-label & custom domain | $99 | Attaches a Vercel domain; the customer still owns DNS. |
-| Priority support & onboarding | $99 / 30 days | Priority request queue and self-serve onboarding checklist. |
+| Team seats | $19 per seat / 30 days | Auto-renews every 30 days. Raises the workspace seat limit. The owner is seat one. |
+| Pro bundle | $49 / 30 days | Auto-renews every 30 days. Premium templates, priority support, white-label and onboarding. |
+| Automation add-on | $19 / 30 days | Auto-renews every 30 days. 500 calls and 100 writes per project per day instead of 100 and 25. |
+| Build & release pack | $79 / 90 days | Auto-renews every 90 days. Production deployment. Checks and explicit approval still apply. |
+| Premium templates | $29 | One-time. The two premium static templates. |
+| White-label & custom domain | $99 | One-time. Attaches a Vercel domain; the customer still owns DNS. |
+| Priority support & onboarding | $99 / 30 days | Auto-renews every 30 days. Priority request queue and self-serve onboarding checklist. |
 
 Prices are defaults in the database and can be changed without a code deploy.
-Checkout is one-time in test mode; nothing renews. A verified webhook creates
-one entitlement row, and every gate checks the database and expiry. Refunds
-revoke the entitlement without deleting existing work. DNS and human support
-response time remain explicit external limits, not promises.
+The five recurring offers use server-side Stripe prices and create a Stripe
+subscription at Checkout. The two lifetime offers remain one-time. A verified
+webhook creates one entitlement row and keeps its exact period end current;
+every gate checks the database and expiry. A person can cancel at period end;
+access continues through the period already paid for. Refunds revoke the
+entitlement without deleting existing work. DNS and human support response time
+remain explicit external limits, not promises.
 
 ## Reference workload — not a universal allowance
 
@@ -90,6 +94,8 @@ This is implemented, but **not activated**:
 
 - `0034_credit_pricing.sql` and `0035_operation_budgets.sql` are not applied to
   production.
+- `0089_billing_subscriptions.sql` has passed the local restore drill but is not
+  applied to production. Its five Stripe prices exist in test mode only.
 - Live billing, production deployment and any production migration still need
   separate owner approval.
 - Production `public.ai_prices` remains empty. Provider-cost rows are documented

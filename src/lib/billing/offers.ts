@@ -20,6 +20,9 @@ export type BillingOfferDefinition = {
   label: string;
   description: string;
   priceCents: number;
+  billingMode: "one_time" | "subscription";
+  billingInterval: "day" | "month" | null;
+  billingIntervalCount: number | null;
   quantityLabel: string;
   minQuantity: number;
   maxQuantity: number;
@@ -34,8 +37,11 @@ export const BILLING_OFFERS: BillingOfferDefinition[] = [
     slug: "team_seats",
     label: "Team seats",
     description:
-      "Add seats to a workspace for 30 days. The owner counts as one seat. Buy the total number of people you need, including the owner. Does not include AI credits.",
+      "Add seats to a workspace, billed every 30 days. The owner counts as one seat. Buy the total number of people you need, including the owner. Does not include AI credits.",
     priceCents: 1900,
+    billingMode: "subscription",
+    billingInterval: "day",
+    billingIntervalCount: 30,
     quantityLabel: "total seats",
     minQuantity: 2,
     maxQuantity: 50,
@@ -48,8 +54,11 @@ export const BILLING_OFFERS: BillingOfferDefinition[] = [
     slug: "pro",
     label: "Pro bundle",
     description:
-      "A 30-day bundle of premium templates, priority support and the white-label entitlement. Does not include AI credits or team seats.",
+      "A subscription bundle of premium templates, priority support and the white-label entitlement, billed every 30 days. Does not include AI credits or team seats.",
     priceCents: 4900,
+    billingMode: "subscription",
+    billingInterval: "day",
+    billingIntervalCount: 30,
     quantityLabel: "pass",
     minQuantity: 1,
     maxQuantity: 1,
@@ -62,8 +71,11 @@ export const BILLING_OFFERS: BillingOfferDefinition[] = [
     slug: "automation_plus",
     label: "Automation add-on",
     description:
-      "Raise the daily external-tool limit for 30 days: 500 calls and 100 writes per project per day instead of 100 and 25. Every action still needs its own approval.",
+      "Raise the daily external-tool limit, billed every 30 days: 500 calls and 100 writes per project per day instead of 100 and 25. Every action still needs its own approval.",
     priceCents: 1900,
+    billingMode: "subscription",
+    billingInterval: "day",
+    billingIntervalCount: 30,
     quantityLabel: "pass",
     minQuantity: 1,
     maxQuantity: 1,
@@ -76,8 +88,11 @@ export const BILLING_OFFERS: BillingOfferDefinition[] = [
     slug: "build_release",
     label: "Build & release pack",
     description:
-      "Unlock production deployment for 90 days. Preview deployment, provider connections, checks, migration review and explicit approval still apply.",
+      "Unlock production deployment, billed every 90 days. Preview deployment, provider connections, checks, migration review and explicit approval still apply.",
     priceCents: 7900,
+    billingMode: "subscription",
+    billingInterval: "day",
+    billingIntervalCount: 90,
     quantityLabel: "pass",
     minQuantity: 1,
     maxQuantity: 1,
@@ -92,6 +107,9 @@ export const BILLING_OFFERS: BillingOfferDefinition[] = [
     description:
       "Unlock the premium template collection for this account. One payment, no renewal. Does not include AI credits.",
     priceCents: 2900,
+    billingMode: "one_time",
+    billingInterval: null,
+    billingIntervalCount: null,
     quantityLabel: "collection",
     minQuantity: 1,
     maxQuantity: 1,
@@ -106,6 +124,9 @@ export const BILLING_OFFERS: BillingOfferDefinition[] = [
     description:
       "Unlock custom-domain attachment for your generated apps and a white-label entitlement for this account. You still add the DNS records at your registrar; the app attaches the domain to the connected Vercel project.",
     priceCents: 9900,
+    billingMode: "one_time",
+    billingInterval: null,
+    billingIntervalCount: null,
     quantityLabel: "entitlement",
     minQuantity: 1,
     maxQuantity: 1,
@@ -118,8 +139,11 @@ export const BILLING_OFFERS: BillingOfferDefinition[] = [
     slug: "priority_support",
     label: "Priority support & onboarding",
     description:
-      "A 30-day priority support queue and the self-serve onboarding checklist. Messages are recorded here; GET TO IT does not promise a human response time. Does not include AI credits.",
+      "A priority support queue and the self-serve onboarding checklist, billed every 30 days. Messages are recorded here; GET TO IT does not promise a human response time. Does not include AI credits.",
     priceCents: 9900,
+    billingMode: "subscription",
+    billingInterval: "day",
+    billingIntervalCount: 30,
     quantityLabel: "pass",
     minQuantity: 1,
     maxQuantity: 1,
@@ -140,7 +164,17 @@ export function offerPriceLabel(priceCents: number, quantity = 1): string {
   return dollars % 1 === 0 ? `$${dollars}` : `$${dollars.toFixed(2)}`;
 }
 
-export function offerDurationLabel(durationDays: number | null): string {
+export function offerDurationLabel(
+  durationDays: number | null,
+  billingMode: "one_time" | "subscription" = "one_time",
+  billingInterval: "day" | "month" | null = null,
+  billingIntervalCount: number | null = null,
+): string {
+  if (billingMode === "subscription") {
+    const unit = billingInterval ?? "day";
+    const count = billingIntervalCount ?? 30;
+    return `Auto-renews every ${count} ${unit}${count === 1 ? "" : "s"}`;
+  }
   if (durationDays === null) return "One-time, no renewal";
   return `${durationDays}-day pass, no auto-renew`;
 }

@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { factsFromEvent, getWebhookSecret, parseStripeEvent, paymentDetailsFromEvent, verifyStripeSignature } from "@/lib/credits/stripe";
+import {
+  factsFromEvent,
+  getWebhookSecret,
+  parseStripeEvent,
+  paymentDetailsFromEvent,
+  subscriptionFactsFromEvent,
+  verifyStripeSignature,
+} from "@/lib/credits/stripe";
 import { sendPurchaseReceipt } from "@/lib/credits/receipt";
 import { getSupabaseSettings } from "@/lib/supabase/config";
 
@@ -58,6 +65,54 @@ export async function POST(request: Request) {
   const supabase = createClient(settings.url, settings.anonKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+
+  const isSubscriptionEvent =
+    event.type.startsWith("customer.subscription.") ||
+    event.type === "invoice.paid" ||
+    event.type === "invoice.payment_failed";
+
+  if (isSubscriptionEvent) {
+    const subscription = subscriptionFactsFromEvent(event);
+    if (!subscription.subscriptionId) {
+      return NextResponse.json({ ok: true, ignored: "missing-subscription" });
+    }
+
+    const { data: subscriptionData, error: subscriptionError } = await supabase.rpc(
+      "billing_handle_subscription_event",
+      {
+        p_token: rpcToken,
+        p_event_id: event.id,
+        p_type: event.type,
+        p_subscription_id: subscription.subscriptionId,
+        p_customer_id: subscription.customerId,
+        p_status: subscription.status,
+        p_price_id: subscription.priceId,
+        p_quantity: subscription.quantity,
+        p_period_start: subscription.periodStart,
+        p_period_end: subscription.periodEnd,
+        p_cancel_at_period_end: subscription.cancelAtPeriodEnd,
+        p_purchase_id: subscription.purchaseId,
+      },
+    );
+
+    if (subscriptionError) {
+      console.error("billing_handle_subscription_event failed:", subscriptionError.message);
+      return NextResponse.json(
+        { ok: false, error: "The subscription event could not be recorded yet." },
+        { status: 500 },
+      );
+    }
+
+    const subscriptionResult = (subscriptionData ?? {}) as { ok?: boolean; code?: string };
+    if (subscriptionResult.ok === false && subscriptionResult.code === "unauthorized") {
+      return NextResponse.json(
+        { ok: false, error: "That webhook token is not accepted." },
+        { status: 401 },
+      );
+    }
+
+    return NextResponse.json({ ok: true, subscription: subscriptionData });
+  }
 
   const { data, error } = await supabase.rpc("credit_handle_event", {
     p_token: rpcToken,

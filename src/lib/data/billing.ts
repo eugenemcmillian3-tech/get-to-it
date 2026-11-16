@@ -5,6 +5,7 @@ import type {
   BillingEntitlement,
   BillingOffer,
   BillingPurchase,
+  BillingSubscription,
   SupportRequest,
 } from "@/lib/types";
 
@@ -15,6 +16,7 @@ export type BillingOverview = {
   offers: BillingOffer[];
   purchases: BillingPurchase[];
   entitlements: BillingEntitlement[];
+  subscriptions: BillingSubscription[];
   supportRequests: SupportRequest[];
   domains: AppCustomDomain[];
   workspaces: { id: string; name: string }[];
@@ -24,12 +26,12 @@ export type BillingOverview = {
 export async function getBillingOverview(session: Session): Promise<BillingOverview> {
   const { supabase } = session;
 
-  const [offersResult, purchasesResult, entitlementsResult, supportResult, domainsResult, membershipsResult, projectsResult] =
+  const [offersResult, purchasesResult, entitlementsResult, subscriptionsResult, supportResult, domainsResult, membershipsResult, projectsResult] =
     await Promise.all([
       supabase
         .from("billing_offers")
         .select(
-          "slug, label, description, price_cents, currency, quantity_label, min_quantity, max_quantity, seat_based, grants, duration_days, sort_order",
+          "slug, label, description, price_cents, currency, billing_mode, billing_interval, billing_interval_count, quantity_label, min_quantity, max_quantity, seat_based, grants, duration_days, sort_order",
         )
         .eq("active", true)
         .order("sort_order", { ascending: true }),
@@ -49,6 +51,14 @@ export async function getBillingOverview(session: Session): Promise<BillingOverv
         .eq("user_id", session.user.id)
         .order("created_at", { ascending: false })
         .limit(50),
+      supabase
+        .from("billing_subscriptions")
+        .select(
+          "id, offer_slug, quantity, workspace_id, project_id, provider_subscription_id, status, current_period_end, cancel_at_period_end, created_at",
+        )
+        .eq("user_id", session.user.id)
+        .order("created_at", { ascending: false })
+        .limit(30),
       supabase
         .from("support_requests")
         .select("id, subject, body, status, priority, created_at")
@@ -79,6 +89,7 @@ export async function getBillingOverview(session: Session): Promise<BillingOverv
     offersResult,
     purchasesResult,
     entitlementsResult,
+    subscriptionsResult,
     supportResult,
     domainsResult,
     membershipsResult,
@@ -110,6 +121,7 @@ export async function getBillingOverview(session: Session): Promise<BillingOverv
     offers: (offersResult.data ?? []) as BillingOffer[],
     purchases: (purchasesResult.data ?? []) as BillingPurchase[],
     entitlements: (entitlementsResult.data ?? []) as BillingEntitlement[],
+    subscriptions: (subscriptionsResult.data ?? []) as BillingSubscription[],
     supportRequests: (supportResult.data ?? []) as SupportRequest[],
     domains: (domainsResult.data ?? []) as AppCustomDomain[],
     workspaces: (workspacesResult.data ?? []) as { id: string; name: string }[],

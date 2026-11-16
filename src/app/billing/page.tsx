@@ -3,7 +3,10 @@ import Link from "next/link";
 import { BillingOfferForm, CustomDomainForm, SupportRequestForm } from "@/components/billing-forms";
 import { SetupNotice } from "@/components/setup-notice";
 import { SiteHeader } from "@/components/site-header";
-import { cancelBillingPurchaseAction } from "@/lib/actions/billing";
+import {
+  cancelBillingPurchaseAction,
+  cancelBillingSubscriptionAction,
+} from "@/lib/actions/billing";
 import { requireSession } from "@/lib/auth";
 import { BILLING_NOT_CREDITS, billingGrantLabel, offerPriceLabel } from "@/lib/billing/offers";
 import { stripeConfigState } from "@/lib/credits/stripe";
@@ -23,6 +26,13 @@ const STATUS_LABEL: Record<string, string> = {
   failed: "Failed",
   canceled: "Cancelled",
   expired: "Expired",
+  active: "Active",
+  trialing: "Trial",
+  past_due: "Payment failed",
+  unpaid: "Unpaid",
+  incomplete: "Incomplete",
+  incomplete_expired: "Expired",
+  paused: "Paused",
 };
 
 function whenLabel(iso: string): string {
@@ -88,14 +98,16 @@ export default async function BillingPage({
           </h1>
           <p className="mt-3 max-w-2xl leading-relaxed text-muted">
             Seven add-ons for teams, automation, releases, templates, domains and
-            support. They are separate from AI credits.
+            support. Five renew automatically; two are one-time. They are separate
+            from AI credits.
           </p>
           <p className="mt-3 rounded-xl border border-brand/30 bg-brand-soft p-3 text-sm font-medium leading-relaxed">
             {BILLING_NOT_CREDITS}
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
             <span className={chipClass}>Stripe test mode</span>
-            <span className={chipClass}>No auto-renewal</span>
+            <span className={chipClass}>Recurring subscriptions</span>
+            <span className={chipClass}>Cancel before renewal</span>
             <span className={chipClass}>Access starts after webhook confirmation</span>
             <Link href="/credits" className={chipClass}>
               AI credits are separate
@@ -143,6 +155,58 @@ export default async function BillingPage({
           </section>
         ) : null}
 
+        {overview.subscriptions.length > 0 ? (
+          <section aria-labelledby="subscriptions-heading" className="mt-8">
+            <h2 id="subscriptions-heading" className="text-lg font-bold">
+              Subscriptions
+            </h2>
+            <p className="mt-1 text-sm leading-relaxed text-muted">
+              Cancel before the renewal date to stop the next payment. Access stays
+              active through the period already paid for.
+            </p>
+            <ul className="mt-3 space-y-2">
+              {overview.subscriptions.map((subscription) => {
+                const offer = offerBySlug.get(subscription.offer_slug);
+                const canCancel =
+                  !subscription.cancel_at_period_end &&
+                  ["active", "trialing", "past_due"].includes(subscription.status);
+                return (
+                  <li key={subscription.id} className={cardClass}>
+                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                      <p className="font-semibold">
+                        {offer?.label ?? subscription.offer_slug}
+                        {subscription.quantity > 1 ? ` × ${subscription.quantity}` : ""}
+                      </p>
+                      <span className={chipClass}>
+                        {subscription.cancel_at_period_end
+                          ? "Cancels at period end"
+                          : (STATUS_LABEL[subscription.status] ?? subscription.status)}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-muted">
+                      {subscription.current_period_end
+                        ? `Current period ends ${whenLabel(subscription.current_period_end)}`
+                        : "Waiting for Stripe to confirm the billing period"}
+                    </p>
+                    {canCancel ? (
+                      <form action={cancelBillingSubscriptionAction} className="mt-2">
+                        <input
+                          type="hidden"
+                          name="provider_subscription_id"
+                          value={subscription.provider_subscription_id}
+                        />
+                        <button type="submit" className={quietButton}>
+                          Cancel at period end
+                        </button>
+                      </form>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        ) : null}
+
         {!stripeReady ? (
           <p className="mt-6 rounded-xl border border-danger/30 bg-danger/5 p-3 text-sm text-danger">
             {stripeState === "live-blocked"
@@ -156,8 +220,9 @@ export default async function BillingPage({
             The seven offers
           </h2>
           <p className="mt-1 text-sm leading-relaxed text-muted">
-            Each offer becomes an entitlement automatically after payment. Nothing
-            renews and nothing is approved by hand.
+            Each offer becomes an entitlement automatically after payment. The five
+            subscriptions renew every 30 or 90 days until cancelled; the two
+            template and white-label offers are one-time. Nothing is approved by hand.
           </p>
 
           {overview.offers.length === 0 ? (

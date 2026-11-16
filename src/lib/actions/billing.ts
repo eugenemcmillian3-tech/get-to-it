@@ -7,7 +7,11 @@ import type { FormState } from "@/lib/action-state";
 import { getSession } from "@/lib/auth";
 import { hasBillingGrant } from "@/lib/billing/entitlements";
 import { billingOffer } from "@/lib/billing/offers";
-import { createBillingCheckoutSession } from "@/lib/billing/stripe";
+import {
+  billingPriceId,
+  cancelSubscriptionAtPeriodEnd,
+  createBillingCheckoutSession,
+} from "@/lib/billing/stripe";
 import { addVercelDomain } from "@/lib/deploy/providers";
 import { connectionAad, decryptSecret, vaultConfigured } from "@/lib/deploy/vault";
 import { readText } from "@/lib/validation";
@@ -25,6 +29,7 @@ type PurchasePayload = {
   currency?: string;
   label?: string;
   quantity?: number;
+  billing_mode?: "one_time" | "subscription";
 };
 
 function fail(message: string): FormState {
@@ -49,6 +54,11 @@ export async function startBillingCheckoutAction(
   }
   if (offer.seatBased && !workspaceId) {
     return fail("Choose the workspace these seats belong to.");
+  }
+
+  const stripePriceId = offer.billingMode === "subscription" ? billingPriceId(offerSlug) : null;
+  if (offer.billingMode === "subscription" && !stripePriceId) {
+    return fail("That subscription's Stripe price is not configured. Nothing was charged.");
   }
 
   const { data, error } = await session.supabase.rpc("create_billing_purchase", {
@@ -88,6 +98,8 @@ export async function startBillingCheckoutAction(
     quantity,
     amountCents: Number(purchase.amount_cents ?? offer.priceCents * quantity),
     currency: purchase.currency ?? "usd",
+    billingMode: purchase.billing_mode ?? offer.billingMode,
+    stripePriceId,
     successUrl: `${origin}/billing?checkout=done&purchase=${purchase.purchase_id}`,
     cancelUrl: `${origin}/billing?checkout=cancelled`,
   });
@@ -124,6 +136,35 @@ export async function cancelBillingPurchaseAction(formData: FormData): Promise<v
     p_purchase_id: purchaseId,
   });
   if (error) console.error("cancel_billing_purchase failed:", error.message);
+
+  revalidatePath("/billing");
+}
+
+export async function cancelBillingSubscriptionAction(formData: FormData): Promise<void> {
+  const session = await getSession();
+  if (!session) return;
+
+  const subscriptionId = readText(formData, "provider_subscription_id");
+  if (!subscriptionId) return;
+
+  const { data: subscription } = await session.supabase
+    .from("billing_subscriptions")
+    .select("provider_subscription_id")
+    .eq("provider_subscription_id", subscriptionId)
+    .eq("user_id", session.user.id)
+    .maybeSingle();
+  if (!subscription) return;
+
+  const cancelled = await cancelSubscriptionAtPeriodEnd(subscriptionId);
+  if (!cancelled.ok) {
+    console.error("cancelBillingSubscriptionAction failed:", cancelled.message);
+    return;
+  }
+
+  const { error } = await session.supabase.rpc("billing_request_cancel_subscription", {
+    p_provider_subscription_id: subscriptionId,
+  });
+  if (error) console.error("billing_request_cancel_subscription failed:", error.message);
 
   revalidatePath("/billing");
 }
