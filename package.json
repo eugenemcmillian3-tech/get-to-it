@@ -19,7 +19,7 @@
     "test:e2e:cleanup": "node scripts/e2e-cleanup-accounts.mjs",
     "test:email": "node scripts/email-signup-smoke.mjs",
     "test:preview": "PREVIEW_RUNNER_TEST=1 vitest run tests/preview-runner.integration.test.ts",
-    "check:e2e:post-merge": "node scripts/post-merge-e2e-check.mjs",
+    "check:e2e:post-merge": "node --env-file-if-exists=.env.local scripts/post-merge-e2e-check.mjs",
     "owner:grant": "node scripts/grant-owner.mjs",
     "check:secrets": "node scripts/secrets-check.mjs",
     "check:routes": "node scripts/route-audit.mjs",
