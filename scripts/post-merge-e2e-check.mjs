@@ -331,6 +331,9 @@ function releaseRecordTitle(commit, releaseDate) {
 
 function postReleaseRecord(repo, commit, releaseDate, run) {
   const short = commit.slice(0, 12);
+  // List issues directly instead of using search: a just-created issue can take
+  // seconds to enter GitHub's search index, which would create a duplicate when
+  // the checker is rerun immediately.
   const issues = ghJson(
     [
       "issue",
@@ -339,10 +342,8 @@ function postReleaseRecord(repo, commit, releaseDate, run) {
       repo,
       "--state",
       "all",
-      "--search",
-      "Release: in:title",
       "--limit",
-      "100",
+      "1000",
       "--json",
       "number,title,state,url",
     ],
