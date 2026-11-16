@@ -437,14 +437,17 @@ npm run check:e2e:post-merge -- --commit <merge-sha>
 ```
 
 The check fetches `origin/main` if the merge commit is missing locally, then waits
-for the push-triggered **Authenticated E2E** run for that commit, exits non-zero
-on failure or timeout, and prints the run URL. On success it also prints a
-copyable release-record block with the merge revision and run URL filled in. It
-uses the GitHub CLI, so authenticate with `gh auth login` (or provide `GH_TOKEN`)
-first. Record the URL in the release record below.
+for the push-triggered **Authenticated E2E** run for that commit and exits
+non-zero on failure or timeout. On success it creates or updates the GitHub
+release record issue for the merge commit, filling in the merge revision, run
+URL and production owner-copy result, then prints the issue URL and the same
+table. Re-running it for the same merge revision updates that issue instead of
+opening a duplicate. Use `--no-post` to only print the block. It uses the GitHub
+CLI with issue write access, so authenticate with `gh auth login` (or provide a
+`GH_TOKEN` with `issues:write`) first.
 
 On a push to `main`, that same run includes a second
-`production-owner-copy` job after the local browser suite. It waits for the
+`production-owner-copy` job alongside the local browser suite. It waits for the
 deployed `/api/health` to report the merged revision, then checks the learning,
 mission, workflow and preview-repair pages with a disposable owner account. It
 reuses the production `EMAIL_SMOKE_*` Supabase credentials and removes its rows
@@ -499,8 +502,8 @@ delete these `resend-…` labels while their alerts are active.
 Then check by hand, and record the result rather than assuming it:
 
 - [ ] **Post-merge E2E:** `npm run check:e2e:post-merge` passes for the merged
-      commit, including its production owner-copy job; record the merge revision
-      and run URL in the release record below.
+      commit, including its production owner-copy job; the checker creates or
+      updates the release record issue with the merge revision and run URL.
 - [ ] Sign in, create a goal, a task and saved work; complete and reopen the task.
 - [ ] Run a workflow through input, draft, review, approval and checkpoint.
 - [ ] Export JSON from `/data`, then preview and import it into a second account.
@@ -602,8 +605,8 @@ blank required field means **NO-GO**.
 | Approved by / UTC | `________` |
 
 The post-merge E2E row must reference the push run on `main` for the merge
-revision, not the advisory pull-request run. `npm run check:e2e:post-merge` prints
-that URL.
+revision, not the advisory pull-request run. `npm run check:e2e:post-merge`
+creates or updates that issue and prints its URL.
 
 ## Repository security
 

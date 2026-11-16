@@ -32,5 +32,7 @@ After merging, run:
 npm run check:e2e:post-merge -- --commit <merge-sha>
 ```
 
-The checker prints this block with the merge revision and E2E run URL filled in.
-The URL must be the push run on `main`, not the advisory pull-request run.
+The checker creates or updates a release record issue for the merge commit with
+this table and both automated results filled in. Re-running it updates the same
+issue. Use `--no-post` to only print the table. The URL must be the push run on
+`main`, not the advisory pull-request run.
