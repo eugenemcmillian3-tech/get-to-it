@@ -15,6 +15,7 @@
     "test:e2e": "node scripts/e2e-http.mjs",
     "test:functional": "node scripts/e2e-functional.mjs",
     "test:seats": "node scripts/e2e-team-seats.mjs",
+    "check:owner-copy:production": "node scripts/production-owner-copy-check.mjs",
     "test:e2e:cleanup": "node scripts/e2e-cleanup-accounts.mjs",
     "test:email": "node scripts/email-signup-smoke.mjs",
     "test:preview": "PREVIEW_RUNNER_TEST=1 vitest run tests/preview-runner.integration.test.ts",

@@ -154,3 +154,55 @@ jobs:
             artifacts/e2e-functional-failure.png
             artifacts/e2e-team-seats-failure.png
           if-no-files-found: ignore
+
+  production-owner-copy:
+    # The push run on main is the release gate. Wait for the merged revision to
+    # reach production, then assert owner-facing AI controls show no paid
+    # per-request price. The email-smoke credentials already point at the
+    # production Supabase project, so reuse them instead of storing the same
+    # service-role key twice.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      OWNER_COPY_BASE_URL: https://get-to-it-wvpy.vercel.app
+      EXPECTED_REVISION: ${{ github.sha }}
+      OWNER_COPY_SUPABASE_URL: ${{ secrets.EMAIL_SMOKE_SUPABASE_URL }}
+      OWNER_COPY_SUPABASE_ANON_KEY: ${{ secrets.EMAIL_SMOKE_SUPABASE_ANON_KEY }}
+      OWNER_COPY_SERVICE_ROLE_KEY: ${{ secrets.EMAIL_SMOKE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify production owner-copy configuration
+        run: |
+          missing=0
+          for name in OWNER_COPY_BASE_URL EXPECTED_REVISION OWNER_COPY_SUPABASE_URL OWNER_COPY_SUPABASE_ANON_KEY OWNER_COPY_SERVICE_ROLE_KEY; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is not configured. Add the production Supabase secrets described in README.md."
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run production owner-copy assertion
+        run: npm run check:owner-copy:production
+
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: production-owner-copy-diagnostics
+          path: artifacts/production-owner-copy-failure.png
+          if-no-files-found: ignore
