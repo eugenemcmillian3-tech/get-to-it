@@ -33,6 +33,6 @@ npm run check:e2e:post-merge -- --commit <merge-sha>
 ```
 
 The checker creates or updates a release record issue for the merge commit with
-this table and both automated results filled in. Re-running it updates the same
-issue. Use `--no-post` to only print the table. The URL must be the push run on
-`main`, not the advisory pull-request run.
+this table, the automated results and the deployment metadata filled in.
+Re-running it updates the same issue. Use `--no-post` to only print the table.
+The URL must be the push run on `main`, not the advisory pull-request run.

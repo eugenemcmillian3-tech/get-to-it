@@ -440,11 +440,19 @@ The check fetches `origin/main` if the merge commit is missing locally, then wai
 for the push-triggered **Authenticated E2E** run for that commit and exits
 non-zero on failure or timeout. On success it creates or updates the GitHub
 release record issue for the merge commit, filling in the merge revision, run
-URL and production owner-copy result, then prints the issue URL and the same
+URL, production owner-copy result, PR, PR head revision, READY production
+deployment and live health revision. It then prints the issue URL and the same
 table. Re-running it for the same merge revision updates that issue instead of
 opening a duplicate. Use `--no-post` to only print the block. It uses the GitHub
 CLI with issue write access, so authenticate with `gh auth login` (or provide a
 `GH_TOKEN` with `issues:write`) first.
+
+Deployment metadata is read from `VERCEL_TOKEN` or `VERCEL_API_TOKEN`, with
+optional `VERCEL_TEAM_ID` and `VERCEL_PROJECT_ID` (defaults to the
+`get-to-it-wvpy` project). The health revision comes from production
+`/api/health`; override it with `RELEASE_HEALTH_URL`. The npm command loads
+`.env.local` when present. A failed lookup leaves only that field blank and
+prints a warning rather than turning a green run into a failure.
 
 On a push to `main`, that same run includes a second
 `production-owner-copy` job alongside the local browser suite. It waits for the
