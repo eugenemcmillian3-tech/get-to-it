@@ -22,10 +22,12 @@ export function BillingOfferForm({
   offer,
   workspaces,
   enabled,
+  live,
 }: {
   offer: BillingOffer;
   workspaces: { id: string; name: string }[];
   enabled: boolean;
+  live: boolean;
 }) {
   const [state, formAction] = useActionState(
     startBillingCheckoutAction,
@@ -133,7 +135,7 @@ export function BillingOfferForm({
             : "Checkout unavailable"}
         </SubmitButton>
         <p className={`${hintClass} mt-2`}>
-          Test mode only.{" "}
+          {live ? "Live payment." : "Test mode only."}{" "}
           {offer.billing_mode === "subscription"
             ? "Renews automatically until cancelled. "
             : "One-time payment. "}

@@ -9,7 +9,7 @@ import {
 } from "@/lib/actions/billing";
 import { requireSession } from "@/lib/auth";
 import { BILLING_NOT_CREDITS, billingGrantLabel, offerPriceLabel } from "@/lib/billing/offers";
-import { stripeConfigState } from "@/lib/credits/stripe";
+import { liveKeyConfigured, stripeConfigState } from "@/lib/credits/stripe";
 import { activeGrants, getBillingOverview } from "@/lib/data/billing";
 import { getIdentity } from "@/lib/identity";
 import { getSupabaseSettings } from "@/lib/supabase/config";
@@ -75,6 +75,7 @@ export default async function BillingPage({
 
   const stripeState = stripeConfigState();
   const stripeReady = stripeState === "ready";
+  const livePayments = stripeReady && liveKeyConfigured();
   const now = new Date();
   const grants = activeGrants(overview.entitlements, now);
   const active = overview.entitlements.filter((item) => entitlementIsActive(item, now));
@@ -105,7 +106,9 @@ export default async function BillingPage({
             {BILLING_NOT_CREDITS}
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
-            <span className={chipClass}>Stripe test mode</span>
+            <span className={chipClass}>
+              {livePayments ? "Stripe live mode" : "Stripe test mode"}
+            </span>
             <span className={chipClass}>Recurring subscriptions</span>
             <span className={chipClass}>Cancel before renewal</span>
             <span className={chipClass}>Access starts after webhook confirmation</span>
@@ -237,6 +240,7 @@ export default async function BillingPage({
                   offer={offer}
                   workspaces={overview.workspaces}
                   enabled={stripeReady}
+                  live={livePayments}
                 />
               ))}
             </div>
