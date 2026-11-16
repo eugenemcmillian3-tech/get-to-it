@@ -376,7 +376,14 @@ export function subscriptionFactsFromEvent(event: StripeEvent): SubscriptionFact
 
   if (event.type.startsWith("customer.subscription.")) {
     const items = object.items as
-      | { data?: Array<{ price?: { id?: unknown }; quantity?: unknown }> }
+      | {
+          data?: Array<{
+            price?: { id?: unknown };
+            quantity?: unknown;
+            current_period_start?: unknown;
+            current_period_end?: unknown;
+          }>;
+        }
       | undefined;
     const item = items?.data?.[0];
     return {
@@ -385,8 +392,10 @@ export function subscriptionFactsFromEvent(event: StripeEvent): SubscriptionFact
       status: typeof object.status === "string" ? object.status : null,
       priceId: objectId(item?.price?.id),
       quantity: typeof item?.quantity === "number" ? item.quantity : null,
-      periodStart: timestamp(object.current_period_start),
-      periodEnd: timestamp(object.current_period_end),
+      periodStart: timestamp(
+        object.current_period_start ?? item?.current_period_start,
+      ),
+      periodEnd: timestamp(object.current_period_end ?? item?.current_period_end),
       cancelAtPeriodEnd:
         typeof object.cancel_at_period_end === "boolean"
           ? object.cancel_at_period_end

@@ -84,10 +84,17 @@ describe("paid offers", () => {
           customer: "cus_test",
           status: "active",
           cancel_at_period_end: true,
-          current_period_start: 1_760_000_000,
-          current_period_end: 1_762_592_000,
           metadata: { purchase_id: "purchase_test" },
-          items: { data: [{ price: { id: "price_test" }, quantity: 3 }] },
+          items: {
+            data: [
+              {
+                price: { id: "price_test" },
+                quantity: 3,
+                current_period_start: 1_760_000_000,
+                current_period_end: 1_762_592_000,
+              },
+            ],
+          },
         },
       },
     });
