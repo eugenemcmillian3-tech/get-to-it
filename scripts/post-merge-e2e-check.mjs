@@ -8,16 +8,19 @@
  * revision is green. If the commit is not available locally, fetch `origin/main`
  * once and retry before failing. The push run includes the production-owner-copy
  * job on `main`, so a green run covers both the merged source and the deployed
- * origin. On success, print a copyable release-record block with the merge
- * revision and run URL already filled in.
+ * origin. On success, create or update the GitHub release record issue for the
+ * merge commit, then print the same table. Use --no-post to only print it.
  *
  * Usage:
  *   npm run check:e2e:post-merge
  *   npm run check:e2e:post-merge -- --commit <merge-sha>
  *   npm run check:e2e:post-merge -- --timeout-seconds 1800 --poll-seconds 10
+ *   npm run check:e2e:post-merge -- --no-post
  *
  * The script uses the authenticated `gh` CLI. Set GH_TOKEN or GITHUB_TOKEN when
- * gh is not already signed in. It never prints environment values.
+ * gh is not already signed in. Posting the release record needs issue write
+ * access; use --no-post when only the local block is wanted. It never prints
+ * environment values.
  *
  * If the requested commit is not available locally, the check fetches
  * `origin/main` once before reporting that it cannot resolve the commit.
@@ -40,11 +43,12 @@ Options:
   --commit <sha>           Commit to check; defaults to HEAD.
   --timeout-seconds <n>    Give up after n seconds; default ${DEFAULT_TIMEOUT_SECONDS}.
   --poll-seconds <n>       Poll every n seconds; default ${DEFAULT_POLL_SECONDS}.
+  --no-post                Print the release record but do not post it to GitHub.
   -h, --help               Show this help.
 
 Exit status:
-  0  the run completed successfully and printed the release-record block
-  1  the run failed, was cancelled, was missing, or timed out
+  0  the run passed and its release record was posted, or --no-post was used
+  1  the run failed, was cancelled, was missing, timed out, or could not be recorded
 `);
 }
 
@@ -68,6 +72,7 @@ function parseOptions(argv) {
     commit: "",
     timeoutSeconds: DEFAULT_TIMEOUT_SECONDS,
     pollSeconds: DEFAULT_POLL_SECONDS,
+    postReleaseRecord: true,
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -75,6 +80,10 @@ function parseOptions(argv) {
 
     if (argument === "--help" || argument === "-h") {
       options.help = true;
+      continue;
+    }
+    if (argument === "--no-post") {
+      options.postReleaseRecord = false;
       continue;
     }
     if (argument === "--") continue;
@@ -202,7 +211,7 @@ function resolveCommit(input) {
   );
 }
 
-function ghJson(args) {
+function runGh(args, label) {
   const result = spawnSync("gh", args, {
     encoding: "utf8",
     timeout: 30_000,
@@ -218,14 +227,19 @@ function ghJson(args) {
   if (result.status !== 0) {
     const detail = (result.stderr || result.stdout || "").trim();
     throw new Error(
-      `gh run list failed${result.status ? ` (${result.status})` : ""}.${detail ? ` ${detail}` : ""}`,
+      `${label} failed${result.status ? ` (${result.status})` : ""}.${detail ? ` ${detail}` : ""}`,
     );
   }
 
+  return result.stdout.trim();
+}
+
+function ghJson(args, label) {
+  const stdout = runGh(args, label);
   try {
-    return JSON.parse(result.stdout);
+    return JSON.parse(stdout);
   } catch {
-    throw new Error("gh returned unreadable JSON.");
+    throw new Error(`${label} returned unreadable JSON.`);
   }
 }
 
@@ -247,7 +261,7 @@ function findRun(repo, commit) {
     "1",
     "--json",
     "databaseId,headSha,status,conclusion,url",
-  ]);
+  ], "gh run list");
 
   if (!Array.isArray(runs)) throw new Error("gh returned an unexpected run list.");
   return runs[0] ?? null;
@@ -261,9 +275,9 @@ function noRunMessage(repo, commit) {
   return `No push-triggered Authenticated E2E run found for ${commit.slice(0, 12)} on ${BRANCH}. Check ${ACTIONS_URL}/${repo}/actions/workflows/${WORKFLOW}.`;
 }
 
-function releaseRecordBlock(commit, run) {
-  const fields = [
-    ["Release date (UTC)", `\`${new Date().toISOString()}\``],
+function releaseRecordFields(commit, run, releaseDate) {
+  return [
+    ["Release date (UTC)", `\`${releaseDate}\``],
     ["Pre-merge source revision (`npm run release:check`)", "`________`"],
     ["PR", "`________`"],
     ["Merge revision on `main`", `\`${commit}\``],
@@ -276,14 +290,98 @@ function releaseRecordBlock(commit, run) {
     ["Rollback / backup reference (if applicable)", "`________`"],
     ["Approved by / UTC", "`________`"],
   ];
+}
 
+function releaseRecordTable(commit, run, releaseDate) {
   return [
-    "Release record (copy into the release issue or operations log):",
-    "",
     "| Field | Value |",
     "| --- | --- |",
-    ...fields.map(([field, value]) => `| ${field} | ${value} |`),
+    ...releaseRecordFields(commit, run, releaseDate).map(
+      ([field, value]) => `| ${field} | ${value} |`,
+    ),
   ].join("\n");
+}
+
+function releaseRecordBlock(commit, run, releaseDate) {
+  return [
+    "Release record:",
+    "",
+    releaseRecordTable(commit, run, releaseDate),
+  ].join("\n");
+}
+
+function releaseRecordBody(repo, commit, run, releaseDate) {
+  return [
+    "A blank required field means **NO-GO**. See the release checklist in",
+    `[OPERATIONS.md](https://github.com/${repo}/blob/main/OPERATIONS.md#release-checklist).`,
+    "",
+    "## Release record",
+    "",
+    releaseRecordTable(commit, run, releaseDate),
+    "",
+    `Generated by \`npm run check:e2e:post-merge\` after push run ${run.url || "(URL unavailable)"}.`,
+    "The production owner-copy job is part of that run. Manual fields remain",
+    "blank until the release owner completes them.",
+  ].join("\n");
+}
+
+function releaseRecordTitle(commit, releaseDate) {
+  return `Release: production verification ${releaseDate.slice(0, 10)} (${commit.slice(0, 12)})`;
+}
+
+function postReleaseRecord(repo, commit, releaseDate, run) {
+  const short = commit.slice(0, 12);
+  const issues = ghJson(
+    [
+      "issue",
+      "list",
+      "--repo",
+      repo,
+      "--state",
+      "all",
+      "--search",
+      "Release: in:title",
+      "--limit",
+      "100",
+      "--json",
+      "number,title,state,url",
+    ],
+    "gh issue list",
+  );
+  if (!Array.isArray(issues)) throw new Error("gh returned an unexpected release-record list.");
+
+  const body = releaseRecordBody(repo, commit, run, releaseDate);
+  const existing = issues.find(
+    (issue) =>
+      typeof issue?.title === "string" &&
+      issue.title.startsWith("Release:") &&
+      issue.title.includes(`(${short})`),
+  );
+
+  if (existing) {
+    runGh(
+      ["issue", "edit", String(existing.number), "--repo", repo, "--body", body],
+      "gh issue edit",
+    );
+    console.log(`Updated release record issue #${existing.number}: ${existing.url}`);
+    return existing.url;
+  }
+
+  const url = runGh(
+    [
+      "issue",
+      "create",
+      "--repo",
+      repo,
+      "--title",
+      releaseRecordTitle(commit, releaseDate),
+      "--body",
+      body,
+    ],
+    "gh issue create",
+  );
+  console.log(`Opened release record issue: ${url}`);
+  return url;
 }
 
 async function main() {
@@ -343,8 +441,14 @@ async function main() {
           if (run.url) {
             console.log(`Run: ${run.url}`);
           }
+          const releaseDate = new Date().toISOString();
           console.log("");
-          console.log(releaseRecordBlock(commit, run));
+          console.log(releaseRecordBlock(commit, run, releaseDate));
+          if (options.postReleaseRecord) {
+            postReleaseRecord(repo, commit, releaseDate, run);
+          } else {
+            console.log("Skipped posting the release record because --no-post was used.");
+          }
           return;
         }
 
