@@ -14,7 +14,7 @@ GET TO IT deploys from the `main` branch of `eugenemcmillian3-tech/get-to-it` to
 - Auth callback: `https://get-to-it-wvpy.vercel.app/auth/callback`
 - Vercel environment names: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `DEPLOYMENT_VAULT_KEY`, `CRON_SECRET`, `CREDIT_RPC_TOKEN`, `SUPABASE_OAUTH_REDIRECT_URI`
 
-Optional credentials configured in production as of 2026-11-07: `SUPABASE_OAUTH_CLIENT_ID`, `SUPABASE_OAUTH_CLIENT_SECRET`, `COMPOSIO_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PUBLISHABLE_KEY` and `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`. The Stripe key is test mode only; `STRIPE_ALLOW_LIVE` remains absent.
+Optional credentials configured in production as of 2026-11-07: `SUPABASE_OAUTH_CLIENT_ID`, `SUPABASE_OAUTH_CLIENT_SECRET`, `COMPOSIO_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PUBLISHABLE_KEY` and `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`. The Stripe key is test mode only; `STRIPE_ALLOW_LIVE=true` is ready, but no live key is installed.
 
 Optional credentials not configured in production: `OLLAMA_API_KEY`, `PREVIEW_RUNNER_URL`, `PREVIEW_RUNNER_TOKEN` and `PREVIEW_SIGNING_SECRET`. The app stays in setup mode for those features rather than pretending they work. The Vercel Supabase integration also supplies server-only `POSTGRES_*` connection values and `SUPABASE_SERVICE_ROLE_KEY`; the service-role key is used only for the sanitized `error_events` sink and is never browser-exposed.
 
@@ -414,7 +414,8 @@ handwritten inverse of `0034` or `0035`, and never edit `credit_ledger` by hand.
 ## Live Stripe gate
 
 This rollout must **not** turn on real money. The current production configuration
-has no Stripe secret, so checkout shows a setup message.
+has a Stripe test key only; live payments require the owner's onboarding and
+explicit approval.
 
 Before any future live billing decision:
 
@@ -423,11 +424,22 @@ Before any future live billing decision:
       matching test endpoint secret.
 - [ ] `CREDIT_RPC_TOKEN` is set and the same value is stored in
       `public.app_secrets` under `credit_webhook`.
+- [ ] `0089_billing_subscriptions.sql` is applied and the five
+      `STRIPE_PRICE_ID_*` variables are set for the same Stripe mode.
+- [ ] The recurring catalogue was created with
+      `npm run stripe:subscriptions -- --apply`; prices are $19/$49/$19/$79/$99
+      on 30/30/30/90/30-day intervals.
 - [ ] The Stripe endpoint points at `/api/stripe/webhook` and subscribes to
-      `checkout.session.completed`, `checkout.session.expired` and
-      `charge.refunded`.
+      `checkout.session.completed`, `checkout.session.expired`,
+      `checkout.session.async_payment_failed`, `charge.refunded`,
+      `customer.subscription.created`, `customer.subscription.updated`,
+      `customer.subscription.deleted`, `invoice.paid` and
+      `invoice.payment_failed`.
 - [ ] A test purchase grants exactly the pack credits once, a duplicate event is
       ignored, and a refund only succeeds when the balance covers it.
+- [ ] A test subscription appears in `/billing`, its period end matches Stripe,
+      cancel-at-period-end stops renewal and access survives through the paid
+      period. No subscription adds AI credits.
 - [ ] Production still has no outstanding customer balance that would be
       repriced by a pack change.
 - [ ] The owner explicitly approves taking real money.

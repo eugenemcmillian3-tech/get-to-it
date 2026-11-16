@@ -279,6 +279,9 @@ export type BillingOffer = {
   description: string;
   price_cents: number;
   currency: string;
+  billing_mode: "one_time" | "subscription";
+  billing_interval: "day" | "month" | null;
+  billing_interval_count: number | null;
   quantity_label: string;
   min_quantity: number;
   max_quantity: number;
@@ -313,6 +316,19 @@ export type BillingEntitlement = {
   status: "active" | "revoked" | "expired";
   starts_at: string;
   expires_at: string | null;
+  created_at: string;
+};
+
+export type BillingSubscription = {
+  id: string;
+  offer_slug: string;
+  quantity: number;
+  workspace_id: string | null;
+  project_id: string | null;
+  provider_subscription_id: string;
+  status: "incomplete" | "incomplete_expired" | "trialing" | "active" | "past_due" | "canceled" | "unpaid" | "paused";
+  current_period_end: string | null;
+  cancel_at_period_end: boolean;
   created_at: string;
 };
 

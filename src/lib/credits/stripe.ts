@@ -339,6 +339,91 @@ export function factsFromEvent(event: StripeEvent): EventFacts {
   };
 }
 
+export type SubscriptionFacts = {
+  subscriptionId: string | null;
+  customerId: string | null;
+  status: string | null;
+  priceId: string | null;
+  quantity: number | null;
+  periodStart: string | null;
+  periodEnd: string | null;
+  cancelAtPeriodEnd: boolean | null;
+  purchaseId: string | null;
+};
+
+function objectId(value: unknown): string | null {
+  if (typeof value === "string" && value.length > 0) return value;
+  const id = (value as { id?: unknown } | undefined)?.id;
+  return typeof id === "string" && id.length > 0 ? id : null;
+}
+
+function timestamp(value: unknown): string | null {
+  return typeof value === "number" && Number.isFinite(value)
+    ? new Date(value * 1000).toISOString()
+    : null;
+}
+
+function metadataPurchaseId(value: unknown): string | null {
+  const metadata = value as { purchase_id?: unknown } | undefined;
+  return typeof metadata?.purchase_id === "string" && metadata.purchase_id.length > 0
+    ? metadata.purchase_id
+    : null;
+}
+
+/** Subscription and invoice fields used by the billing webhook. */
+export function subscriptionFactsFromEvent(event: StripeEvent): SubscriptionFacts {
+  const object = event.data.object;
+
+  if (event.type.startsWith("customer.subscription.")) {
+    const items = object.items as
+      | { data?: Array<{ price?: { id?: unknown }; quantity?: unknown }> }
+      | undefined;
+    const item = items?.data?.[0];
+    return {
+      subscriptionId: objectId(object.id),
+      customerId: objectId(object.customer),
+      status: typeof object.status === "string" ? object.status : null,
+      priceId: objectId(item?.price?.id),
+      quantity: typeof item?.quantity === "number" ? item.quantity : null,
+      periodStart: timestamp(object.current_period_start),
+      periodEnd: timestamp(object.current_period_end),
+      cancelAtPeriodEnd:
+        typeof object.cancel_at_period_end === "boolean"
+          ? object.cancel_at_period_end
+          : null,
+      purchaseId: metadataPurchaseId(object.metadata),
+    };
+  }
+
+  const lines = object.lines as
+    | {
+        data?: Array<{
+          price?: { id?: unknown };
+          quantity?: unknown;
+          period?: { start?: unknown; end?: unknown };
+        }>;
+      }
+    | undefined;
+  const line = lines?.data?.[0];
+  const subscriptionDetails = object.subscription_details as
+    | { metadata?: unknown }
+    | undefined;
+
+  return {
+    subscriptionId: objectId(object.subscription),
+    customerId: objectId(object.customer),
+    status: event.type === "invoice.payment_failed" ? "past_due" : "active",
+    priceId: objectId(line?.price?.id),
+    quantity: typeof line?.quantity === "number" ? line.quantity : null,
+    periodStart: timestamp(line?.period?.start ?? object.period_start),
+    periodEnd: timestamp(line?.period?.end ?? object.period_end),
+    cancelAtPeriodEnd: null,
+    purchaseId:
+      metadataPurchaseId(subscriptionDetails?.metadata) ??
+      metadataPurchaseId(object.metadata),
+  };
+}
+
 export type PaymentDetails = {
   customerEmail: string | null;
   amountTotal: number | null;

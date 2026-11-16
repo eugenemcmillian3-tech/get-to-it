@@ -8,7 +8,7 @@ import {
   createSupportRequestAction,
   startBillingCheckoutAction,
 } from "@/lib/actions/billing";
-import { offerPriceLabel } from "@/lib/billing/offers";
+import { offerDurationLabel, offerPriceLabel } from "@/lib/billing/offers";
 import {
   focusRing,
   hintClass,
@@ -50,9 +50,12 @@ export function BillingOfferForm({
       </div>
       <p className="mt-2 text-sm leading-relaxed text-muted">{offer.description}</p>
       <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-muted">
-        {offer.duration_days === null
-          ? "One-time, no renewal"
-          : `${offer.duration_days}-day pass, no auto-renew`}
+        {offerDurationLabel(
+          offer.duration_days,
+          offer.billing_mode,
+          offer.billing_interval,
+          offer.billing_interval_count,
+        )}
       </p>
 
       {offer.max_quantity > 1 ? (
@@ -123,10 +126,18 @@ export function BillingOfferForm({
           className={`${primaryButton} w-full`}
           disabled={blocked}
         >
-          {enabled ? "Buy this offer" : "Checkout unavailable"}
+          {enabled
+            ? offer.billing_mode === "subscription"
+              ? "Subscribe"
+              : "Buy this offer"
+            : "Checkout unavailable"}
         </SubmitButton>
         <p className={`${hintClass} mt-2`}>
-          Test mode only. No AI credits are included.
+          Test mode only.{" "}
+          {offer.billing_mode === "subscription"
+            ? "Renews automatically until cancelled. "
+            : "One-time payment. "}
+          No AI credits are included.
         </p>
       </div>
     </form>

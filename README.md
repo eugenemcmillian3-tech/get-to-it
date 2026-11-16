@@ -848,16 +848,19 @@ AI or sample output substituted. The final model-specific operation rate card,
 per-operation estimates and aggregate build/swarm/workflow budgets are not
 activated by this pricing change.
 
-**Payments.** One provider, Stripe, hosted Checkout, one-time purchases only.
-There are no subscription objects and nothing renews. A pending payment row is
-created from a database price, the amount never comes from the form, and credits
-are added only by `POST /api/stripe/webhook` after the signature is verified
-against the raw body. The browser's success page adds nothing, and says so.
-Delivery is idempotent three ways over: the provider event id is a primary key,
-only a `pending` payment can become `paid`, and there is one purchase row per
-payment. Refunds are full and only for unused credits; a refund event that would
-leave a negative balance is parked as failed for a person instead of being
-applied or retried.
+**Payments.** One provider, Stripe, hosted Checkout. AI credit packs are one-time
+purchases; five of the seven product offers are auto-renewing 30-day or 90-day
+subscriptions, and premium templates and white-label remain one-time. A pending
+payment row is created from a database price, the amount never comes from the
+form, and credits are added only by `POST /api/stripe/webhook` after the
+signature is verified against the raw body. The browser's success page adds
+nothing, and says so. Delivery is idempotent three ways over: the provider event
+id is a primary key, only a `pending` payment can become `paid`, and there is
+one purchase row per payment. Subscription events update
+`billing_subscriptions` and the entitlement's period end; cancellation stops the
+next renewal but leaves access through the period already paid for. Refunds are
+full and only for unused credits; a refund event that would leave a negative
+balance is parked as failed for a person instead of being applied or retried.
 
 **Turning test mode on.** In `.env.local` (server only, never a `NEXT_PUBLIC_`
 variable): a `sk_test_...` key as `STRIPE_SECRET_KEY`, the endpoint's signing
@@ -865,10 +868,14 @@ secret as `STRIPE_WEBHOOK_SECRET`, and any long random value as
 `CREDIT_RPC_TOKEN`. Store that same token in `public.app_secrets` under the name
 `credit_webhook`, because the webhook has no signed-in user and the app does not
 use the service-role key for billing. Point a Stripe test-mode webhook at
-`/api/stripe/webhook`
-for `checkout.session.completed`, `checkout.session.expired` and
-`charge.refunded`, and grant yourself the owner role (see **Granting the owner
-role** below) to open `/owner`.
+`/api/stripe/webhook` for `checkout.session.completed`,
+`checkout.session.expired`, `checkout.session.async_payment_failed`,
+`charge.refunded`, `customer.subscription.created`,
+`customer.subscription.updated`, `customer.subscription.deleted`,
+`invoice.paid` and `invoice.payment_failed`. Create the recurring prices with
+`npm run stripe:subscriptions -- --apply` and set the five
+`STRIPE_PRICE_ID_*` values it prints. Then grant yourself the owner role (see
+**Granting the owner role** below) to open `/owner`.
 A `sk_live_...` key is ignored unless `STRIPE_ALLOW_LIVE=true` is also set:
 taking real money is a deliberate step, not a side effect of pasting a key.
 
@@ -1375,6 +1382,11 @@ anyone:
 | `OLLAMA_API_KEY` | **server only** | Ollama cloud API key for the AI features |
 | `STRIPE_SECRET_KEY` | **server only** | Stripe secret key; a `sk_test_...` key until you deliberately go live |
 | `STRIPE_WEBHOOK_SECRET` | **server only** | Verifies `POST /api/stripe/webhook` |
+| `STRIPE_PRICE_ID_TEAM_SEATS` | **server only** | Recurring Stripe price for Team seats |
+| `STRIPE_PRICE_ID_PRO` | **server only** | Recurring Stripe price for Pro bundle |
+| `STRIPE_PRICE_ID_AUTOMATION_PLUS` | **server only** | Recurring Stripe price for Automation add-on |
+| `STRIPE_PRICE_ID_BUILD_RELEASE` | **server only** | Recurring Stripe price for Build & release |
+| `STRIPE_PRICE_ID_PRIORITY_SUPPORT` | **server only** | Recurring Stripe price for Priority support |
 | `CREDIT_RPC_TOKEN` | **server only** | Capability token the webhook presents; the same value must exist in `public.app_secrets` as `credit_webhook` |
 | `STRIPE_ALLOW_LIVE` | **server only** | Set to exactly `true` to permit a live key; anything else refuses live payments |
 | `CRON_SECRET` | **server only** | Bearer token for `/api/reminders/run` |
@@ -1712,10 +1724,10 @@ new reversible source version, then approve deployment separately through Phase
 - **Partner invitations are not emailed, and nothing is actively moderated.**
   You copy the link and pass it on; reports are stored for a person to read, so
   blocking is the self-serve control that takes effect immediately.
-- **Payments are test mode by design.** Nothing live is enabled, no subscription
-  or recurring charge exists, and the prices in `credit_packs` are placeholders
-  to confirm before selling. Tax and legal treatment of prepaid credits has not
-  been reviewed; no compliance claim is made.
+- **Payments are test mode by design.** Nothing live is enabled; the recurring
+  prices exist in Stripe test mode only. The prices in `credit_packs` are
+  placeholders to confirm before selling. Tax and legal treatment of prepaid
+  credits and subscriptions has not been reviewed; no compliance claim is made.
 - **The only workflow connector is simulated.** It records the approved text
   inside GET TO IT and contacts nothing, so “saving” through a workflow is a
   rehearsal, not delivery. A real connector would need its own reviewed

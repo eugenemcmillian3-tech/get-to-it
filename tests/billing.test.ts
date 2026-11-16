@@ -6,6 +6,7 @@ import {
   offerDurationLabel,
   offerPriceLabel,
 } from "@/lib/billing/offers";
+import { subscriptionFactsFromEvent } from "@/lib/credits/stripe";
 import { activeGrants } from "@/lib/data/billing";
 import type { BillingEntitlement } from "@/lib/types";
 
@@ -43,10 +44,89 @@ describe("paid offers", () => {
     ]);
   });
 
-  it("labels one-time and expiring passes honestly", () => {
-    expect(offerDurationLabel(30)).toBe("30-day pass, no auto-renew");
+  it("labels recurring and one-time offers honestly", () => {
+    expect(offerDurationLabel(30, "subscription", "day", 30)).toBe(
+      "Auto-renews every 30 days",
+    );
+    expect(offerDurationLabel(90, "subscription", "day", 90)).toBe(
+      "Auto-renews every 90 days",
+    );
     expect(offerDurationLabel(null)).toBe("One-time, no renewal");
     expect(offerPriceLabel(4900)).toBe("$49");
+  });
+
+  it("makes the five time-limited offers subscriptions and leaves two one-time", () => {
+    expect(
+      BILLING_OFFERS.filter((offer) => offer.billingMode === "subscription").map(
+        (offer) => offer.slug,
+      ),
+    ).toEqual([
+      "team_seats",
+      "pro",
+      "automation_plus",
+      "build_release",
+      "priority_support",
+    ]);
+    expect(
+      BILLING_OFFERS.filter((offer) => offer.billingMode === "one_time").map(
+        (offer) => offer.slug,
+      ),
+    ).toEqual(["premium_templates", "white_label"]);
+  });
+
+  it("reads subscription periods and cancellation from Stripe events", () => {
+    const facts = subscriptionFactsFromEvent({
+      id: "evt_test",
+      type: "customer.subscription.updated",
+      data: {
+        object: {
+          id: "sub_test",
+          customer: "cus_test",
+          status: "active",
+          cancel_at_period_end: true,
+          current_period_start: 1_760_000_000,
+          current_period_end: 1_762_592_000,
+          metadata: { purchase_id: "purchase_test" },
+          items: { data: [{ price: { id: "price_test" }, quantity: 3 }] },
+        },
+      },
+    });
+    expect(facts).toMatchObject({
+      subscriptionId: "sub_test",
+      customerId: "cus_test",
+      status: "active",
+      priceId: "price_test",
+      quantity: 3,
+      cancelAtPeriodEnd: true,
+      purchaseId: "purchase_test",
+    });
+    expect(facts.periodEnd).toBe(new Date(1_762_592_000_000).toISOString());
+
+    const invoice = subscriptionFactsFromEvent({
+      id: "evt_invoice",
+      type: "invoice.payment_failed",
+      data: {
+        object: {
+          subscription: "sub_test",
+          customer: "cus_test",
+          lines: {
+            data: [
+              {
+                price: { id: "price_test" },
+                quantity: 2,
+                period: { start: 1_760_000_000, end: 1_762_592_000 },
+              },
+            ],
+          },
+        },
+      },
+    });
+    expect(invoice).toMatchObject({
+      subscriptionId: "sub_test",
+      status: "past_due",
+      quantity: 2,
+      cancelAtPeriodEnd: null,
+    });
   });
 
   it("ignores expired and revoked entitlements when showing active grants", () => {
