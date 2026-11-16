@@ -443,6 +443,16 @@ copyable release-record block with the merge revision and run URL filled in. It
 uses the GitHub CLI, so authenticate with `gh auth login` (or provide `GH_TOKEN`)
 first. Record the URL in the release record below.
 
+On a push to `main`, that same run includes a second
+`production-owner-copy` job after the local browser suite. It waits for the
+deployed `/api/health` to report the merged revision, then checks the learning,
+mission, workflow and preview-repair pages with a disposable owner account. It
+reuses the production `EMAIL_SMOKE_*` Supabase credentials and removes its rows
+and account in every exit path. A green push run therefore covers the deployed
+origin, not only the local build. Run the assertion by hand with
+`npm run check:owner-copy:production` and set `OWNER_COPY_BASE_URL` plus the
+`OWNER_COPY_SUPABASE_*` variables (or their documented fallbacks).
+
 The CI quality gate runs `npm audit --audit-level=high` over both development and
 production dependencies. `release:check` keeps its production-only audit because
 it checks the shipped runtime; the CI gate also catches tooling advisories such as
@@ -489,7 +499,8 @@ delete these `resend-…` labels while their alerts are active.
 Then check by hand, and record the result rather than assuming it:
 
 - [ ] **Post-merge E2E:** `npm run check:e2e:post-merge` passes for the merged
-      commit; record the merge revision and run URL in the release record below.
+      commit, including its production owner-copy job; record the merge revision
+      and run URL in the release record below.
 - [ ] Sign in, create a goal, a task and saved work; complete and reopen the task.
 - [ ] Run a workflow through input, draft, review, approval and checkpoint.
 - [ ] Export JSON from `/data`, then preview and import it into a second account.
@@ -583,6 +594,7 @@ blank required field means **NO-GO**.
 | Merge revision on `main` | `________` |
 | Post-merge E2E run URL | `________` |
 | Post-merge E2E result | `________` |
+| Production owner-copy assertion | `________` |
 | Production deployment ID | `________` |
 | Production `/api/health` revision | `________` |
 | Manual smoke checks | `________` |

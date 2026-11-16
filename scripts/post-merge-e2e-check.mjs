@@ -6,8 +6,10 @@
  * polls it until it succeeds, fails, or the timeout expires. A failed or
  * missing run exits non-zero, so a release cannot be recorded until the merged
  * revision is green. If the commit is not available locally, fetch `origin/main`
- * once and retry before failing. On success, print a copyable release-record
- * block with the merge revision and run URL already filled in.
+ * once and retry before failing. The push run includes the production-owner-copy
+ * job on `main`, so a green run covers both the merged source and the deployed
+ * origin. On success, print a copyable release-record block with the merge
+ * revision and run URL already filled in.
  *
  * Usage:
  *   npm run check:e2e:post-merge
@@ -267,6 +269,7 @@ function releaseRecordBlock(commit, run) {
     ["Merge revision on `main`", `\`${commit}\``],
     ["Post-merge E2E run URL", run.url || "`________`"],
     ["Post-merge E2E result", "`success`"],
+    ["Production owner-copy assertion", "`success`"],
     ["Production deployment ID", "`________`"],
     ["Production `/api/health` revision", "`________`"],
     ["Manual smoke checks", "`________`"],
@@ -334,7 +337,9 @@ async function main() {
 
       if (status === "completed") {
         if (conclusion === "success") {
-          console.log(`Post-merge Authenticated E2E passed for ${short}.`);
+          console.log(
+            `Post-merge Authenticated E2E and production owner-copy checks passed for ${short}.`,
+          );
           if (run.url) {
             console.log(`Run: ${run.url}`);
           }

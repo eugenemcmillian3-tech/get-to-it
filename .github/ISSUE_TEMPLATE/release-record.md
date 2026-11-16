@@ -19,6 +19,7 @@ A blank required field means **NO-GO**. See the release checklist in
 | Merge revision on `main` | `________` |
 | Post-merge E2E run URL | `________` |
 | Post-merge E2E result | `________` |
+| Production owner-copy assertion | `________` |
 | Production deployment ID | `________` |
 | Production `/api/health` revision | `________` |
 | Manual smoke checks | `________` |

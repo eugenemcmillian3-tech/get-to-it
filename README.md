@@ -238,6 +238,13 @@ steps so the running app never sees it. A normal failed run still deletes its
 accounts and rows; a hard cancellation can leave the uniquely named test accounts
 behind.
 
+On a push to `main`, a second `production-owner-copy` job runs after the local
+suite. It waits for production `/api/health` to report the merged revision, then
+checks the deployed owner pages for the expected copy and for the absence of
+per-request credit prices. It reuses the existing `EMAIL_SMOKE_*` production
+Supabase credentials and removes its disposable rows and account in every exit
+path.
+
 ## AI help (Ollama)
 
 The goal page can ask an open model for a small next step, using the goal, the
