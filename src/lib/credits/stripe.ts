@@ -386,6 +386,18 @@ export function subscriptionFactsFromEvent(event: StripeEvent): SubscriptionFact
         }
       | undefined;
     const item = items?.data?.[0];
+    // Stripe keeps the original current_period_end when a subscription is
+    // cancelled immediately, while ended_at marks when access actually stops.
+    // Feed the database the real cutoff so it revokes instead of leaving the
+    // entitlement active until the unused part of the period.
+    const endedAt =
+      event.type === "customer.subscription.deleted"
+        ? timestamp(
+            object.ended_at ??
+              object.canceled_at ??
+              Math.floor(Date.now() / 1000),
+          )
+        : null;
     return {
       subscriptionId: objectId(object.id),
       customerId: objectId(object.customer),
@@ -395,7 +407,8 @@ export function subscriptionFactsFromEvent(event: StripeEvent): SubscriptionFact
       periodStart: timestamp(
         object.current_period_start ?? item?.current_period_start,
       ),
-      periodEnd: timestamp(object.current_period_end ?? item?.current_period_end),
+      periodEnd:
+        endedAt ?? timestamp(object.current_period_end ?? item?.current_period_end),
       cancelAtPeriodEnd:
         typeof object.cancel_at_period_end === "boolean"
           ? object.cancel_at_period_end

@@ -136,6 +136,37 @@ describe("paid offers", () => {
     });
   });
 
+  it("uses ended_at when a subscription is cancelled before its paid period ends", () => {
+    const endedAt = 1_760_000_100;
+    const facts = subscriptionFactsFromEvent({
+      id: "evt_deleted",
+      type: "customer.subscription.deleted",
+      data: {
+        object: {
+          id: "sub_test",
+          customer: "cus_test",
+          status: "canceled",
+          ended_at: endedAt,
+          cancel_at_period_end: false,
+          metadata: { purchase_id: "purchase_test" },
+          items: {
+            data: [
+              {
+                price: { id: "price_test" },
+                quantity: 1,
+                current_period_start: 1_760_000_000,
+                current_period_end: 1_762_592_000,
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    expect(facts.status).toBe("canceled");
+    expect(facts.periodEnd).toBe(new Date(endedAt * 1000).toISOString());
+  });
+
   it("ignores expired and revoked entitlements when showing active grants", () => {
     const now = new Date("2026-11-07T12:00:00Z");
     const base: BillingEntitlement = {
