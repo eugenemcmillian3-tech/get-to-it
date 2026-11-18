@@ -1,25 +1,43 @@
 # Going live with payments
 
-**Status: live billing is configured as of 2026-11-18.** The production Vercel
+**Status: production runs Stripe in test mode (measured 2026-11-18).**
+`GET /api/billing/readiness` on the production deployment reports
+`stripe.mode: "test"`, `allow_live: true`, `webhook_secret: true` and
+`prices.valid: 10` — all five one-time packs and all five recurring offers exist,
+are active, and carry the amount and interval this app expects. The production
 environment carries `STRIPE_ALLOW_LIVE`, `STRIPE_SECRET_KEY`,
-`STRIPE_WEBHOOK_SECRET`, and all ten mode-scoped `STRIPE_PRICE_ID_*` values (five
-one-time packs, five recurring offers). `POST /api/stripe/webhook` answers `400`
-— not `503` — for unsigned and bogus-signature bodies, so the signing secret is
-installed and enforced.
+`STRIPE_WEBHOOK_SECRET` and all ten mode-scoped `STRIPE_PRICE_ID_*` values, and
+`POST /api/stripe/webhook` answers `400` — not `503` — for unsigned and
+bogus-signature bodies, so the signing secret is installed and enforced.
 
-Configured is not the same as working. Stripe price IDs are mode-scoped, so a
-test-mode price behind a live key looks fine until the last step of a real
-checkout. `GET /api/billing/readiness` reports, without any secret or price ID,
-the mode of the configured key and whether each of the ten prices exists in that
-same mode, is active, and carries the expected amount and interval. Run it after
-every environment change:
+It is **not** taking real money: the configured key is an `sk_test_` key, so a
+checkout that succeeds charges no card. That is the whole remaining gap between
+this deployment and live payments. Closing it is one deliberate step, in order:
+
+1. Create the ten **live** prices — the five one-time packs and the five
+   recurring offers in §3 — in the Stripe dashboard, or with
+   `STRIPE_ALLOW_LIVE=true npm run stripe:subscriptions -- --apply` against a
+   live key.
+2. Put the live key, the live webhook signing secret and the ten live price IDs
+   into the **production** Vercel environment, keeping `STRIPE_ALLOW_LIVE=true`.
+3. Redeploy, then run the readiness probe below: `stripe.mode` must read `live`,
+   `prices.valid` must read `10`, and no entry may report `wrong-mode`.
+4. Rehearse §6 with a real card before telling anyone checkout is open.
+
+`GET /api/billing/readiness` is the check that makes step 3 possible. It reports,
+without a secret, a price ID or a customer, the mode of the configured key and
+whether each of the ten prices exists in that same mode:
 
 ```bash
-curl -s https://<domain>/api/billing/readiness | node -e 'process.stdin.pipe(process.stdout)'
+curl -s https://<domain>/api/billing/readiness
 ```
 
-Every mistake in the sections below costs real money: keep this page as the
-runbook for verifying the live path, and for turning it off again in a hurry.
+Stripe price IDs are mode-scoped, so a test-mode price behind a live key looks
+fine right up to the last step of a real checkout; `wrong-mode` on that response
+names exactly that mistake. Run the probe after every environment change. Every
+mistake in the sections below costs real money once step 2 is done: keep this
+page as the runbook for verifying the live path, and for turning it off again in
+a hurry.
 
 Read the whole page before changing anything. The order matters, and two of the
 steps are not reversible by deploy alone.

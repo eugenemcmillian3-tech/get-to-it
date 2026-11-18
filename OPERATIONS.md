@@ -419,9 +419,21 @@ npm run test:restore
 ```
 
 `release:check` prints the source revision and runs: typecheck, lint, unit tests,
-production build, secret pattern scan and `npm audit --omit=dev --audit-level=high`.
-It exits non-zero if any step fails. `test:restore` is separate because it needs a
+production build, secret pattern scan and `npm run check:audit`. It exits
+non-zero if any step fails. `test:restore` is separate because it needs a
 database.
+
+`check:audit` has no allowance for the shipped dependency tree and a dated,
+reasoned allowance for dev-only advisories that no release fixes
+(`scripts/audit-gate.mjs`). A new dev advisory or an expired entry fails it, so
+it is a real gate rather than a list of accepted risk.
+
+After the deploy, `/api/health` proves the app is alive and
+`/api/billing/readiness` proves the payment configuration can actually sell:
+it reports the Stripe key's mode and whether every configured price exists in
+that mode with the expected amount and interval. A readiness response of
+`stripe.mode: "test"` is honest but means no card is charged; see
+`LIVE_BILLING.md` for the go-live order.
 
 The `authenticated-e2e` check is advisory on pull requests, so a green PR is not
 enough for release. After merging, check out or pull `main` and run:

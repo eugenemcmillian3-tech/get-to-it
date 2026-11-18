@@ -221,6 +221,10 @@ budget is 10, build default is 6, and swarm default is 0.
 ### Product smoke checks
 
 - [ ] `/api/health` returns `200` with `status: "ok"` and the intended revision.
+- [ ] `/api/billing/readiness` reports the Stripe mode you intend, `prices.valid`
+      equal to the configured price count, and no `wrong-mode` / `wrong-amount` /
+      `not-found` entry. A test-mode key is a valid deployment, but it takes no
+      money — see `LIVE_BILLING.md`.
 - [ ] Sign-in works and a new account shows zero credits.
 - [ ] An AI action with zero credits is refused and creates no `ai_requests` row.
 - [ ] The credits page shows the operation prices and dollar equivalents.

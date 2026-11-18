@@ -64,7 +64,7 @@ const checks = [
   ["Role guard audit", "npm", ["run", "check:role-guards"]],
   ["Nullable guard audit", "npm", ["run", "check:nullable-guards"]],
   ["Schema drift check", "npm", ["run", "check:schema-drift"]],
-  ["Dependency audit (high)", "npm", ["audit", "--omit=dev", "--audit-level=high"]],
+  ["Dependency audit", "npm", ["run", "check:audit"]],
 ];
 
 let passed = 0;
