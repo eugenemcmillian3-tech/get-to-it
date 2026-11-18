@@ -411,6 +411,17 @@ handwritten inverse of `0034` or `0035`, and never edit `credit_ledger` by hand.
 - Conditions or open risks: `No backup or snapshot is available (Free plan, PITR disabled; scoped CLI token lacks database_write); complete and restore-test the Backup remediation path with an owner-run direct connection; owner approval not granted; Stripe live configuration not verifiable through the Vercel integration.`
 - Next review: `After a fresh backup/snapshot, owner approval and Stripe-off confirmation.`
 
+### Billing hardening deploy, 2026-11-18
+
+Production serves `ab807aa` (branch `fix/canceled-subscription-terminal`, PR
+#200) because migrations `0090`–`0092` are applied there and `0092` replaced the
+12-argument `billing_handle_subscription_event` with the 13-argument version, so
+the previous `main` build could no longer record subscription events. `main` still
+lags: PR #200 cannot merge while the required `checks` job fails on
+GHSA-fc5q-39xc-vjpf (`picomatch`, no patched release). Once that advisory has a
+fix the PR merges and `main` becomes the source again; until then, redeploy the
+branch head rather than `main` after any billing change.
+
 ## Live Stripe gate
 
 **Closed 2026-11-18:** the owner activated live payments. Verified in the
