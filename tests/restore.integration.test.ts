@@ -4136,6 +4136,155 @@ describeRestore("isolated restore and authorization drill", () => {
     );
   });
 
+  it("keeps a canceled subscription terminal when deleted and a stale active update race", async () => {
+    const token = `subscription-concurrency-token-${randomUUID()}`;
+    await client.query(
+      `insert into public.app_secrets (name, value) values ('credit_webhook', $1)
+       on conflict (name) do update set value = excluded.value, updated_at = now()`,
+      [token],
+    );
+
+    const purchase = await asUser(accountA.userId, async () => {
+      const result = await client.query<{
+        r: { ok: boolean; purchase_id?: string; amount_cents?: number };
+      }>("select public.create_billing_purchase('pro',1,null,null) as r");
+      return result.rows[0].r;
+    });
+    expect(purchase.ok, JSON.stringify(purchase)).toBe(true);
+    const purchaseId = purchase.purchase_id;
+    if (!purchaseId) throw new Error("purchase was not created");
+
+    const sessionId = `cs_subscription_race_${randomUUID()}`;
+    await asUser(accountA.userId, async () => {
+      await client.query("select public.attach_billing_session($1,$2)", [purchaseId, sessionId]);
+    });
+    await client.query(
+      "select public.billing_handle_event($1,$2,$3,$4,$5,null) as r",
+      [
+        token,
+        `evt_sub_race_checkout_${randomUUID()}`,
+        "checkout.session.completed",
+        sessionId,
+        `pi_sub_race_${randomUUID()}`,
+      ],
+    );
+
+    const subscriptionId = `sub_${randomUUID()}`;
+    const periodStart = new Date(Date.now() - 120_000);
+    const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const deletedAt = new Date(Date.now() - 60_000);
+    const subscriptionArgs = (type: string, status: string, end: Date): unknown[] => [
+      token,
+      `evt_${type}_${randomUUID()}`,
+      type,
+      subscriptionId,
+      `cus_${randomUUID()}`,
+      status,
+      "price_test_subscription",
+      1,
+      periodStart.toISOString(),
+      end.toISOString(),
+      false,
+      purchaseId,
+    ];
+
+    const seeded = await client.query<{ r: { ok: boolean } }>(
+      `select public.billing_handle_subscription_event(
+         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12
+       ) as r`,
+      subscriptionArgs("customer.subscription.created", "active", periodEnd),
+    );
+    expect(seeded.rows[0].r.ok).toBe(true);
+
+    // Deliver both events from independent sessions, as two webhook deliveries
+    // arriving at the same time would. The deleted event takes the purchase row
+    // lock without committing, then the stale active update is sent while that
+    // transaction is still open.
+    const deletedSession = new Client({ connectionString: connectionString! });
+    const staleSession = new Client({ connectionString: connectionString! });
+    await deletedSession.connect();
+    await staleSession.connect();
+    try {
+      await deletedSession.query("begin");
+      await staleSession.query("begin");
+
+      const deletedDelivery = await deletedSession.query<{
+        r: { ok: boolean; status?: string };
+      }>(
+        `select public.billing_handle_subscription_event(
+           $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12
+         ) as r`,
+        subscriptionArgs("customer.subscription.deleted", "canceled", deletedAt),
+      );
+      expect(deletedDelivery.rows[0].r).toMatchObject({ ok: true, status: "canceled" });
+
+      const staleDelivery = staleSession.query<{ r: { ok: boolean; status?: string } }>(
+        `select public.billing_handle_subscription_event(
+           $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12
+         ) as r`,
+        subscriptionArgs("customer.subscription.updated", "active", periodEnd),
+      );
+
+      // Prove the stale update is genuinely in flight and blocked behind the
+      // uncommitted cancellation before letting the cancellation commit.
+      let blocked = false;
+      for (let attempt = 0; attempt < 100 && !blocked; attempt += 1) {
+        const waiting = await client.query<{ count: string }>(
+          `select count(*)::text as count
+             from pg_stat_activity
+            where datname = current_database()
+              and pid <> pg_backend_pid()
+              and state = 'active'
+              and wait_event_type = 'Lock'
+              and query like '%billing_handle_subscription_event%'`,
+        );
+        blocked = Number(waiting.rows[0].count) > 0;
+        if (!blocked) await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+
+      if (blocked) {
+        await deletedSession.query("commit");
+        const staleResult = await staleDelivery;
+        await staleSession.query("commit");
+        // The stale update ran after the cancellation committed, so the database
+        // itself must report the terminal state rather than trusting the event.
+        expect(staleResult.rows[0].r).toMatchObject({ ok: true, status: "canceled" });
+      } else {
+        await deletedSession.query("commit");
+        await staleDelivery;
+        await staleSession.query("rollback");
+      }
+      expect(blocked).toBe(true);
+    } finally {
+      await deletedSession.end().catch(() => {});
+      await staleSession.end().catch(() => {});
+    }
+
+    const finalState = await client.query<{
+      status: string;
+      current_period_end: string;
+      entitlement_status: string;
+      entitlement_expires_at: string;
+    }>(
+      `select s.status, s.current_period_end, e.status as entitlement_status,
+              e.expires_at as entitlement_expires_at
+         from public.billing_subscriptions s
+         join public.billing_entitlements e on e.purchase_id = s.purchase_id
+        where s.provider_subscription_id = $1`,
+      [subscriptionId],
+    );
+    expect(finalState.rows[0]).toMatchObject({
+      status: "canceled",
+      entitlement_status: "revoked",
+    });
+    expect(new Date(finalState.rows[0].current_period_end).toISOString()).toBe(
+      deletedAt.toISOString(),
+    );
+    expect(new Date(finalState.rows[0].entitlement_expires_at).toISOString()).toBe(
+      deletedAt.toISOString(),
+    );
+  });
+
   it("enforces team-seat limits for pending invitations, cancellation, active members, and direct inserts", async () => {
     const webhookToken = "seat-boundary-drill-webhook-token-2026-11-07";
     await client.query(
