@@ -4019,6 +4019,123 @@ describeRestore("isolated restore and authorization drill", () => {
     expect(ledgerAfter.rows[0]).toEqual(ledgerBefore.rows[0]);
   });
 
+  it("does not reactivate a canceled subscription from a delayed active update", async () => {
+    const token = `subscription-ordering-token-${randomUUID()}`;
+    await client.query(
+      `insert into public.app_secrets (name, value) values ('credit_webhook', $1)
+       on conflict (name) do update set value = excluded.value, updated_at = now()`,
+      [token],
+    );
+
+    const purchase = await asUser(accountA.userId, async () => {
+      const result = await client.query<{
+        r: { ok: boolean; purchase_id?: string; amount_cents?: number };
+      }>("select public.create_billing_purchase('pro',1,null,null) as r");
+      return result.rows[0].r;
+    });
+    expect(purchase.ok, JSON.stringify(purchase)).toBe(true);
+    expect(purchase.amount_cents).toBe(4900);
+    const purchaseId = purchase.purchase_id;
+    if (!purchaseId) throw new Error("purchase was not created");
+
+    const sessionId = `cs_subscription_order_${randomUUID()}`;
+    await asUser(accountA.userId, async () => {
+      await client.query("select public.attach_billing_session($1,$2)", [purchaseId, sessionId]);
+    });
+    await client.query(
+      "select public.billing_handle_event($1,$2,$3,$4,$5,null) as r",
+      [token, `evt_sub_order_checkout_${randomUUID()}`, "checkout.session.completed", sessionId, `pi_sub_order_${randomUUID()}`],
+    );
+
+    const subscriptionId = `sub_${randomUUID()}`;
+    const periodStart = new Date(Date.now() - 60_000);
+    const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const deletedAt = new Date(Date.now() - 30_000);
+    const subscriptionEvent = async (
+      type: string,
+      status: string,
+      end: Date,
+      cancelAtPeriodEnd: boolean,
+    ) => {
+      const result = await client.query<{ r: { ok: boolean; status?: string } }>(
+        `select public.billing_handle_subscription_event(
+           $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12
+         ) as r`,
+        [
+          token,
+          `evt_${type}_${randomUUID()}`,
+          type,
+          subscriptionId,
+          `cus_${randomUUID()}`,
+          status,
+          "price_test_subscription",
+          1,
+          periodStart.toISOString(),
+          end.toISOString(),
+          cancelAtPeriodEnd,
+          purchaseId,
+        ],
+      );
+      return result.rows[0].r;
+    };
+
+    await subscriptionEvent("customer.subscription.created", "active", periodEnd, false);
+    const beforeCancel = await client.query<{ status: string }>(
+      "select status from public.billing_entitlements where purchase_id = $1",
+      [purchaseId],
+    );
+    expect(beforeCancel.rows[0].status).toBe("active");
+
+    await subscriptionEvent("customer.subscription.deleted", "canceled", deletedAt, false);
+    const afterCancel = await client.query<{
+      status: string;
+      current_period_end: string;
+      entitlement_status: string;
+      entitlement_expires_at: string;
+    }>(
+      `select s.status, s.current_period_end, e.status as entitlement_status,
+              e.expires_at as entitlement_expires_at
+         from public.billing_subscriptions s
+         join public.billing_entitlements e on e.purchase_id = s.purchase_id
+        where s.provider_subscription_id = $1`,
+      [subscriptionId],
+    );
+    expect(afterCancel.rows[0]).toMatchObject({
+      status: "canceled",
+      entitlement_status: "revoked",
+    });
+    expect(new Date(afterCancel.rows[0].current_period_end).toISOString()).toBe(
+      deletedAt.toISOString(),
+    );
+
+    // Stripe can deliver an older active update after the deleted event. It must
+    // not move the subscription out of its terminal state or restore access.
+    await subscriptionEvent("customer.subscription.updated", "active", periodEnd, false);
+    const afterStaleUpdate = await client.query<{
+      status: string;
+      current_period_end: string;
+      entitlement_status: string;
+      entitlement_expires_at: string;
+    }>(
+      `select s.status, s.current_period_end, e.status as entitlement_status,
+              e.expires_at as entitlement_expires_at
+         from public.billing_subscriptions s
+         join public.billing_entitlements e on e.purchase_id = s.purchase_id
+        where s.provider_subscription_id = $1`,
+      [subscriptionId],
+    );
+    expect(afterStaleUpdate.rows[0]).toMatchObject({
+      status: "canceled",
+      entitlement_status: "revoked",
+    });
+    expect(new Date(afterStaleUpdate.rows[0].current_period_end).toISOString()).toBe(
+      deletedAt.toISOString(),
+    );
+    expect(new Date(afterStaleUpdate.rows[0].entitlement_expires_at).toISOString()).toBe(
+      deletedAt.toISOString(),
+    );
+  });
+
   it("enforces team-seat limits for pending invitations, cancellation, active members, and direct inserts", async () => {
     const webhookToken = "seat-boundary-drill-webhook-token-2026-11-07";
     await client.query(
