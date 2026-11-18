@@ -20,6 +20,22 @@ Reports are reviewed on a best-effort basis. There is no bug bounty and no
 guaranteed response time. Please give a reasonable window to investigate and
 ship a fix before disclosing publicly.
 
+## Dependencies
+
+`npm run check:audit` (run by CI on every pull request) applies two rules:
+
+1. The **production tree** — `npm audit --omit=dev` — must have no high or
+   critical advisory. There is no allowance for anything that ships.
+2. A **dev-only** advisory at high or critical must be listed in
+   `scripts/audit-gate.mjs` with its GHSA id, why it cannot reach production, and
+   an expiry date. An unlisted one fails the build, and so does an expired entry.
+
+That replaced a plain `npm audit --audit-level=high`, which could not be
+satisfied at all while a dev-only advisory had no fixed release: npm's only
+suggested "fix" was downgrading the lint and test stack, so the gate blocked
+every merge without protecting anything. The replacement is stricter about the
+code that ships and explicit about the code that does not.
+
 ## Scope
 
 In scope: authentication and authorization boundaries, Row Level Security,

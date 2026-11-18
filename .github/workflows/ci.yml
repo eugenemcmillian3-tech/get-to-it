@@ -32,8 +32,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # The shipped tree has no allowance. Dev-only advisories that no available
+      # release fixes are listed with a reason and a review date in
+      # scripts/audit-gate.mjs; anything else fails, and an expired entry fails.
       - name: Audit dependencies
-        run: npm audit --audit-level=high
+        run: npm run check:audit
 
       - name: Scan tracked files for secrets
         run: npm run check:secrets

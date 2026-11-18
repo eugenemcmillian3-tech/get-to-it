@@ -23,6 +23,7 @@
     "stripe:subscriptions": "node --env-file-if-exists=.env.local scripts/stripe-subscriptions.mjs",
     "owner:grant": "node scripts/grant-owner.mjs",
     "check:secrets": "node scripts/secrets-check.mjs",
+    "check:audit": "node scripts/audit-gate.mjs",
     "check:routes": "node scripts/route-audit.mjs",
     "check:role-guards": "node scripts/sql-role-guard-audit.mjs",
     "check:vercel-aliases": "node --env-file-if-exists=.env.local scripts/vercel-alias-inventory.mjs",

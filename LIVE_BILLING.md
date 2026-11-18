@@ -1,13 +1,25 @@
 # Going live with payments
 
-**Status: live billing is ON as of 2026-11-18.** The production Vercel
-environment carries `STRIPE_ALLOW_LIVE`, the live `STRIPE_SECRET_KEY` and
+**Status: live billing is configured as of 2026-11-18.** The production Vercel
+environment carries `STRIPE_ALLOW_LIVE`, `STRIPE_SECRET_KEY`,
 `STRIPE_WEBHOOK_SECRET`, and all ten mode-scoped `STRIPE_PRICE_ID_*` values (five
 one-time packs, five recurring offers). `POST /api/stripe/webhook` answers `400`
 — not `503` — for unsigned and bogus-signature bodies, so the signing secret is
-installed and enforced. Every mistake in the sections below now costs real money:
-keep this page as the runbook for verifying the live path, and for turning it off
-again in a hurry.
+installed and enforced.
+
+Configured is not the same as working. Stripe price IDs are mode-scoped, so a
+test-mode price behind a live key looks fine until the last step of a real
+checkout. `GET /api/billing/readiness` reports, without any secret or price ID,
+the mode of the configured key and whether each of the ten prices exists in that
+same mode, is active, and carries the expected amount and interval. Run it after
+every environment change:
+
+```bash
+curl -s https://<domain>/api/billing/readiness | node -e 'process.stdin.pipe(process.stdout)'
+```
+
+Every mistake in the sections below costs real money: keep this page as the
+runbook for verifying the live path, and for turning it off again in a hurry.
 
 Read the whole page before changing anything. The order matters, and two of the
 steps are not reversible by deploy alone.
@@ -38,9 +50,11 @@ steps are not reversible by deploy alone.
 
 ## 3. Create live prices first
 
-Stripe price objects are **mode-scoped**. The five `STRIPE_PRICE_ID_*` values in
-production today point at test-mode prices. A live key cannot use them; checkout
-will fail at the last step if you skip this.
+Stripe price objects are **mode-scoped**. A live key cannot use a test-mode
+price, and a test-mode price behind a live key fails at the last step of
+checkout. `GET /api/billing/readiness` (see the status note above) names the mode
+of the configured key and marks every price that belongs to the other mode, so
+run it before and after switching.
 
 Create one live, one-time price per pack with these exact amounts:
 
@@ -100,6 +114,11 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST https://<domain>/api/stripe/web
 Then sign in and confirm on `/credits` that checkout is offered rather than the
 "Stripe isn't configured" notice, and on `/billing` that no "refuses live
 payments" warning is shown.
+
+Finally, `GET /api/billing/readiness` must report `"ok": true`, with
+`stripe.mode` matching the mode you intend and `prices.valid` equal to the number
+of configured prices (ten). A `wrong-mode`, `wrong-amount` or `not-found` verdict
+names the offer that would fail, before anybody tries to buy it.
 
 ## 6. Rehearsal: one real purchase and one real refund
 
