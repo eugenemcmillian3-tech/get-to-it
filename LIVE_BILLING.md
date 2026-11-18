@@ -130,14 +130,16 @@ back. A cancel that Stripe reports as unknown or already canceled counts as
 success, and a genuine failure returns `500` so Stripe retries the delivery — the
 lookup is idempotent, so the retry is harmless.
 
-That lookup matches the payment id stored on the purchase. A subscription
-Checkout session has no payment intent of its own — the first invoice does — so a
-subscription purchase stores none, and its `charge.refunded` matches no purchase:
-neither the revocation nor the cancellation happens today. **Known gap, not fixed
-in `0093`:** recording the invoice's payment intent from `invoice.paid` (the
-`payment_intent` field, or `payments.data[].payment.payment_intent` on newer API
-versions) on the subscription and matching it here closes it. Until then, cancel a
-refunded subscription by hand in Stripe.
+That lookup matches the payment id stored on the purchase, which comes from the
+Checkout session. Stripe documents `session.payment_intent` as present for
+`mode=payment`, and it is not verified here for `mode=subscription` — no
+subscription purchase has ever completed on this deployment. If a subscription
+session stores no payment id, its `charge.refunded` matches nothing: access is not
+revoked and the subscription is not cancelled, and it has to be cancelled by hand
+in Stripe. Step 3 of §6 is what settles this; do not assume the refund path is
+live until it passes. The fix, if it fails, is to record the invoice's payment
+intent from `invoice.paid` (`payment_intent`, or
+`payments.data[].payment.payment_intent` on newer API versions) and match it here.
 
 Only a **fully** refunded charge does this. Stripe also sends `charge.refunded`
 for a partial refund; that event is acknowledged as `ignored` / `partial-refund`
