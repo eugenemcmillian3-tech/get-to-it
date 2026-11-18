@@ -4147,104 +4147,126 @@ describeRestore("isolated restore and authorization drill", () => {
   });
 
   it("keeps a canceled subscription terminal when deleted and a stale active update race", async () => {
-    const { token, purchaseId } = await seedPaidProPurchase();
-
-    const subscriptionId = `sub_${randomUUID()}`;
-    const periodStart = new Date(Date.now() - 120_000);
+    const subscriptionSql = `select public.billing_handle_subscription_event(
+         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12
+       ) as r`;
     const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
     const deletedAt = new Date(Date.now() - 60_000);
-    const subscriptionArgs = (type: string, status: string, end: Date): unknown[] => [
-      token,
-      `evt_${type}_${randomUUID()}`,
-      type,
-      subscriptionId,
-      `cus_${randomUUID()}`,
-      status,
-      "price_test_subscription",
-      1,
-      periodStart.toISOString(),
-      end.toISOString(),
-      false,
-      purchaseId,
-    ];
 
-    const seeded = await client.query<{ r: { ok: boolean } }>(
-      `select public.billing_handle_subscription_event(
-         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12
-       ) as r`,
-      subscriptionArgs("customer.subscription.created", "active", periodEnd),
-    );
-    expect(seeded.rows[0].r.ok).toBe(true);
-
-    // Deliver both events from independent sessions, as two webhook deliveries
-    // arriving at the same time would. The deleted event takes the purchase row
-    // lock without committing, then the stale active update is sent while that
-    // transaction is still open.
-    const deletedSession = new Client({ connectionString: connectionString! });
-    const staleSession = new Client({ connectionString: connectionString! });
-    await deletedSession.connect();
-    await staleSession.connect();
-    try {
-      await deletedSession.query("begin");
-      await staleSession.query("begin");
-
-      const deletedDelivery = await deletedSession.query<{
-        r: { ok: boolean; status?: string };
-      }>(
-        `select public.billing_handle_subscription_event(
-           $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12
-         ) as r`,
-        subscriptionArgs("customer.subscription.deleted", "canceled", deletedAt),
+    // A paid `pro` subscription with one active period, ready for deliveries.
+    const startSubscription = async () => {
+      const { token, purchaseId } = await seedPaidProPurchase();
+      const subscriptionId = `sub_${randomUUID()}`;
+      const periodStart = new Date(Date.now() - 120_000);
+      const args = (type: string, status: string, end: Date): unknown[] => [
+        token,
+        `evt_${type}_${randomUUID()}`,
+        type,
+        subscriptionId,
+        `cus_${randomUUID()}`,
+        status,
+        "price_test_subscription",
+        1,
+        periodStart.toISOString(),
+        end.toISOString(),
+        false,
+        purchaseId,
+      ];
+      const seeded = await client.query<{ r: { ok: boolean } }>(
+        subscriptionSql,
+        args("customer.subscription.created", "active", periodEnd),
       );
-      expect(deletedDelivery.rows[0].r).toMatchObject({ ok: true, status: "canceled" });
+      expect(seeded.rows[0].r.ok).toBe(true);
+      return { subscriptionId, args };
+    };
 
-      const staleDelivery = staleSession.query<{ r: { ok: boolean; status?: string } }>(
-        `select public.billing_handle_subscription_event(
-           $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12
-         ) as r`,
-        subscriptionArgs("customer.subscription.updated", "active", periodEnd),
-      );
+    // Deliver two events from independent sessions, as two webhook deliveries
+    // arriving at the same time would. The first takes the purchase row lock
+    // without committing; the second is sent while that transaction is open and
+    // must block on it. Committing the first then lets the second run against
+    // the committed state. Returns what the second delivery reported.
+    const race = async (
+      first: unknown[],
+      second: unknown[],
+    ): Promise<{ ok: boolean; status?: string }> => {
+      const firstSession = new Client({ connectionString: connectionString! });
+      const secondSession = new Client({ connectionString: connectionString! });
+      await firstSession.connect();
+      await secondSession.connect();
+      try {
+        await firstSession.query("begin");
+        await secondSession.query("begin");
 
-      // Prove the stale update is genuinely in flight and blocked behind the
-      // uncommitted cancellation before letting the cancellation commit.
-      let blocked = false;
-      for (let attempt = 0; attempt < 100 && !blocked; attempt += 1) {
-        const waiting = await client.query<{ count: string }>(
-          `select count(*)::text as count
-             from pg_stat_activity
-            where datname = current_database()
-              and pid <> pg_backend_pid()
-              and state = 'active'
-              and wait_event_type = 'Lock'
-              and query like '%billing_handle_subscription_event%'`,
+        const firstDelivery = await firstSession.query<{ r: { ok: boolean } }>(
+          subscriptionSql,
+          first,
         );
-        blocked = Number(waiting.rows[0].count) > 0;
-        if (!blocked) await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(firstDelivery.rows[0].r.ok).toBe(true);
+
+        const secondDelivery = secondSession.query<{ r: { ok: boolean; status?: string } }>(
+          subscriptionSql,
+          second,
+        );
+
+        // Prove the second delivery is genuinely in flight and blocked behind
+        // the uncommitted first one before letting that commit.
+        let blocked = false;
+        for (let attempt = 0; attempt < 100 && !blocked; attempt += 1) {
+          const waiting = await client.query<{ count: string }>(
+            `select count(*)::text as count
+               from pg_stat_activity
+              where datname = current_database()
+                and pid <> pg_backend_pid()
+                and state = 'active'
+                and wait_event_type = 'Lock'
+                and query like '%billing_handle_subscription_event%'`,
+          );
+          blocked = Number(waiting.rows[0].count) > 0;
+          if (!blocked) await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        expect(blocked).toBe(true);
+
+        await firstSession.query("commit");
+        const secondResult = await secondDelivery;
+        await secondSession.query("commit");
+        return secondResult.rows[0].r;
+      } finally {
+        await firstSession.end().catch(() => {});
+        await secondSession.end().catch(() => {});
       }
+    };
 
-      expect(blocked).toBe(true);
-      await deletedSession.query("commit");
-      const staleResult = await staleDelivery;
-      await staleSession.query("commit");
-      // The stale update ran after the cancellation committed, so the database
-      // itself must report the terminal state rather than trusting the event.
-      expect(staleResult.rows[0].r).toMatchObject({ ok: true, status: "canceled" });
-    } finally {
-      await deletedSession.end().catch(() => {});
-      await staleSession.end().catch(() => {});
-    }
+    const expectCanceled = async (subscriptionId: string) => {
+      const state = await readSubscriptionState(subscriptionId);
+      expect(state).toMatchObject({ status: "canceled", entitlement_status: "revoked" });
+      expect(new Date(state.current_period_end).toISOString()).toBe(
+        deletedAt.toISOString(),
+      );
+      expect(new Date(state.entitlement_expires_at).toISOString()).toBe(
+        deletedAt.toISOString(),
+      );
+    };
 
-    const finalState = await readSubscriptionState(subscriptionId);
-    expect(finalState).toMatchObject({
-      status: "canceled",
-      entitlement_status: "revoked",
-    });
-    expect(new Date(finalState.current_period_end).toISOString()).toBe(
-      deletedAt.toISOString(),
+    // The deleted event commits first; the stale active update arrives while it
+    // is open and runs against the canceled row.
+    const deletedFirst = await startSubscription();
+    const staleAfterCancel = await race(
+      deletedFirst.args("customer.subscription.deleted", "canceled", deletedAt),
+      deletedFirst.args("customer.subscription.updated", "active", periodEnd),
     );
-    expect(new Date(finalState.entitlement_expires_at).toISOString()).toBe(
-      deletedAt.toISOString(),
+    // The database, not the event payload, decides the terminal state.
+    expect(staleAfterCancel).toMatchObject({ ok: true, status: "canceled" });
+    await expectCanceled(deletedFirst.subscriptionId);
+
+    // Reverse order: the stale active update commits first while the deleted
+    // event waits, then the cancellation lands and must still win.
+    const staleFirst = await startSubscription();
+    const deletedAfterActive = await race(
+      staleFirst.args("customer.subscription.updated", "active", periodEnd),
+      staleFirst.args("customer.subscription.deleted", "canceled", deletedAt),
     );
+    expect(deletedAfterActive).toMatchObject({ ok: true, status: "canceled" });
+    await expectCanceled(staleFirst.subscriptionId);
   });
 
   it("enforces team-seat limits for pending invitations, cancellation, active members, and direct inserts", async () => {
