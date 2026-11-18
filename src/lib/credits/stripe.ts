@@ -65,7 +65,7 @@ export function apiBase(): string {
 }
 
 export const STRIPE_SETUP_MESSAGE =
-  "Stripe isn't connected yet. Add STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET in test mode, restart the server, then try again. No card is charged until then.";
+  "Stripe isn't connected yet. Add STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET for the Stripe mode you intend to use, restart the server, then try again. No card is charged until then.";
 
 export const STRIPE_LIVE_KEY_MESSAGE =
   "A live Stripe key is configured, but this build refuses live payments. Use an sk_test_ key, or set STRIPE_ALLOW_LIVE=true when you deliberately intend to charge real money. Nothing was charged.";

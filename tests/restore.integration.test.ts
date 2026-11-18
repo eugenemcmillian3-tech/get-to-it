@@ -4269,6 +4269,111 @@ describeRestore("isolated restore and authorization drill", () => {
     await expectCanceled(staleFirst.subscriptionId);
   });
 
+  it("does not extend access when a renewal invoice fails", async () => {
+    const { token, purchaseId } = await seedPaidProPurchase();
+    const subscriptionId = `sub_${randomUUID()}`;
+    const paidStart = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const paidThrough = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
+    const unpaidStart = paidThrough;
+    const unpaidEnd = new Date(paidThrough.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+    const send = async (type: string, status: string, start: Date, end: Date) => {
+      const result = await client.query<{ r: { ok: boolean; status?: string } }>(
+        `select public.billing_handle_subscription_event(
+           $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12
+         ) as r`,
+        [
+          token,
+          `evt_${type}_${randomUUID()}`,
+          type,
+          subscriptionId,
+          `cus_${randomUUID()}`,
+          status,
+          "price_test_subscription",
+          1,
+          start.toISOString(),
+          end.toISOString(),
+          false,
+          purchaseId,
+        ],
+      );
+      expect(result.rows[0].r.ok).toBe(true);
+    };
+
+    const readState = async () => {
+      const result = await client.query<{
+        status: string;
+        current_period_start: string;
+        current_period_end: string;
+        entitlement_status: string;
+        entitlement_expires_at: string;
+      }>(
+        `select s.status, s.current_period_start, s.current_period_end,
+                e.status as entitlement_status, e.expires_at as entitlement_expires_at
+           from public.billing_subscriptions s
+           join public.billing_entitlements e on e.purchase_id = s.purchase_id
+          where s.provider_subscription_id = $1`,
+        [subscriptionId],
+      );
+      return result.rows[0];
+    };
+
+    await send("customer.subscription.created", "active", paidStart, paidThrough);
+    const paid = await readState();
+    expect(paid.status).toBe("active");
+    expect(paid.entitlement_status).toBe("active");
+    expect(new Date(paid.current_period_end).toISOString()).toBe(paidThrough.toISOString());
+    expect(new Date(paid.entitlement_expires_at).toISOString()).toBe(
+      paidThrough.toISOString(),
+    );
+
+    // The failed invoice bills the *next* period, so blindly recording its period
+    // end would grant another month of access for money that never arrived.
+    await send("invoice.payment_failed", "past_due", unpaidStart, unpaidEnd);
+    const afterFailure = await readState();
+    expect(afterFailure.status).toBe("past_due");
+    expect(afterFailure.entitlement_status).toBe("active");
+    expect(new Date(afterFailure.current_period_start).toISOString()).toBe(
+      paidStart.toISOString(),
+    );
+    expect(new Date(afterFailure.current_period_end).toISOString()).toBe(
+      paidThrough.toISOString(),
+    );
+    expect(new Date(afterFailure.entitlement_expires_at).toISOString()).toBe(
+      paidThrough.toISOString(),
+    );
+
+    // `unpaid` and `paused` are no more paid than `past_due`.
+    await send("customer.subscription.updated", "unpaid", unpaidStart, unpaidEnd);
+    const afterUnpaid = await readState();
+    expect(afterUnpaid.status).toBe("unpaid");
+    expect(new Date(afterUnpaid.current_period_end).toISOString()).toBe(
+      paidThrough.toISOString(),
+    );
+    expect(new Date(afterUnpaid.entitlement_expires_at).toISOString()).toBe(
+      paidThrough.toISOString(),
+    );
+
+    await send("customer.subscription.updated", "paused", unpaidStart, unpaidEnd);
+    const afterPaused = await readState();
+    expect(afterPaused.status).toBe("paused");
+    expect(new Date(afterPaused.current_period_end).toISOString()).toBe(
+      paidThrough.toISOString(),
+    );
+
+    // Paying the renewal does extend access to the new period.
+    await send("invoice.paid", "active", unpaidStart, unpaidEnd);
+    const recovered = await readState();
+    expect(recovered.status).toBe("active");
+    expect(recovered.entitlement_status).toBe("active");
+    expect(new Date(recovered.current_period_end).toISOString()).toBe(
+      unpaidEnd.toISOString(),
+    );
+    expect(new Date(recovered.entitlement_expires_at).toISOString()).toBe(
+      unpaidEnd.toISOString(),
+    );
+  });
+
   it("enforces team-seat limits for pending invitations, cancellation, active members, and direct inserts", async () => {
     const webhookToken = "seat-boundary-drill-webhook-token-2026-11-07";
     await client.query(

@@ -1,9 +1,13 @@
 # Going live with payments
 
-**Status: live billing is OFF.** This is the runbook for turning it on, and for
-turning it off again in a hurry. The code, the webhook and the credit ledger are
-already built and tested; what is missing is a live Stripe account configuration
-and a deliberate decision to charge real cards.
+**Status: live billing is ON as of 2026-11-18.** The production Vercel
+environment carries `STRIPE_ALLOW_LIVE`, the live `STRIPE_SECRET_KEY` and
+`STRIPE_WEBHOOK_SECRET`, and all ten mode-scoped `STRIPE_PRICE_ID_*` values (five
+one-time packs, five recurring offers). `POST /api/stripe/webhook` answers `400`
+— not `503` — for unsigned and bogus-signature bodies, so the signing secret is
+installed and enforced. Every mistake in the sections below now costs real money:
+keep this page as the runbook for verifying the live path, and for turning it off
+again in a hurry.
 
 Read the whole page before changing anything. The order matters, and two of the
 steps are not reversible by deploy alone.
@@ -50,6 +54,13 @@ Create one live, one-time price per pack with these exact amounts:
 
 `packPriceId()` refuses a price ID whose amount or credit count does not match
 the pack definition, so a stale row cannot be paired with a resized price.
+
+The five recurring offer prices are mode-scoped too. Live
+`STRIPE_PRICE_ID_TEAM_SEATS`, `_PRO`, `_AUTOMATION_PLUS`, `_BUILD_RELEASE` and
+`_PRIORITY_SUPPORT` must mirror the catalogue created by
+`npm run stripe:subscriptions -- --apply` ($19/$49/$19/$79/$99 on
+30/30/30/90/30-day intervals). A live key cannot use a test-mode price; a
+subscription checkout fails at the last step rather than repricing silently.
 
 ## 4. Set the environment variables
 
@@ -104,6 +115,23 @@ payments" warning is shown.
 
 A refund that would take a balance negative is deliberately parked as a failed
 event for a person to handle; it is acknowledged so Stripe stops retrying.
+
+## 6a. What a failed renewal does
+
+A renewal charge that fails (`invoice.payment_failed`, or a subscription Stripe
+reports as `unpaid` or `paused`) records the status but **not** the failed
+invoice's period. The subscription keeps the last paid-through date, so the
+entitlement expires when the paid period ends instead of stretching another month
+(migration `0091`). Paying the invoice (`invoice.paid`) moves the date forward
+again and restores access.
+
+There is no grace period: a renewal that fails at period end means access ends at
+period end. If a grace window is ever wanted, it has to be added deliberately to
+the `past_due`/`unpaid`/`paused` branch of the entitlement update, not by letting
+the failed invoice's period through.
+
+This is separate from cancellation: a canceled subscription stays canceled
+(`0090`), and a refund revokes the entitlement in `billing_handle_event`.
 
 ## 7. Cost basis for pricing decisions
 

@@ -214,7 +214,7 @@ export default async function BillingPage({
           <p className="mt-6 rounded-xl border border-danger/30 bg-danger/5 p-3 text-sm text-danger">
             {stripeState === "live-blocked"
               ? "A live Stripe key is configured, but this build refuses live payments. Use an sk_test_ key; taking real money needs a deliberate change."
-              : "Stripe is not configured on this deployment, so checkout is unavailable. Add STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET in test mode, plus CREDIT_RPC_TOKEN for the webhook."}
+              : "Stripe is not configured on this deployment, so checkout is unavailable. Add STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET for the Stripe mode you intend to use, plus CREDIT_RPC_TOKEN for the webhook."}
           </p>
         ) : null}
 

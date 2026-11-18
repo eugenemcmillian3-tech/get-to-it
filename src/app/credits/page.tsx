@@ -189,7 +189,8 @@ export default async function CreditsPage({
                 <>
                   Stripe isn&apos;t configured on this deployment, so checkout is
                   unavailable. Add <code>STRIPE_SECRET_KEY</code> and{" "}
-                  <code>STRIPE_WEBHOOK_SECRET</code> in test mode, plus{" "}
+                  <code>STRIPE_WEBHOOK_SECRET</code> for the Stripe mode you intend
+                  to use, plus{" "}
                   <code>CREDIT_RPC_TOKEN</code> for the webhook.
                 </>
               )}
