@@ -413,14 +413,17 @@ handwritten inverse of `0034` or `0035`, and never edit `credit_ledger` by hand.
 
 ### Billing hardening deploy, 2026-11-18
 
-Production serves `ab807aa` (branch `fix/canceled-subscription-terminal`, PR
-#200) because migrations `0090`–`0092` are applied there and `0092` replaced the
-12-argument `billing_handle_subscription_event` with the 13-argument version, so
-the previous `main` build could no longer record subscription events. `main` still
-lags: PR #200 cannot merge while the required `checks` job fails on
-GHSA-fc5q-39xc-vjpf (`picomatch`, no patched release). Once that advisory has a
-fix the PR merges and `main` becomes the source again; until then, redeploy the
-branch head rather than `main` after any billing change.
+Production serves the head of branch `fix/canceled-subscription-terminal` (PR
+#200) because migrations `0090`–`0093` are applied there. `0092` replaced the
+12-argument `billing_handle_subscription_event` with the 13-argument version, and
+`0093` restored the old signature as a thin wrapper over the same function, so a
+deploy from `main` or an application rollback records subscription events again —
+it just passes no event time, so its deliveries have no ordering watermark.
+`main` still lags the branch: it lacks the terminal cancel, failed-renewal,
+watermark and refund logic. PR #200 cannot merge while the required `checks` job
+fails on GHSA-fc5q-39xc-vjpf (`picomatch`, no patched release). Once that advisory
+has a fix the PR merges and `main` becomes the source again; until then, redeploy
+the branch head rather than `main` after any billing change.
 
 ## Live Stripe gate
 

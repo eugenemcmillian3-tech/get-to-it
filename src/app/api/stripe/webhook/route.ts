@@ -21,10 +21,7 @@ export const dynamic = "force-dynamic";
 type RefundLookup = {
   ok?: boolean;
   code?: string;
-  found?: boolean;
-  purchase_status?: string | null;
   provider_subscription_id?: string | null;
-  status?: string | null;
 };
 
 /**
@@ -65,10 +62,10 @@ async function stopRefundedSubscription(input: {
   if (lookup.ok === false) {
     return { ok: false, reason: lookup.code ?? "lookup rejected" };
   }
-  if (lookup.purchase_status !== "refunded" || !lookup.provider_subscription_id) {
-    return { ok: true };
-  }
-  if (lookup.status === "canceled") return { ok: true };
+  // Nothing else gates the cancellation: a signed refund must stop billing even
+  // if our own bookkeeping has not caught up yet, and Stripe already treats a
+  // second cancellation as success.
+  if (!lookup.provider_subscription_id) return { ok: true };
 
   const canceled = await cancelSubscriptionNow(lookup.provider_subscription_id);
   return canceled.ok ? { ok: true } : { ok: false, reason: canceled.message };

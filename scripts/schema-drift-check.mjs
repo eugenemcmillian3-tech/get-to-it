@@ -70,6 +70,33 @@ const stripComments = (sql) => {
 };
 
 const normalize = (text) => normalizeWhitespace(stripComments(text));
+
+// Functions are keyed by name and arity, not name alone: `0093` keeps the
+// 12-argument webhook function as a wrapper beside the 13-argument one, and a
+// name-only key would compare whichever body happened to come last.
+const argumentCount = (args) => {
+  const text = stripComments(args).trim();
+  if (text === "") return 0;
+  let depth = 0;
+  let count = 1;
+  let inString = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const character = text[i];
+    if (inString) {
+      if (character === "'") {
+        if (text[i + 1] === "'") i += 1;
+        else inString = false;
+      }
+      continue;
+    }
+    if (character === "'") inString = true;
+    else if (character === "(") depth += 1;
+    else if (character === ")") depth -= 1;
+    else if (character === "," && depth === 0) count += 1;
+  }
+  return count;
+};
+const functionKey = (name, arity) => `${name}/${arity}`;
 const printCatalog = process.argv.includes("--print-catalog");
 const connectionString = process.env.SCHEMA_DRIFT_DATABASE_URL ?? process.env.DATABASE_URL;
 const apiToken = process.env.SUPABASE_MANAGEMENT_API ?? "";
@@ -90,11 +117,26 @@ if (!connectionString && !apiArmed) {
   process.exit(required ? 1 : 0);
 }
 
+// A function a later migration dropped is not expected in the database, so the
+// expectation has to follow `drop function` too; otherwise an old arity lingers
+// and every comparison reports it missing.
+const DROPPED =
+  /drop function\s+(?:if exists\s+)?(public\.[a-z_0-9]+)\s*\(([\s\S]*?)\)\s*(?:cascade\s*)?;/gi;
 const expectedFunctions = new Map();
 for (const file of readdirSync(MIGRATIONS).filter((name) => name.endsWith(".sql")).sort()) {
   const sql = readFileSync(path.join(MIGRATIONS, file), "utf8");
-  for (const match of sql.matchAll(DEFINITION)) {
-    expectedFunctions.set(match[1].replace("public.", ""), {
+  const statements = [
+    ...[...sql.matchAll(DEFINITION)].map((match) => ({ index: match.index, kind: "create", match })),
+    ...[...sql.matchAll(DROPPED)].map((match) => ({ index: match.index, kind: "drop", match })),
+  ].sort((a, b) => a.index - b.index);
+
+  for (const { kind, match } of statements) {
+    const key = functionKey(match[1].replace("public.", ""), argumentCount(match[2]));
+    if (kind === "drop") {
+      expectedFunctions.delete(key);
+      continue;
+    }
+    expectedFunctions.set(key, {
       file,
       body: normalize(match[3]),
       withoutComments: normalizeWhitespace(match[3]),
@@ -164,7 +206,7 @@ try {
   ({ rows: [{ version: liveVersion }] } = await client.query("select version() as version"));
   catalog = await collectCatalog(client);
   ({ rows: functionRows } = await client.query(
-    `select p.proname, p.prosrc
+    `select p.proname, p.pronargs::text as pronargs, p.prosrc
        from pg_proc p
        join pg_namespace n on n.oid = p.pronamespace
       where n.nspname = 'public' and p.prokind = 'f'`,
@@ -180,8 +222,12 @@ if (printCatalog) {
   process.exit(0);
 }
 
-const live = new Map(functionRows.map((row) => [row.proname, normalize(row.prosrc)]));
-const liveRaw = new Map(functionRows.map((row) => [row.proname, normalizeWhitespace(row.prosrc)]));
+const live = new Map(
+  functionRows.map((row) => [functionKey(row.proname, row.pronargs), normalize(row.prosrc)]),
+);
+const liveRaw = new Map(
+  functionRows.map((row) => [functionKey(row.proname, row.pronargs), normalizeWhitespace(row.prosrc)]),
+);
 const missingFunctions = [];
 const driftedFunctions = [];
 const commentOnly = [];

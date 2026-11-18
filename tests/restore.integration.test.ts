@@ -4454,6 +4454,71 @@ describeRestore("isolated restore and authorization drill", () => {
     );
   });
 
+  it("still records a subscription event for a caller on the 12-argument signature", async () => {
+    // `0092` dropped the old signature, which made every delivery from `main` or
+    // from a rolled-back build fail at the database. `0093` keeps it as a wrapper
+    // over the same implementation, so a rollback loses the ordering watermark
+    // instead of losing renewals and cancellations.
+    const { token, purchaseId } = await seedPaidProPurchase();
+    const subscriptionId = `sub_${randomUUID()}`;
+    const periodStart = new Date(Date.now() - 60_000);
+    const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+    const legacy = async (type: string, status: string, end: Date) => {
+      const result = await client.query<{ r: { ok: boolean; status?: string } }>(
+        `select public.billing_handle_subscription_event(
+           $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12
+         ) as r`,
+        [
+          token,
+          `evt_legacy_${randomUUID()}`,
+          type,
+          subscriptionId,
+          `cus_${randomUUID()}`,
+          status,
+          "price_test_subscription",
+          1,
+          periodStart.toISOString(),
+          end.toISOString(),
+          false,
+          purchaseId,
+        ],
+      );
+      expect(result.rows[0].r.ok).toBe(true);
+      return result.rows[0].r;
+    };
+
+    expect(
+      await legacy("customer.subscription.created", "active", periodEnd),
+    ).toMatchObject({ status: "active" });
+    expect(await readSubscriptionState(subscriptionId)).toMatchObject({
+      status: "active",
+      entitlement_status: "active",
+    });
+
+    const canceledAt = new Date();
+    await legacy("customer.subscription.deleted", "canceled", canceledAt);
+    expect(await readSubscriptionState(subscriptionId)).toMatchObject({
+      status: "canceled",
+      entitlement_status: "revoked",
+    });
+
+    // The wrapper forwards no event time, so it never advances the watermark...
+    const watermark = await client.query<{ last_event_at: string | null }>(
+      "select last_event_at from public.billing_subscriptions where provider_subscription_id = $1",
+      [subscriptionId],
+    );
+    expect(watermark.rows[0].last_event_at).toBeNull();
+
+    // ...and a late active update still cannot resurrect the subscription,
+    // because `canceled` is terminal in the shared implementation.
+    await legacy("customer.subscription.updated", "active", periodEnd);
+    expect(await readSubscriptionState(subscriptionId)).toMatchObject({
+      status: "canceled",
+      entitlement_status: "revoked",
+    });
+  });
+
   it("finds the subscription behind a refunded payment so it can be stopped", async () => {
     const { token, purchaseId } = await seedPaidProPurchase();
     const subscriptionId = `sub_${randomUUID()}`;
@@ -4495,18 +4560,12 @@ describeRestore("isolated restore and authorization drill", () => {
     // The webhook needs the Stripe id to cancel a refunded subscription; without
     // it the customer keeps being billed for a refunded purchase.
     const lookup = await client.query<{
-      r: {
-        ok: boolean;
-        purchase_status?: string;
-        provider_subscription_id?: string;
-        status?: string;
-      };
+      r: { ok: boolean; found?: boolean; provider_subscription_id?: string };
     }>("select public.billing_subscription_for_payment($1,$2) as r", [token, paymentId]);
     expect(lookup.rows[0].r).toMatchObject({
       ok: true,
-      purchase_status: "refunded",
+      found: true,
       provider_subscription_id: subscriptionId,
-      status: "active",
     });
 
     // A refunded credit pack has no billing purchase, so nothing is canceled.

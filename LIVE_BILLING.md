@@ -118,13 +118,26 @@ A refund that would take a balance negative is deliberately parked as a failed
 event for a person to handle; it is acknowledged so Stripe stops retrying.
 
 A refund of a **subscription** purchase does two things. The entitlement is
-revoked in `billing_handle_event`, and the webhook then looks the purchase up by
-payment id (`billing_subscription_for_payment`) and cancels the Stripe
-subscription immediately with `DELETE /v1/subscriptions/{id}` (migration `0092`).
-Revoking access without ending the subscription would keep charging a customer
-who has been refunded, and the next `invoice.paid` would buy the period back. A cancel that Stripe reports as unknown or already canceled counts as success, and
-a genuine failure returns `500` so Stripe retries the delivery — the lookup is
-idempotent, so the retry is harmless.
+revoked in `billing_handle_event`, and the webhook looks the purchase up by
+payment id (`billing_subscription_for_payment`, migration `0093`) and cancels the
+Stripe subscription immediately with `DELETE /v1/subscriptions/{id}`. The lookup
+returns the Stripe id and nothing else: no purchase or subscription status gates
+the cancellation, because a signed refund has to stop billing even when our own
+bookkeeping has not caught up, and Stripe reports a second cancellation as
+success. Revoking access without ending the subscription would keep charging a
+customer who has been refunded, and the next `invoice.paid` would buy the period
+back. A cancel that Stripe reports as unknown or already canceled counts as
+success, and a genuine failure returns `500` so Stripe retries the delivery — the
+lookup is idempotent, so the retry is harmless.
+
+That lookup matches the payment id stored on the purchase. A subscription
+Checkout session has no payment intent of its own — the first invoice does — so a
+subscription purchase stores none, and its `charge.refunded` matches no purchase:
+neither the revocation nor the cancellation happens today. **Known gap, not fixed
+in `0093`:** recording the invoice's payment intent from `invoice.paid` (the
+`payment_intent` field, or `payments.data[].payment.payment_intent` on newer API
+versions) on the subscription and matching it here closes it. Until then, cancel a
+refunded subscription by hand in Stripe.
 
 Only a **fully** refunded charge does this. Stripe also sends `charge.refunded`
 for a partial refund; that event is acknowledged as `ignored` / `partial-refund`
@@ -162,6 +175,12 @@ shrink a paid period, or roll an `active` subscription back to `past_due`.
 The guard is per subscription and only applies when the event carries a
 creation time; a duplicate event id is caught before it. A newer event always
 applies, so paying an invoice after a stale failure still restores access.
+
+The 12-argument signature still exists as a thin wrapper over the same function
+(migration `0093`), so a deploy from `main` or an application rollback keeps
+recording subscription events instead of failing every delivery. The wrapper
+forwards no event time, so it never advances the watermark and the ordering guard
+does not apply to its deliveries; `canceled` is still terminal either way.
 
 ## 7. Cost basis for pricing decisions
 
