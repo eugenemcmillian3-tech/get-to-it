@@ -33,6 +33,7 @@ import {
 } from "@/lib/credits/pricing";
 import {
   createCheckoutSession,
+  eventCreatedAt,
   factsFromEvent,
   getStripeKey,
   hasStripeKey,
@@ -401,11 +402,12 @@ describe("stripe signature verification", () => {
 });
 
 describe("stripe event parsing", () => {
-  it("keeps only the id, type and object", () => {
+  it("keeps only the id, type, creation time and object", () => {
     const event = parseStripeEvent(
       JSON.stringify({
         id: "evt_1",
         type: "checkout.session.completed",
+        created: 1_700_000_000,
         data: { object: { id: "cs_1" } },
         extra: "ignored",
       }),
@@ -413,8 +415,14 @@ describe("stripe event parsing", () => {
     expect(event).toEqual({
       id: "evt_1",
       type: "checkout.session.completed",
+      created: 1_700_000_000,
       data: { object: { id: "cs_1" } },
     });
+    expect(eventCreatedAt(event!)).toBe("2023-11-14T22:13:20.000Z");
+    // An event with no usable creation time must not be given a made-up one.
+    expect(
+      eventCreatedAt(parseStripeEvent(JSON.stringify({ id: "evt_2", type: "x", data: { object: {} } }))!),
+    ).toBeNull();
   });
 
   it("rejects unreadable or incomplete bodies", () => {

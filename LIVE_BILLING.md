@@ -109,12 +109,23 @@ payments" warning is shown.
    a balance back to its previous value; the historical `purchase` row stays.
 3. Buy a paid offer once (the cheapest available) and confirm the entitlement
    appears only after the webhook, then refund it in Stripe and confirm access is
-   revoked.
+   revoked **and** the subscription is canceled at Stripe, so no further invoice
+   is raised.
 4. Check `credit_payments` and `billing_purchases` show `paid` then `refunded`;
    `payment_events` has one row per Stripe event id, with no duplicates.
 
 A refund that would take a balance negative is deliberately parked as a failed
 event for a person to handle; it is acknowledged so Stripe stops retrying.
+
+A refund of a **subscription** purchase does two things. The entitlement is
+revoked in `billing_handle_event`, and the webhook then looks the purchase up by
+payment id (`billing_subscription_for_payment`) and cancels the Stripe
+subscription immediately with `DELETE /v1/subscriptions/{id}` (migration `0092`).
+Revoking access without ending the subscription would keep charging a customer
+who has been refunded, and the next `invoice.paid` would buy the period back. A
+cancel that Stripe reports as unknown or already canceled counts as success, and
+a genuine failure returns `500` so Stripe retries the delivery — the lookup is
+idempotent, so the retry is harmless.
 
 ## 6a. What a failed renewal does
 
@@ -131,7 +142,21 @@ the `past_due`/`unpaid`/`paused` branch of the entitlement update, not by lettin
 the failed invoice's period through.
 
 This is separate from cancellation: a canceled subscription stays canceled
-(`0090`), and a refund revokes the entitlement in `billing_handle_event`.
+(`0090`), and a refund revokes the entitlement in `billing_handle_event` and then
+cancels the Stripe subscription.
+
+## 6b. Delivery order
+
+Stripe does not promise that webhooks arrive in the order it created them. Every
+subscription records the newest `event.created` it has applied, and an event
+created earlier than that is recorded as `ignored` / `stale-event` instead of
+overwriting the state (migration `0092`). Without the watermark, `canceled` was
+the only protected value: a delayed `customer.subscription.updated` could still
+shrink a paid period, or roll an `active` subscription back to `past_due`.
+
+The guard is per subscription and only applies when the event carries a
+creation time; a duplicate event id is caught before it. A newer event always
+applies, so paying an invoice after a stale failure still restores access.
 
 ## 7. Cost basis for pricing decisions
 

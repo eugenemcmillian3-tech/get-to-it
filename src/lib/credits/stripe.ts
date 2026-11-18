@@ -274,6 +274,8 @@ export function verifyStripeSignature(input: {
 export type StripeEvent = {
   id: string;
   type: string;
+  /** Envelope creation time, unix seconds. Used to order deliveries. */
+  created?: number | null;
   data: { object: Record<string, unknown> };
 };
 
@@ -289,6 +291,7 @@ export function parseStripeEvent(raw: string): StripeEvent | null {
   const record = payload as {
     id?: unknown;
     type?: unknown;
+    created?: unknown;
     data?: { object?: unknown };
   };
 
@@ -306,8 +309,27 @@ export function parseStripeEvent(raw: string): StripeEvent | null {
   return {
     id: record.id,
     type: record.type,
+    created:
+      typeof record.created === "number" &&
+      Number.isFinite(record.created) &&
+      record.created > 0
+        ? record.created
+        : null,
     data: { object: record.data.object as Record<string, unknown> },
   };
+}
+
+/**
+ * `event.created` as an ISO timestamp for the database ordering watermark.
+ * Stripe orders its own deliveries by when the event was created, not by when it
+ * arrived, so this is the only clock the ingestion may trust.
+ */
+export function eventCreatedAt(event: StripeEvent): string | null {
+  return typeof event.created === "number" &&
+    Number.isFinite(event.created) &&
+    event.created > 0
+    ? new Date(event.created * 1000).toISOString()
+    : null;
 }
 
 /** The fields our ingestion needs, and nothing else. */

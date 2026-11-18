@@ -1,18 +1,77 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
+  eventCreatedAt,
   factsFromEvent,
+  getStripeKey,
   getWebhookSecret,
   parseStripeEvent,
   paymentDetailsFromEvent,
   subscriptionFactsFromEvent,
   verifyStripeSignature,
 } from "@/lib/credits/stripe";
+import { cancelSubscriptionNow } from "@/lib/billing/stripe";
 import { sendPurchaseReceipt } from "@/lib/credits/receipt";
 import { getSupabaseSettings } from "@/lib/supabase/config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+type RefundLookup = {
+  ok?: boolean;
+  code?: string;
+  found?: boolean;
+  purchase_status?: string | null;
+  provider_subscription_id?: string | null;
+  status?: string | null;
+};
+
+/**
+ * Stops the Stripe subscription behind a refunded purchase.
+ *
+ * Revoking the entitlement is not enough: an active Stripe subscription keeps
+ * billing a customer who has been refunded, and its next `invoice.paid` would
+ * buy the period back. The lookup is by payment id, so a retried delivery
+ * repeats the same idempotent cancellation instead of depending on the event
+ * having been new.
+ */
+async function stopRefundedSubscription(input: {
+  supabase: SupabaseClient;
+  rpcToken: string;
+  providerPaymentId: string | null;
+}): Promise<{ ok: true } | { ok: false; reason: string }> {
+  // A credit-pack refund has no billing purchase, so there is nothing to stop.
+  if (!input.providerPaymentId) return { ok: true };
+
+  if (!getStripeKey()) {
+    console.error(
+      "Refund recorded without a usable Stripe key: a refunded subscription may still be active and needs reconciliation.",
+    );
+    return { ok: true };
+  }
+
+  const { data, error } = await input.supabase.rpc(
+    "billing_subscription_for_payment",
+    {
+      p_token: input.rpcToken,
+      p_provider_payment_id: input.providerPaymentId,
+    },
+  );
+
+  if (error) return { ok: false, reason: error.message };
+
+  const lookup = (data ?? {}) as RefundLookup;
+  if (lookup.ok === false) {
+    return { ok: false, reason: lookup.code ?? "lookup rejected" };
+  }
+  if (lookup.purchase_status !== "refunded" || !lookup.provider_subscription_id) {
+    return { ok: true };
+  }
+  if (lookup.status === "canceled") return { ok: true };
+
+  const canceled = await cancelSubscriptionNow(lookup.provider_subscription_id);
+  return canceled.ok ? { ok: true } : { ok: false, reason: canceled.message };
+}
 
 /**
  * Stripe webhook.
@@ -92,6 +151,7 @@ export async function POST(request: Request) {
         p_period_end: subscription.periodEnd,
         p_cancel_at_period_end: subscription.cancelAtPeriodEnd,
         p_purchase_id: subscription.purchaseId,
+        p_event_created: eventCreatedAt(event),
       },
     );
 
@@ -168,6 +228,27 @@ export async function POST(request: Request) {
         { ok: false, error: "That webhook token is not accepted." },
         { status: 401 },
       );
+    }
+
+    if (event.type === "charge.refunded") {
+      const stopped = await stopRefundedSubscription({
+        supabase,
+        rpcToken,
+        providerPaymentId: facts.providerPaymentId,
+      });
+
+      if (!stopped.ok) {
+        // 500 so Stripe retries. The refund itself is already recorded, and the
+        // retry repeats the same lookup, so nothing is granted twice.
+        console.error("Refunded subscription was not canceled:", stopped.reason);
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "The refund is recorded, but the subscription could not be stopped yet.",
+          },
+          { status: 500 },
+        );
+      }
     }
 
     return NextResponse.json({ ok: true, result: data, offer: billingData });
