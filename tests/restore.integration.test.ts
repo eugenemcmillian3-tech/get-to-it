@@ -4019,7 +4019,11 @@ describeRestore("isolated restore and authorization drill", () => {
     expect(ledgerAfter.rows[0]).toEqual(ledgerBefore.rows[0]);
   });
 
-  it("does not reactivate a canceled subscription from a delayed active update", async () => {
+  /**
+   * Seeds the paid `pro` purchase and checkout that both webhook-ordering tests
+   * replay subscription events against.
+   */
+  async function seedPaidProPurchase() {
     const token = `subscription-ordering-token-${randomUUID()}`;
     await client.query(
       `insert into public.app_secrets (name, value) values ('credit_webhook', $1)
@@ -4044,8 +4048,38 @@ describeRestore("isolated restore and authorization drill", () => {
     });
     await client.query(
       "select public.billing_handle_event($1,$2,$3,$4,$5,null) as r",
-      [token, `evt_sub_order_checkout_${randomUUID()}`, "checkout.session.completed", sessionId, `pi_sub_order_${randomUUID()}`],
+      [
+        token,
+        `evt_sub_order_checkout_${randomUUID()}`,
+        "checkout.session.completed",
+        sessionId,
+        `pi_sub_order_${randomUUID()}`,
+      ],
     );
+
+    return { token, purchaseId };
+  }
+
+  /** Reads the subscription and entitlement state a delivery left behind. */
+  async function readSubscriptionState(subscriptionId: string) {
+    const result = await client.query<{
+      status: string;
+      current_period_end: string;
+      entitlement_status: string;
+      entitlement_expires_at: string;
+    }>(
+      `select s.status, s.current_period_end, e.status as entitlement_status,
+              e.expires_at as entitlement_expires_at
+         from public.billing_subscriptions s
+         join public.billing_entitlements e on e.purchase_id = s.purchase_id
+        where s.provider_subscription_id = $1`,
+      [subscriptionId],
+    );
+    return result.rows[0];
+  }
+
+  it("does not reactivate a canceled subscription from a delayed active update", async () => {
+    const { token, purchaseId } = await seedPaidProPurchase();
 
     const subscriptionId = `sub_${randomUUID()}`;
     const periodStart = new Date(Date.now() - 60_000);
@@ -4087,87 +4121,33 @@ describeRestore("isolated restore and authorization drill", () => {
     expect(beforeCancel.rows[0].status).toBe("active");
 
     await subscriptionEvent("customer.subscription.deleted", "canceled", deletedAt, false);
-    const afterCancel = await client.query<{
-      status: string;
-      current_period_end: string;
-      entitlement_status: string;
-      entitlement_expires_at: string;
-    }>(
-      `select s.status, s.current_period_end, e.status as entitlement_status,
-              e.expires_at as entitlement_expires_at
-         from public.billing_subscriptions s
-         join public.billing_entitlements e on e.purchase_id = s.purchase_id
-        where s.provider_subscription_id = $1`,
-      [subscriptionId],
-    );
-    expect(afterCancel.rows[0]).toMatchObject({
+    const afterCancel = await readSubscriptionState(subscriptionId);
+    expect(afterCancel).toMatchObject({
       status: "canceled",
       entitlement_status: "revoked",
     });
-    expect(new Date(afterCancel.rows[0].current_period_end).toISOString()).toBe(
+    expect(new Date(afterCancel.current_period_end).toISOString()).toBe(
       deletedAt.toISOString(),
     );
 
     // Stripe can deliver an older active update after the deleted event. It must
     // not move the subscription out of its terminal state or restore access.
     await subscriptionEvent("customer.subscription.updated", "active", periodEnd, false);
-    const afterStaleUpdate = await client.query<{
-      status: string;
-      current_period_end: string;
-      entitlement_status: string;
-      entitlement_expires_at: string;
-    }>(
-      `select s.status, s.current_period_end, e.status as entitlement_status,
-              e.expires_at as entitlement_expires_at
-         from public.billing_subscriptions s
-         join public.billing_entitlements e on e.purchase_id = s.purchase_id
-        where s.provider_subscription_id = $1`,
-      [subscriptionId],
-    );
-    expect(afterStaleUpdate.rows[0]).toMatchObject({
+    const afterStaleUpdate = await readSubscriptionState(subscriptionId);
+    expect(afterStaleUpdate).toMatchObject({
       status: "canceled",
       entitlement_status: "revoked",
     });
-    expect(new Date(afterStaleUpdate.rows[0].current_period_end).toISOString()).toBe(
+    expect(new Date(afterStaleUpdate.current_period_end).toISOString()).toBe(
       deletedAt.toISOString(),
     );
-    expect(new Date(afterStaleUpdate.rows[0].entitlement_expires_at).toISOString()).toBe(
+    expect(new Date(afterStaleUpdate.entitlement_expires_at).toISOString()).toBe(
       deletedAt.toISOString(),
     );
   });
 
   it("keeps a canceled subscription terminal when deleted and a stale active update race", async () => {
-    const token = `subscription-concurrency-token-${randomUUID()}`;
-    await client.query(
-      `insert into public.app_secrets (name, value) values ('credit_webhook', $1)
-       on conflict (name) do update set value = excluded.value, updated_at = now()`,
-      [token],
-    );
-
-    const purchase = await asUser(accountA.userId, async () => {
-      const result = await client.query<{
-        r: { ok: boolean; purchase_id?: string; amount_cents?: number };
-      }>("select public.create_billing_purchase('pro',1,null,null) as r");
-      return result.rows[0].r;
-    });
-    expect(purchase.ok, JSON.stringify(purchase)).toBe(true);
-    const purchaseId = purchase.purchase_id;
-    if (!purchaseId) throw new Error("purchase was not created");
-
-    const sessionId = `cs_subscription_race_${randomUUID()}`;
-    await asUser(accountA.userId, async () => {
-      await client.query("select public.attach_billing_session($1,$2)", [purchaseId, sessionId]);
-    });
-    await client.query(
-      "select public.billing_handle_event($1,$2,$3,$4,$5,null) as r",
-      [
-        token,
-        `evt_sub_race_checkout_${randomUUID()}`,
-        "checkout.session.completed",
-        sessionId,
-        `pi_sub_race_${randomUUID()}`,
-      ],
-    );
+    const { token, purchaseId } = await seedPaidProPurchase();
 
     const subscriptionId = `sub_${randomUUID()}`;
     const periodStart = new Date(Date.now() - 120_000);
@@ -4242,45 +4222,27 @@ describeRestore("isolated restore and authorization drill", () => {
         if (!blocked) await new Promise((resolve) => setTimeout(resolve, 20));
       }
 
-      if (blocked) {
-        await deletedSession.query("commit");
-        const staleResult = await staleDelivery;
-        await staleSession.query("commit");
-        // The stale update ran after the cancellation committed, so the database
-        // itself must report the terminal state rather than trusting the event.
-        expect(staleResult.rows[0].r).toMatchObject({ ok: true, status: "canceled" });
-      } else {
-        await deletedSession.query("commit");
-        await staleDelivery;
-        await staleSession.query("rollback");
-      }
       expect(blocked).toBe(true);
+      await deletedSession.query("commit");
+      const staleResult = await staleDelivery;
+      await staleSession.query("commit");
+      // The stale update ran after the cancellation committed, so the database
+      // itself must report the terminal state rather than trusting the event.
+      expect(staleResult.rows[0].r).toMatchObject({ ok: true, status: "canceled" });
     } finally {
       await deletedSession.end().catch(() => {});
       await staleSession.end().catch(() => {});
     }
 
-    const finalState = await client.query<{
-      status: string;
-      current_period_end: string;
-      entitlement_status: string;
-      entitlement_expires_at: string;
-    }>(
-      `select s.status, s.current_period_end, e.status as entitlement_status,
-              e.expires_at as entitlement_expires_at
-         from public.billing_subscriptions s
-         join public.billing_entitlements e on e.purchase_id = s.purchase_id
-        where s.provider_subscription_id = $1`,
-      [subscriptionId],
-    );
-    expect(finalState.rows[0]).toMatchObject({
+    const finalState = await readSubscriptionState(subscriptionId);
+    expect(finalState).toMatchObject({
       status: "canceled",
       entitlement_status: "revoked",
     });
-    expect(new Date(finalState.rows[0].current_period_end).toISOString()).toBe(
+    expect(new Date(finalState.current_period_end).toISOString()).toBe(
       deletedAt.toISOString(),
     );
-    expect(new Date(finalState.rows[0].entitlement_expires_at).toISOString()).toBe(
+    expect(new Date(finalState.entitlement_expires_at).toISOString()).toBe(
       deletedAt.toISOString(),
     );
   });
