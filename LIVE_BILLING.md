@@ -130,16 +130,27 @@ back. A cancel that Stripe reports as unknown or already canceled counts as
 success, and a genuine failure returns `500` so Stripe retries the delivery — the
 lookup is idempotent, so the retry is harmless.
 
-That lookup matches the payment id stored on the purchase, which comes from the
-Checkout session. Stripe documents `session.payment_intent` as present for
-`mode=payment`, and it is not verified here for `mode=subscription` — no
-subscription purchase has ever completed on this deployment. If a subscription
-session stores no payment id, its `charge.refunded` matches nothing: access is not
-revoked and the subscription is not cancelled, and it has to be cancelled by hand
-in Stripe. Step 3 of §6 is what settles this; do not assume the refund path is
-live until it passes. The fix, if it fails, is to record the invoice's payment
-intent from `invoice.paid` (`payment_intent`, or
-`payments.data[].payment.payment_intent` on newer API versions) and match it here.
+That lookup does not depend on the Checkout session. Every paid invoice carries
+the payment intent of the charge it paid, so `invoice.paid` records that id on the
+subscription (`billing_record_invoice_payment`, migration `0094`), and both the
+entitlement revocation and the cancellation use it. `session.payment_intent` is
+documented for `mode=payment` only, which is exactly why nothing relies on it. A
+one-time offer still matches through the payment id stored on its purchase.
+
+The recorded id is the most recent paid invoice, so refunding an **older**
+invoice's charge is not matched; covering that needs an invoice-to-purchase
+mapping rather than one column.
+
+### Verifying the rehearsal
+
+After step 3, run `npm run check:refund`. It reports PASS/FAIL for the latest
+refunded purchase: purchase `refunded`, subscription recorded, subscription
+`canceled`, entitlement `revoked`, `charge.refunded` recorded as `processed`, and,
+when `STRIPE_SECRET_KEY` is in `.env.local`, Stripe itself reporting the
+subscription canceled. It reads either `DATABASE_URL`/`POSTGRES_URL` or
+`SUPABASE_MANAGEMENT_API` with `SUPABASE_PROJECT_REF`; `--payment pi_...` pins one
+specific refund and `--json` makes it machine-readable. The script only reads —
+nothing is revoked, refunded or cancelled by running it.
 
 Only a **fully** refunded charge does this. Stripe also sends `charge.refunded`
 for a partial refund; that event is acknowledged as `ignored` / `partial-refund`

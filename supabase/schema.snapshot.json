@@ -18187,6 +18187,12 @@
       "definition": "CREATE INDEX billing_purchases_workspace_idx ON public.billing_purchases USING btree (workspace_id, created_at DESC)"
     },
     {
+      "key": "billing_subscriptions.billing_subscriptions_payment_idx",
+      "table": "billing_subscriptions",
+      "name": "billing_subscriptions_payment_idx",
+      "definition": "CREATE UNIQUE INDEX billing_subscriptions_payment_idx ON public.billing_subscriptions USING btree (provider_payment_id) WHERE (provider_payment_id IS NOT NULL)"
+    },
+    {
       "key": "billing_subscriptions.billing_subscriptions_period_idx",
       "table": "billing_subscriptions",
       "name": "billing_subscriptions_period_idx",

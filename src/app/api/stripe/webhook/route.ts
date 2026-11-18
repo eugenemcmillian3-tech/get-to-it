@@ -3,6 +3,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
   eventCreatedAt,
   factsFromEvent,
+  invoicePaymentId,
   isFullRefund,
   getStripeKey,
   getWebhookSecret,
@@ -175,6 +176,34 @@ export async function POST(request: Request) {
         { ok: false, error: "That webhook token is not accepted." },
         { status: 401 },
       );
+    }
+
+    // A refund arrives as `charge.refunded` on the invoice's charge, so the
+    // subscription records that invoice's payment intent. Without it a refunded
+    // subscription could match nothing, because a subscription Checkout session
+    // is not guaranteed to carry a payment intent of its own.
+    if (event.type === "invoice.paid") {
+      const invoicePayment = invoicePaymentId(event);
+      if (invoicePayment) {
+        const { error: invoiceError } = await supabase.rpc(
+          "billing_record_invoice_payment",
+          {
+            p_token: rpcToken,
+            p_subscription_id: subscription.subscriptionId,
+            p_provider_payment_id: invoicePayment,
+          },
+        );
+
+        if (invoiceError) {
+          console.error("billing_record_invoice_payment failed:", invoiceError.message);
+          // 500 so Stripe retries: both statements are idempotent, and a later
+          // refund of this invoice has to be able to find the subscription.
+          return NextResponse.json(
+            { ok: false, error: "The invoice payment could not be recorded yet." },
+            { status: 500 },
+          );
+        }
+      }
     }
 
     return NextResponse.json({ ok: true, subscription: subscriptionData });

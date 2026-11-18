@@ -35,6 +35,7 @@ import {
   createCheckoutSession,
   eventCreatedAt,
   factsFromEvent,
+  invoicePaymentId,
   isFullRefund,
   getStripeKey,
   hasStripeKey,
@@ -463,6 +464,32 @@ describe("stripe event parsing", () => {
       providerPaymentId: "pi_2",
       receiptUrl: "https://pay.example/receipt",
     });
+  });
+
+  it("reads the invoice payment intent the refund lookup matches on", () => {
+    const invoice = (object: Record<string, unknown>) =>
+      parseStripeEvent(
+        JSON.stringify({
+          id: "evt_invoice",
+          type: "invoice.paid",
+          data: { object },
+        }),
+      )!;
+
+    // Older API versions carry it directly; newer ones only list it per payment.
+    expect(invoicePaymentId(invoice({ id: "in_1", payment_intent: "pi_1" }))).toBe("pi_1");
+    expect(invoicePaymentId(invoice({ id: "in_2", payment_intent: { id: "pi_2" } }))).toBe(
+      "pi_2",
+    );
+    expect(
+      invoicePaymentId(
+        invoice({
+          id: "in_3",
+          payments: { data: [{ payment: { payment_intent: "pi_3" } }] },
+        }),
+      ),
+    ).toBe("pi_3");
+    expect(invoicePaymentId(invoice({ id: "in_4" }))).toBeNull();
   });
 
   it("only treats a fully refunded charge as a refund", () => {

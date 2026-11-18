@@ -29,6 +29,7 @@
     "release:check": "node scripts/release-check.mjs",
     "check:nullable-guards": "node scripts/sql-role-guard-audit.mjs --validation --strict-validation",
     "check:schema-drift": "node scripts/schema-drift-check.mjs",
+    "check:refund": "node --env-file-if-exists=.env.local scripts/refund-rehearsal-check.mjs",
     "schema:snapshot": "node scripts/schema-snapshot.mjs"
   },
   "dependencies": {

@@ -469,6 +469,33 @@ export function subscriptionFactsFromEvent(event: StripeEvent): SubscriptionFact
 }
 
 /**
+ * The payment intent of an invoice — the id its charge carries, and therefore the
+ * id a later `charge.refunded` reports. Stripe moved it between API versions:
+ * older invoices expose `payment_intent`, newer ones list it under
+ * `payments.data[].payment.payment_intent`. A subscription Checkout session is not
+ * guaranteed to carry one, so this is what the refund path matches on.
+ */
+export function invoicePaymentId(event: StripeEvent): string | null {
+  const object = event.data.object;
+
+  const direct = object.payment_intent;
+  const directId =
+    typeof direct === "string" ? direct : (direct as { id?: unknown } | undefined)?.id;
+  if (typeof directId === "string" && directId.length > 0) return directId;
+
+  const payments = object.payments as
+    | { data?: Array<{ payment?: { payment_intent?: unknown } }> }
+    | undefined;
+  for (const entry of payments?.data ?? []) {
+    const value = entry?.payment?.payment_intent;
+    const id = typeof value === "string" ? value : (value as { id?: unknown } | undefined)?.id;
+    if (typeof id === "string" && id.length > 0) return id;
+  }
+
+  return null;
+}
+
+/**
  * Stripe sends `charge.refunded` for partial refunds too. The published policy is
  * full refunds of unused credits, so a part-refund is a goodwill adjustment, not
  * the purchase being undone: it must not revoke an entitlement or cancel a

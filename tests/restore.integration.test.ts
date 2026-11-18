@@ -4519,6 +4519,105 @@ describeRestore("isolated restore and authorization drill", () => {
     });
   });
 
+  it("stops a refunded subscription through its invoice payment intent", async () => {
+    const { token, purchaseId } = await seedPaidProPurchase();
+    const subscriptionId = `sub_${randomUUID()}`;
+    const invoicePaymentId = `pi_invoice_${randomUUID()}`;
+    const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+    // A subscription Checkout session is not guaranteed to leave a payment id on
+    // the purchase, so clear it: everything below has to work from the invoice.
+    await client.query(
+      "update public.billing_purchases set provider_payment_id = null where id = $1",
+      [purchaseId],
+    );
+
+    const created = await client.query<{ r: { ok: boolean } }>(
+      `select public.billing_handle_subscription_event(
+         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13
+       ) as r`,
+      [
+        token,
+        `evt_created_${randomUUID()}`,
+        "customer.subscription.created",
+        subscriptionId,
+        `cus_${randomUUID()}`,
+        "active",
+        "price_test_subscription",
+        1,
+        new Date().toISOString(),
+        periodEnd.toISOString(),
+        false,
+        purchaseId,
+        new Date().toISOString(),
+      ],
+    );
+    expect(created.rows[0].r.ok).toBe(true);
+
+    // `invoice.paid` records the invoice's payment intent on the subscription.
+    const record = (paymentId: string) =>
+      client.query<{ r: { ok: boolean; recorded?: boolean; reason?: string } }>(
+        "select public.billing_record_invoice_payment($1,$2,$3) as r",
+        [token, subscriptionId, paymentId],
+      );
+
+    expect((await record(invoicePaymentId)).rows[0].r).toMatchObject({
+      ok: true,
+      recorded: true,
+    });
+    // A redelivered invoice rewrites the same id instead of failing.
+    expect((await record(invoicePaymentId)).rows[0].r).toMatchObject({
+      ok: true,
+      recorded: true,
+    });
+
+    // The refunded charge carries the invoice's payment intent, and the purchase
+    // has no payment id at all: without the invoice id nothing would match.
+    const refunded = await client.query<{ r: { ok: boolean; refunded?: boolean } }>(
+      "select public.billing_handle_event($1,$2,$3,$4,$5,null) as r",
+      [token, `evt_refund_${randomUUID()}`, "charge.refunded", null, invoicePaymentId],
+    );
+    expect(refunded.rows[0].r).toMatchObject({ ok: true, refunded: true });
+
+    const purchaseStatus = await client.query<{ status: string }>(
+      "select status from public.billing_purchases where id = $1",
+      [purchaseId],
+    );
+    expect(purchaseStatus.rows[0].status).toBe("refunded");
+
+    // Access is revoked immediately by the refund, not whenever Stripe's deleted
+    // event happens to arrive.
+    const state = await readSubscriptionState(subscriptionId);
+    expect(state).toMatchObject({ entitlement_status: "revoked" });
+
+    // The cancellation lookup finds the same subscription from the same id.
+    const lookup = await client.query<{
+      r: { ok: boolean; found?: boolean; provider_subscription_id?: string };
+    }>("select public.billing_subscription_for_payment($1,$2) as r", [
+      token,
+      invoicePaymentId,
+    ]);
+    expect(lookup.rows[0].r).toMatchObject({
+      ok: true,
+      found: true,
+      provider_subscription_id: subscriptionId,
+    });
+
+    // An id belonging to neither a purchase nor a subscription still matches
+    // nothing, and a wrong token is still rejected.
+    const unknown = await client.query<{ r: { found?: boolean } }>(
+      "select public.billing_subscription_for_payment($1,$2) as r",
+      [token, `pi_unknown_${randomUUID()}`],
+    );
+    expect(unknown.rows[0].r.found).toBe(false);
+
+    const rejected = await client.query<{ r: { ok: boolean; code?: string } }>(
+      "select public.billing_record_invoice_payment($1,$2,$3) as r",
+      [`wrong-token-${randomUUID()}-${randomUUID()}`, subscriptionId, invoicePaymentId],
+    );
+    expect(rejected.rows[0].r).toMatchObject({ ok: false, code: "unauthorized" });
+  });
+
   it("finds the subscription behind a refunded payment so it can be stopped", async () => {
     const { token, purchaseId } = await seedPaidProPurchase();
     const subscriptionId = `sub_${randomUUID()}`;
