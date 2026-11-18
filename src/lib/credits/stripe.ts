@@ -65,7 +65,7 @@ export function apiBase(): string {
 }
 
 export const STRIPE_SETUP_MESSAGE =
-  "Stripe isn't connected yet. Add STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET in test mode, restart the server, then try again. No card is charged until then.";
+  "Stripe isn't connected yet. Add STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET for the Stripe mode you intend to use, restart the server, then try again. No card is charged until then.";
 
 export const STRIPE_LIVE_KEY_MESSAGE =
   "A live Stripe key is configured, but this build refuses live payments. Use an sk_test_ key, or set STRIPE_ALLOW_LIVE=true when you deliberately intend to charge real money. Nothing was charged.";
@@ -274,6 +274,8 @@ export function verifyStripeSignature(input: {
 export type StripeEvent = {
   id: string;
   type: string;
+  /** Envelope creation time, unix seconds. Used to order deliveries. */
+  created?: number | null;
   data: { object: Record<string, unknown> };
 };
 
@@ -289,6 +291,7 @@ export function parseStripeEvent(raw: string): StripeEvent | null {
   const record = payload as {
     id?: unknown;
     type?: unknown;
+    created?: unknown;
     data?: { object?: unknown };
   };
 
@@ -306,8 +309,27 @@ export function parseStripeEvent(raw: string): StripeEvent | null {
   return {
     id: record.id,
     type: record.type,
+    created:
+      typeof record.created === "number" &&
+      Number.isFinite(record.created) &&
+      record.created > 0
+        ? record.created
+        : null,
     data: { object: record.data.object as Record<string, unknown> },
   };
+}
+
+/**
+ * `event.created` as an ISO timestamp for the database ordering watermark.
+ * Stripe orders its own deliveries by when the event was created, not by when it
+ * arrived, so this is the only clock the ingestion may trust.
+ */
+export function eventCreatedAt(event: StripeEvent): string | null {
+  return typeof event.created === "number" &&
+    Number.isFinite(event.created) &&
+    event.created > 0
+    ? new Date(event.created * 1000).toISOString()
+    : null;
 }
 
 /** The fields our ingestion needs, and nothing else. */
@@ -444,6 +466,56 @@ export function subscriptionFactsFromEvent(event: StripeEvent): SubscriptionFact
       metadataPurchaseId(subscriptionDetails?.metadata) ??
       metadataPurchaseId(object.metadata),
   };
+}
+
+/**
+ * The payment intent of an invoice — the id its charge carries, and therefore the
+ * id a later `charge.refunded` reports. Stripe moved it between API versions:
+ * older invoices expose `payment_intent`, newer ones list it under
+ * `payments.data[].payment.payment_intent`. A subscription Checkout session is not
+ * guaranteed to carry one, so this is what the refund path matches on.
+ */
+export function invoicePaymentId(event: StripeEvent): string | null {
+  const object = event.data.object;
+
+  const direct = object.payment_intent;
+  const directId =
+    typeof direct === "string" ? direct : (direct as { id?: unknown } | undefined)?.id;
+  if (typeof directId === "string" && directId.length > 0) return directId;
+
+  const payments = object.payments as
+    | { data?: Array<{ payment?: { payment_intent?: unknown } }> }
+    | undefined;
+  for (const entry of payments?.data ?? []) {
+    const value = entry?.payment?.payment_intent;
+    const id = typeof value === "string" ? value : (value as { id?: unknown } | undefined)?.id;
+    if (typeof id === "string" && id.length > 0) return id;
+  }
+
+  return null;
+}
+
+/**
+ * Stripe sends `charge.refunded` for partial refunds too. The published policy is
+ * full refunds of unused credits, so a part-refund is a goodwill adjustment, not
+ * the purchase being undone: it must not revoke an entitlement or cancel a
+ * subscription. A payload that does not say either way keeps the previous
+ * behaviour, because ignoring a real refund would leave paid access in place
+ * after the money went back.
+ */
+export function isFullRefund(event: StripeEvent): boolean {
+  const object = event.data.object;
+  if (object.refunded === true) return true;
+
+  const amount = typeof object.amount === "number" ? object.amount : null;
+  const amountRefunded =
+    typeof object.amount_refunded === "number" ? object.amount_refunded : null;
+
+  if (amount !== null && amountRefunded !== null && amount > 0) {
+    return amountRefunded >= amount;
+  }
+
+  return true;
 }
 
 export type PaymentDetails = {

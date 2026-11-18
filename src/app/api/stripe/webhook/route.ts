@@ -1,18 +1,121 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
+  eventCreatedAt,
   factsFromEvent,
+  invoicePaymentId,
+  isFullRefund,
+  getStripeKey,
   getWebhookSecret,
   parseStripeEvent,
   paymentDetailsFromEvent,
   subscriptionFactsFromEvent,
   verifyStripeSignature,
 } from "@/lib/credits/stripe";
+import { cancelSubscriptionNow } from "@/lib/billing/stripe";
+import { publishUnmatchedRefundAlert } from "@/lib/billing/refund-alert";
 import { sendPurchaseReceipt } from "@/lib/credits/receipt";
 import { getSupabaseSettings } from "@/lib/supabase/config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+type HandlerResult = {
+  ok?: boolean;
+  code?: string;
+  ignored?: boolean;
+  reason?: string;
+};
+
+/** True when a handler did not recognise the payment at all. */
+function reportsUnknownPayment(result: unknown): boolean {
+  const value = (result ?? {}) as HandlerResult;
+  return value.ignored === true && value.reason === "unknown-payment";
+}
+
+/**
+ * A refunded charge that neither the credit handler nor the billing handler
+ * recognised. Nothing was revoked and nothing was cancelled, and Stripe will not
+ * mention it again, so it goes to a person instead of being acknowledged
+ * silently. The alert is idempotent per payment id, which matters because Stripe
+ * retries this delivery when the alert itself fails.
+ */
+async function raiseUnmatchedRefund(input: {
+  eventId: string;
+  paymentId: string | null;
+  amountCents: number | null;
+  currency: string | null;
+}): Promise<{ ok: true; state: string } | { ok: false }> {
+  try {
+    const state = await publishUnmatchedRefundAlert(input);
+    if (state === "unconfigured") {
+      console.error(
+        "Unmatched Stripe refund could not be raised: add GITHUB_ALERT_TOKEN and GITHUB_ALERT_REPO.",
+        input.eventId,
+      );
+    }
+    return { ok: true, state };
+  } catch (error) {
+    console.error(
+      "Unmatched Stripe refund alert failed:",
+      error instanceof Error ? error.message : "unknown error",
+    );
+    return { ok: false };
+  }
+}
+
+type RefundLookup = {
+  ok?: boolean;
+  code?: string;
+  provider_subscription_id?: string | null;
+};
+
+/**
+ * Stops the Stripe subscription behind a refunded purchase.
+ *
+ * Revoking the entitlement is not enough: an active Stripe subscription keeps
+ * billing a customer who has been refunded, and its next `invoice.paid` would
+ * buy the period back. The lookup is by payment id, so a retried delivery
+ * repeats the same idempotent cancellation instead of depending on the event
+ * having been new.
+ */
+async function stopRefundedSubscription(input: {
+  supabase: SupabaseClient;
+  rpcToken: string;
+  providerPaymentId: string | null;
+}): Promise<{ ok: true } | { ok: false; reason: string }> {
+  // A credit-pack refund has no billing purchase, so there is nothing to stop.
+  if (!input.providerPaymentId) return { ok: true };
+
+  if (!getStripeKey()) {
+    console.error(
+      "Refund recorded without a usable Stripe key: a refunded subscription may still be active and needs reconciliation.",
+    );
+    return { ok: true };
+  }
+
+  const { data, error } = await input.supabase.rpc(
+    "billing_subscription_for_payment",
+    {
+      p_token: input.rpcToken,
+      p_provider_payment_id: input.providerPaymentId,
+    },
+  );
+
+  if (error) return { ok: false, reason: error.message };
+
+  const lookup = (data ?? {}) as RefundLookup;
+  if (lookup.ok === false) {
+    return { ok: false, reason: lookup.code ?? "lookup rejected" };
+  }
+  // Nothing else gates the cancellation: a signed refund must stop billing even
+  // if our own bookkeeping has not caught up yet, and Stripe already treats a
+  // second cancellation as success.
+  if (!lookup.provider_subscription_id) return { ok: true };
+
+  const canceled = await cancelSubscriptionNow(lookup.provider_subscription_id);
+  return canceled.ok ? { ok: true } : { ok: false, reason: canceled.message };
+}
 
 /**
  * Stripe webhook.
@@ -62,6 +165,14 @@ export async function POST(request: Request) {
 
   const facts = factsFromEvent(event);
 
+  // `charge.refunded` also fires for a partial refund. Only a fully refunded
+  // charge undoes a purchase: revoking access or cancelling a subscription over
+  // a goodwill part-refund would take away what the customer kept.
+  if (event.type === "charge.refunded" && !isFullRefund(event)) {
+    console.info("Partial refund acknowledged without revoking access:", event.id);
+    return NextResponse.json({ ok: true, ignored: "partial-refund" });
+  }
+
   const supabase = createClient(settings.url, settings.anonKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
@@ -92,6 +203,7 @@ export async function POST(request: Request) {
         p_period_end: subscription.periodEnd,
         p_cancel_at_period_end: subscription.cancelAtPeriodEnd,
         p_purchase_id: subscription.purchaseId,
+        p_event_created: eventCreatedAt(event),
       },
     );
 
@@ -109,6 +221,34 @@ export async function POST(request: Request) {
         { ok: false, error: "That webhook token is not accepted." },
         { status: 401 },
       );
+    }
+
+    // A refund arrives as `charge.refunded` on the invoice's charge, so the
+    // subscription records that invoice's payment intent. Without it a refunded
+    // subscription could match nothing, because a subscription Checkout session
+    // is not guaranteed to carry a payment intent of its own.
+    if (event.type === "invoice.paid") {
+      const invoicePayment = invoicePaymentId(event);
+      if (invoicePayment) {
+        const { error: invoiceError } = await supabase.rpc(
+          "billing_record_invoice_payment",
+          {
+            p_token: rpcToken,
+            p_subscription_id: subscription.subscriptionId,
+            p_provider_payment_id: invoicePayment,
+          },
+        );
+
+        if (invoiceError) {
+          console.error("billing_record_invoice_payment failed:", invoiceError.message);
+          // 500 so Stripe retries: both statements are idempotent, and a later
+          // refund of this invoice has to be able to find the subscription.
+          return NextResponse.json(
+            { ok: false, error: "The invoice payment could not be recorded yet." },
+            { status: 500 },
+          );
+        }
+      }
     }
 
     return NextResponse.json({ ok: true, subscription: subscriptionData });
@@ -168,6 +308,57 @@ export async function POST(request: Request) {
         { ok: false, error: "That webhook token is not accepted." },
         { status: 401 },
       );
+    }
+
+    // Both handlers disclaiming the payment means this refund belongs to nobody
+    // we know: a person has to look at it.
+    if (
+      event.type === "charge.refunded" &&
+      reportsUnknownPayment(billingData) &&
+      reportsUnknownPayment(data)
+    ) {
+      const details = paymentDetailsFromEvent(event);
+      const alerted = await raiseUnmatchedRefund({
+        eventId: event.id,
+        paymentId: facts.providerPaymentId,
+        amountCents: details.amountTotal,
+        currency: details.currency,
+      });
+
+      if (!alerted.ok) {
+        // 500 so Stripe retries. Nothing was granted or revoked, so the retry is
+        // safe, and the alert is idempotent per payment id.
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "The refund could not be raised for a person yet.",
+          },
+          { status: 500 },
+        );
+      }
+
+      return NextResponse.json({ ok: true, ignored: "unmatched-refund", alerted: alerted.state });
+    }
+
+    if (event.type === "charge.refunded") {
+      const stopped = await stopRefundedSubscription({
+        supabase,
+        rpcToken,
+        providerPaymentId: facts.providerPaymentId,
+      });
+
+      if (!stopped.ok) {
+        // 500 so Stripe retries. The refund itself is already recorded, and the
+        // retry repeats the same lookup, so nothing is granted twice.
+        console.error("Refunded subscription was not canceled:", stopped.reason);
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "The refund is recorded, but the subscription could not be stopped yet.",
+          },
+          { status: 500 },
+        );
+      }
     }
 
     return NextResponse.json({ ok: true, result: data, offer: billingData });

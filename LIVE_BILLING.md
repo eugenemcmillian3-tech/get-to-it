@@ -1,9 +1,25 @@
 # Going live with payments
 
-**Status: live billing is OFF.** This is the runbook for turning it on, and for
-turning it off again in a hurry. The code, the webhook and the credit ledger are
-already built and tested; what is missing is a live Stripe account configuration
-and a deliberate decision to charge real cards.
+**Status: live billing is configured as of 2026-11-18.** The production Vercel
+environment carries `STRIPE_ALLOW_LIVE`, `STRIPE_SECRET_KEY`,
+`STRIPE_WEBHOOK_SECRET`, and all ten mode-scoped `STRIPE_PRICE_ID_*` values (five
+one-time packs, five recurring offers). `POST /api/stripe/webhook` answers `400`
+— not `503` — for unsigned and bogus-signature bodies, so the signing secret is
+installed and enforced.
+
+Configured is not the same as working. Stripe price IDs are mode-scoped, so a
+test-mode price behind a live key looks fine until the last step of a real
+checkout. `GET /api/billing/readiness` reports, without any secret or price ID,
+the mode of the configured key and whether each of the ten prices exists in that
+same mode, is active, and carries the expected amount and interval. Run it after
+every environment change:
+
+```bash
+curl -s https://<domain>/api/billing/readiness | node -e 'process.stdin.pipe(process.stdout)'
+```
+
+Every mistake in the sections below costs real money: keep this page as the
+runbook for verifying the live path, and for turning it off again in a hurry.
 
 Read the whole page before changing anything. The order matters, and two of the
 steps are not reversible by deploy alone.
@@ -34,9 +50,11 @@ steps are not reversible by deploy alone.
 
 ## 3. Create live prices first
 
-Stripe price objects are **mode-scoped**. The five `STRIPE_PRICE_ID_*` values in
-production today point at test-mode prices. A live key cannot use them; checkout
-will fail at the last step if you skip this.
+Stripe price objects are **mode-scoped**. A live key cannot use a test-mode
+price, and a test-mode price behind a live key fails at the last step of
+checkout. `GET /api/billing/readiness` (see the status note above) names the mode
+of the configured key and marks every price that belongs to the other mode, so
+run it before and after switching.
 
 Create one live, one-time price per pack with these exact amounts:
 
@@ -50,6 +68,13 @@ Create one live, one-time price per pack with these exact amounts:
 
 `packPriceId()` refuses a price ID whose amount or credit count does not match
 the pack definition, so a stale row cannot be paired with a resized price.
+
+The five recurring offer prices are mode-scoped too. Live
+`STRIPE_PRICE_ID_TEAM_SEATS`, `_PRO`, `_AUTOMATION_PLUS`, `_BUILD_RELEASE` and
+`_PRIORITY_SUPPORT` must mirror the catalogue created by
+`npm run stripe:subscriptions -- --apply` ($19/$49/$19/$79/$99 on
+30/30/30/90/30-day intervals). A live key cannot use a test-mode price; a
+subscription checkout fails at the last step rather than repricing silently.
 
 ## 4. Set the environment variables
 
@@ -90,6 +115,11 @@ Then sign in and confirm on `/credits` that checkout is offered rather than the
 "Stripe isn't configured" notice, and on `/billing` that no "refuses live
 payments" warning is shown.
 
+Finally, `GET /api/billing/readiness` must report `"ok": true`, with
+`stripe.mode` matching the mode you intend and `prices.valid` equal to the number
+of configured prices (ten). A `wrong-mode`, `wrong-amount` or `not-found` verdict
+names the offer that would fail, before anybody tries to buy it.
+
 ## 6. Rehearsal: one real purchase and one real refund
 
 1. Buy the `starter` pack ($5.00) with a real card. Expect the Stripe receipt and
@@ -98,12 +128,99 @@ payments" warning is shown.
    a balance back to its previous value; the historical `purchase` row stays.
 3. Buy a paid offer once (the cheapest available) and confirm the entitlement
    appears only after the webhook, then refund it in Stripe and confirm access is
-   revoked.
+   revoked **and** the subscription is canceled at Stripe, so no further invoice
+   is raised.
 4. Check `credit_payments` and `billing_purchases` show `paid` then `refunded`;
    `payment_events` has one row per Stripe event id, with no duplicates.
 
 A refund that would take a balance negative is deliberately parked as a failed
 event for a person to handle; it is acknowledged so Stripe stops retrying.
+
+A refund of a **subscription** purchase does two things. The entitlement is
+revoked in `billing_handle_event`, and the webhook looks the purchase up by
+payment id (`billing_subscription_for_payment`, migration `0093`) and cancels the
+Stripe subscription immediately with `DELETE /v1/subscriptions/{id}`. The lookup
+returns the Stripe id and nothing else: no purchase or subscription status gates
+the cancellation, because a signed refund has to stop billing even when our own
+bookkeeping has not caught up, and Stripe reports a second cancellation as
+success. Revoking access without ending the subscription would keep charging a
+customer who has been refunded, and the next `invoice.paid` would buy the period
+back. A cancel that Stripe reports as unknown or already canceled counts as
+success, and a genuine failure returns `500` so Stripe retries the delivery — the
+lookup is idempotent, so the retry is harmless.
+
+That lookup does not depend on the Checkout session. Every paid invoice carries
+the payment intent of the charge it paid, so `invoice.paid` records that id on the
+subscription (`billing_record_invoice_payment`, migration `0094`), and both the
+entitlement revocation and the cancellation use it. `session.payment_intent` is
+documented for `mode=payment` only, which is exactly why nothing relies on it. A
+one-time offer still matches through the payment id stored on its purchase.
+
+The recorded id is the most recent paid invoice, so refunding an **older**
+invoice's charge is not matched; covering that needs an invoice-to-purchase
+mapping rather than one column.
+
+### Verifying the rehearsal
+
+After step 3, run `npm run check:refund`. It reports PASS/FAIL for the latest
+refunded purchase: purchase `refunded`, subscription recorded, subscription
+`canceled`, entitlement `revoked`, `charge.refunded` recorded as `processed`, and,
+when `STRIPE_SECRET_KEY` is in `.env.local`, Stripe itself reporting the
+subscription canceled. It reads either `DATABASE_URL`/`POSTGRES_URL` or
+`SUPABASE_MANAGEMENT_API` with `SUPABASE_PROJECT_REF`; `--payment pi_...` pins one
+specific refund and `--json` makes it machine-readable. The script only reads —
+nothing is revoked, refunded or cancelled by running it.
+
+A `charge.refunded` that neither the credit handler nor the billing handler
+recognises is **not** acknowledged silently. The webhook opens one GitHub issue
+per payment id (`src/lib/billing/refund-alert.ts`, through `GITHUB_ALERT_TOKEN`
+and `GITHUB_ALERT_REPO`), because money went back and nothing here revoked access
+or stopped a subscription; a redelivery reuses the same issue. When the issue
+cannot be created the route returns `500` so Stripe retries, and without an alert
+token it logs the event id and still acknowledges the delivery.
+
+Only a **fully** refunded charge does this. Stripe also sends `charge.refunded`
+for a partial refund; that event is acknowledged as `ignored` / `partial-refund`
+without revoking access or cancelling anything, because the published policy is
+full refunds of unused credits and a goodwill part-refund has not undone the
+purchase.
+
+## 6a. What a failed renewal does
+
+A renewal charge that fails (`invoice.payment_failed`, or a subscription Stripe
+reports as `unpaid` or `paused`) records the status but **not** the failed
+invoice's period. The subscription keeps the last paid-through date, so the
+entitlement expires when the paid period ends instead of stretching another month
+(migration `0091`). Paying the invoice (`invoice.paid`) moves the date forward
+again and restores access.
+
+There is no grace period: a renewal that fails at period end means access ends at
+period end. If a grace window is ever wanted, it has to be added deliberately to
+the `past_due`/`unpaid`/`paused` branch of the entitlement update, not by letting
+the failed invoice's period through.
+
+This is separate from cancellation: a canceled subscription stays canceled
+(`0090`), and a refund revokes the entitlement in `billing_handle_event` and then
+cancels the Stripe subscription.
+
+## 6b. Delivery order
+
+Stripe does not promise that webhooks arrive in the order it created them. Every
+subscription records the newest `event.created` it has applied, and an event
+created earlier than that is recorded as `ignored` / `stale-event` instead of
+overwriting the state (migration `0092`). Without the watermark, `canceled` was
+the only protected value: a delayed `customer.subscription.updated` could still
+shrink a paid period, or roll an `active` subscription back to `past_due`.
+
+The guard is per subscription and only applies when the event carries a
+creation time; a duplicate event id is caught before it. A newer event always
+applies, so paying an invoice after a stale failure still restores access.
+
+The 12-argument signature still exists as a thin wrapper over the same function
+(migration `0093`), so a deploy from `main` or an application rollback keeps
+recording subscription events instead of failing every delivery. The wrapper
+forwards no event time, so it never advances the watermark and the ordering guard
+does not apply to its deliveries; `canceled` is still terminal either way.
 
 ## 7. Cost basis for pricing decisions
 

@@ -34,12 +34,56 @@ const ROLE_WORDS = ["owner", "admin", "maintainer", "member", "contributor", "re
 const DEFINITION =
   /create or replace function (public\.[a-z_0-9]+)\s*\(([\s\S]*?)\)\s*returns[\s\S]*?\$\$([\s\S]*?)\$\$;/g;
 
+/**
+ * Functions are keyed by name and argument count. A name-only key lets one
+ * overload hide another: `0093` keeps a 12-argument wrapper beside the real
+ * 13-argument webhook function, and only the wrapper would have been audited.
+ */
+function argumentCount(args) {
+  const text = args.replace(/--[^\n]*/g, "").trim();
+  if (text === "") return 0;
+  let depth = 0;
+  let count = 1;
+  let inString = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const character = text[i];
+    if (inString) {
+      if (character === "'") {
+        if (text[i + 1] === "'") i += 1;
+        else inString = false;
+      }
+      continue;
+    }
+    if (character === "'") inString = true;
+    else if (character === "(") depth += 1;
+    else if (character === ")") depth -= 1;
+    else if (character === "," && depth === 0) count += 1;
+  }
+  return count;
+}
+
+// A definition that a later migration dropped is not a function any more, so it
+// must not be audited: `0009` and `0035` dropped older arities of
+// `finish_ai_request` and `reserve_ai_request`, and without this the audit
+// reports guards in SQL that no database still runs.
+const DROPPED = /drop function\s+(?:if exists\s+)?(public\.[a-z_0-9]+)\s*\(([\s\S]*?)\)\s*(?:cascade\s*)?;/gi;
+
 function collect() {
   const latest = new Map();
   for (const file of readdirSync(MIGRATIONS).filter((name) => name.endsWith(".sql")).sort()) {
     const sql = readFileSync(path.join(MIGRATIONS, file), "utf8");
-    for (const match of sql.matchAll(DEFINITION)) {
-      latest.set(match[1], { file, full: match[0], args: match[2], body: match[3] });
+    const statements = [
+      ...[...sql.matchAll(DEFINITION)].map((match) => ({ index: match.index, kind: "create", match })),
+      ...[...sql.matchAll(DROPPED)].map((match) => ({ index: match.index, kind: "drop", match })),
+    ].sort((a, b) => a.index - b.index);
+
+    for (const { kind, match } of statements) {
+      const key = `${match[1]}/${argumentCount(match[2])}`;
+      if (kind === "drop") {
+        latest.delete(key);
+        continue;
+      }
+      latest.set(key, { file, full: match[0], args: match[2], body: match[3] });
     }
   }
   return latest;

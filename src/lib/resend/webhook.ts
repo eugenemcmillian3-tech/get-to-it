@@ -1,4 +1,11 @@
-import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
+import {
+  GithubAlertError,
+  alertClaimLabel,
+  getGithubAlertConfig,
+  publishGithubAlert,
+  type GithubAlertConfig,
+} from "@/lib/github-alerts";
 
 /**
  * Resend delivery webhook support.
@@ -9,8 +16,14 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
  * webhook is created.
  *
  * This module is deliberately dependency-free. It also keeps recipient
- * addresses, subjects and message bodies out of GitHub alerts.
+ * addresses, subjects and message bodies out of GitHub alerts. The issue
+ * plumbing itself is shared with the Stripe refund alert in
+ * `@/lib/github-alerts`.
  */
+
+// Re-exported so the route and tests keep one import path for the alert channel.
+export { GithubAlertError, getGithubAlertConfig };
+export type { GithubAlertConfig };
 
 export const RESEND_WEBHOOK_TOLERANCE_SECONDS = 300;
 export const RESEND_WEBHOOK_MAX_BODY_BYTES = 256 * 1024;
@@ -28,7 +41,6 @@ const ALERT_LABEL_COLOR = "b60205";
 const ALERT_LABEL_DESCRIPTION = "Resend delivery alert claim";
 
 const SAFE_ID = /^[A-Za-z0-9_-]{1,100}$/;
-const SAFE_REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const SAFE_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
 
 export type ResendEvent = {
@@ -44,34 +56,9 @@ export type ResendAlert = {
   createdAt: string;
 };
 
-export type GithubAlertConfig = {
-  token: string;
-  repo: string;
-  apiBase: string;
-};
-
-export class GithubAlertError extends Error {
-  constructor(readonly status: number) {
-    super(`GitHub request failed with status ${status}.`);
-    this.name = "GithubAlertError";
-  }
-}
-
 export function getResendWebhookSecret(): string | null {
   const secret = process.env.RESEND_WEBHOOK_SECRET?.trim();
   return secret && secret.startsWith("whsec_") ? secret : null;
-}
-
-export function getGithubAlertConfig(): GithubAlertConfig | null {
-  const token = process.env.GITHUB_ALERT_TOKEN?.trim();
-  const repo = process.env.GITHUB_ALERT_REPO?.trim();
-  if (!token || !repo || !SAFE_REPOSITORY.test(repo)) return null;
-
-  return {
-    token,
-    repo,
-    apiBase: (process.env.GITHUB_API_BASE ?? "https://api.github.com").replace(/\/+$/, ""),
-  };
 }
 
 function decodeSecret(secret: string): Buffer | null {
@@ -203,145 +190,25 @@ export function resendAlertBody(alert: ResendAlert): string {
   ].join("\n");
 }
 
-async function github<T = Record<string, unknown>>(
-  config: GithubAlertConfig,
-  path: string,
-  init: RequestInit = {},
-): Promise<T> {
-  const response = await fetch(`${config.apiBase}${path}`, {
-    ...init,
-    signal: AbortSignal.timeout(8_000),
-    headers: {
-      Authorization: `Bearer ${config.token}`,
-      Accept: "application/vnd.github+json",
-      "X-GitHub-Api-Version": "2022-11-28",
-      "User-Agent": "get-to-it-resend-webhook",
-      "Content-Type": "application/json",
-      ...(init.headers ?? {}),
-    },
-  });
-
-  const text = await response.text();
-  let body: unknown = {};
-  if (text) {
-    try {
-      body = JSON.parse(text);
-    } catch {
-      body = {};
-    }
-  }
-
-  if (!response.ok) {
-    throw new GithubAlertError(response.status);
-  }
-
-  return body as T;
-}
-
 /** A deterministic, bounded claim label for one Resend email id. */
 export function resendAlertLabel(id: string): string {
-  const digest = createHash("sha256").update(id, "utf8").digest("hex").slice(0, 40);
-  return `${ALERT_LABEL_PREFIX}${digest}`;
-}
-
-/**
- * Label creation is atomic on GitHub. Unlike issue search or listing, a second
- * claim sees the first label immediately and returns 422, so concurrent or
- * rapid duplicate events cannot both create an issue.
- */
-async function claimAlertLabel(
-  config: GithubAlertConfig,
-  label: string,
-): Promise<boolean> {
-  try {
-    await github(config, `/repos/${config.repo}/labels`, {
-      method: "POST",
-      body: JSON.stringify({
-        name: label,
-        color: ALERT_LABEL_COLOR,
-        description: ALERT_LABEL_DESCRIPTION,
-      }),
-    });
-    return true;
-  } catch (error) {
-    if (error instanceof GithubAlertError && error.status === 422) return false;
-    throw error;
-  }
-}
-
-async function releaseAlertLabel(
-  config: GithubAlertConfig,
-  label: string,
-): Promise<void> {
-  try {
-    await github(config, `/repos/${config.repo}/labels/${encodeURIComponent(label)}`, {
-      method: "DELETE",
-    });
-  } catch {
-    // Best effort: a failed release leaves a claim without an issue. The caller
-    // still returns 502 so the event is retried and the alert is not lost.
-  }
-}
-
-type GithubIssue = {
-  title?: unknown;
-  pull_request?: unknown;
-};
-
-/**
- * GitHub search is eventually consistent. A newly created alert can be absent
- * from search for a short time, so check the recent issue list first. Search is
- * retained as a fallback for issues older than the first page.
- */
-async function recentAlertIssueExists(
-  config: GithubAlertConfig,
-  title: string,
-): Promise<boolean> {
-  const issues = await github<unknown>(
-    config,
-    `/repos/${config.repo}/issues?state=all&sort=created&direction=desc&per_page=100`,
-  );
-
-  if (!Array.isArray(issues)) return false;
-
-  return issues.some((issue) => {
-    if (issue === null || typeof issue !== "object") return false;
-    const record = issue as GithubIssue;
-    return !("pull_request" in record) && record.title === title;
-  });
+  return alertClaimLabel(ALERT_LABEL_PREFIX, id);
 }
 
 /**
  * Creates one issue per Resend email id. The title is shared with the hourly
- * reconciliation script, so either path reuses the same existing issue.
+ * reconciliation script (`scripts/resend-monitor.mjs`), so either path reuses
+ * the same existing issue.
  */
 export async function publishResendAlert(
   alert: ResendAlert,
   config: GithubAlertConfig,
 ): Promise<"created" | "existing"> {
-  const title = `Resend delivery alert: ${alert.id}`;
-
-  if (await recentAlertIssueExists(config, title)) return "existing";
-
-  const query = `repo:${config.repo} is:issue in:title "${title}"`;
-  const existing = await github<{ total_count?: unknown }>(
-    config,
-    `/search/issues?q=${encodeURIComponent(query)}`,
-  );
-
-  if (Number(existing.total_count ?? 0) > 0) return "existing";
-
-  const label = resendAlertLabel(alert.id);
-  if (!(await claimAlertLabel(config, label))) return "existing";
-
-  try {
-    await github(config, `/repos/${config.repo}/issues`, {
-      method: "POST",
-      body: JSON.stringify({ title, body: resendAlertBody(alert), labels: [label] }),
-    });
-    return "created";
-  } catch (error) {
-    await releaseAlertLabel(config, label);
-    throw error;
-  }
+  return publishGithubAlert(config, {
+    title: `Resend delivery alert: ${alert.id}`,
+    body: resendAlertBody(alert),
+    label: resendAlertLabel(alert.id),
+    labelColor: ALERT_LABEL_COLOR,
+    labelDescription: ALERT_LABEL_DESCRIPTION,
+  });
 }

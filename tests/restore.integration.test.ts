@@ -3936,7 +3936,7 @@ describeRestore("isolated restore and authorization drill", () => {
     ) => {
       const result = await client.query<{ r: { ok: boolean; status?: string } }>(
         `select public.billing_handle_subscription_event(
-           $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12
+           $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13
          ) as r`,
         [
           token,
@@ -3951,6 +3951,7 @@ describeRestore("isolated restore and authorization drill", () => {
           end.toISOString(),
           cancelAtPeriodEnd,
           purchaseId,
+          null,
         ],
       );
       return result.rows[0].r;
@@ -4017,6 +4018,667 @@ describeRestore("isolated restore and authorization drill", () => {
       [accountA.userId],
     );
     expect(ledgerAfter.rows[0]).toEqual(ledgerBefore.rows[0]);
+  });
+
+  /**
+   * Seeds the paid `pro` purchase and checkout that both webhook-ordering tests
+   * replay subscription events against.
+   */
+  async function seedPaidProPurchase() {
+    const token = `subscription-ordering-token-${randomUUID()}`;
+    await client.query(
+      `insert into public.app_secrets (name, value) values ('credit_webhook', $1)
+       on conflict (name) do update set value = excluded.value, updated_at = now()`,
+      [token],
+    );
+
+    const purchase = await asUser(accountA.userId, async () => {
+      const result = await client.query<{
+        r: { ok: boolean; purchase_id?: string; amount_cents?: number };
+      }>("select public.create_billing_purchase('pro',1,null,null) as r");
+      return result.rows[0].r;
+    });
+    expect(purchase.ok, JSON.stringify(purchase)).toBe(true);
+    expect(purchase.amount_cents).toBe(4900);
+    const purchaseId = purchase.purchase_id;
+    if (!purchaseId) throw new Error("purchase was not created");
+
+    const sessionId = `cs_subscription_order_${randomUUID()}`;
+    await asUser(accountA.userId, async () => {
+      await client.query("select public.attach_billing_session($1,$2)", [purchaseId, sessionId]);
+    });
+    await client.query(
+      "select public.billing_handle_event($1,$2,$3,$4,$5,null) as r",
+      [
+        token,
+        `evt_sub_order_checkout_${randomUUID()}`,
+        "checkout.session.completed",
+        sessionId,
+        `pi_sub_order_${randomUUID()}`,
+      ],
+    );
+
+    return { token, purchaseId };
+  }
+
+  /** Reads the subscription and entitlement state a delivery left behind. */
+  async function readSubscriptionState(subscriptionId: string) {
+    const result = await client.query<{
+      status: string;
+      current_period_end: string;
+      entitlement_status: string;
+      entitlement_expires_at: string;
+    }>(
+      `select s.status, s.current_period_end, e.status as entitlement_status,
+              e.expires_at as entitlement_expires_at
+         from public.billing_subscriptions s
+         join public.billing_entitlements e on e.purchase_id = s.purchase_id
+        where s.provider_subscription_id = $1`,
+      [subscriptionId],
+    );
+    return result.rows[0];
+  }
+
+  it("does not reactivate a canceled subscription from a delayed active update", async () => {
+    const { token, purchaseId } = await seedPaidProPurchase();
+
+    const subscriptionId = `sub_${randomUUID()}`;
+    const periodStart = new Date(Date.now() - 60_000);
+    const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const deletedAt = new Date(Date.now() - 30_000);
+    const subscriptionEvent = async (
+      type: string,
+      status: string,
+      end: Date,
+      cancelAtPeriodEnd: boolean,
+    ) => {
+      const result = await client.query<{ r: { ok: boolean; status?: string } }>(
+        `select public.billing_handle_subscription_event(
+           $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13
+         ) as r`,
+        [
+          token,
+          `evt_${type}_${randomUUID()}`,
+          type,
+          subscriptionId,
+          `cus_${randomUUID()}`,
+          status,
+          "price_test_subscription",
+          1,
+          periodStart.toISOString(),
+          end.toISOString(),
+          cancelAtPeriodEnd,
+          purchaseId,
+          null,
+        ],
+      );
+      return result.rows[0].r;
+    };
+
+    await subscriptionEvent("customer.subscription.created", "active", periodEnd, false);
+    const beforeCancel = await client.query<{ status: string }>(
+      "select status from public.billing_entitlements where purchase_id = $1",
+      [purchaseId],
+    );
+    expect(beforeCancel.rows[0].status).toBe("active");
+
+    await subscriptionEvent("customer.subscription.deleted", "canceled", deletedAt, false);
+    const afterCancel = await readSubscriptionState(subscriptionId);
+    expect(afterCancel).toMatchObject({
+      status: "canceled",
+      entitlement_status: "revoked",
+    });
+    expect(new Date(afterCancel.current_period_end).toISOString()).toBe(
+      deletedAt.toISOString(),
+    );
+
+    // Stripe can deliver an older active update after the deleted event. It must
+    // not move the subscription out of its terminal state or restore access.
+    await subscriptionEvent("customer.subscription.updated", "active", periodEnd, false);
+    const afterStaleUpdate = await readSubscriptionState(subscriptionId);
+    expect(afterStaleUpdate).toMatchObject({
+      status: "canceled",
+      entitlement_status: "revoked",
+    });
+    expect(new Date(afterStaleUpdate.current_period_end).toISOString()).toBe(
+      deletedAt.toISOString(),
+    );
+    expect(new Date(afterStaleUpdate.entitlement_expires_at).toISOString()).toBe(
+      deletedAt.toISOString(),
+    );
+  });
+
+  it("keeps a canceled subscription terminal when deleted and a stale active update race", async () => {
+    const subscriptionSql = `select public.billing_handle_subscription_event(
+         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13
+       ) as r`;
+    const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const deletedAt = new Date(Date.now() - 60_000);
+
+    // A paid `pro` subscription with one active period, ready for deliveries.
+    const startSubscription = async () => {
+      const { token, purchaseId } = await seedPaidProPurchase();
+      const subscriptionId = `sub_${randomUUID()}`;
+      const periodStart = new Date(Date.now() - 120_000);
+      const args = (type: string, status: string, end: Date): unknown[] => [
+        token,
+        `evt_${type}_${randomUUID()}`,
+        type,
+        subscriptionId,
+        `cus_${randomUUID()}`,
+        status,
+        "price_test_subscription",
+        1,
+        periodStart.toISOString(),
+        end.toISOString(),
+        false,
+        purchaseId,
+        null,
+      ];
+      const seeded = await client.query<{ r: { ok: boolean } }>(
+        subscriptionSql,
+        args("customer.subscription.created", "active", periodEnd),
+      );
+      expect(seeded.rows[0].r.ok).toBe(true);
+      return { subscriptionId, args };
+    };
+
+    // Deliver two events from independent sessions, as two webhook deliveries
+    // arriving at the same time would. The first takes the purchase row lock
+    // without committing; the second is sent while that transaction is open and
+    // must block on it. Committing the first then lets the second run against
+    // the committed state. Returns what the second delivery reported.
+    const race = async (
+      first: unknown[],
+      second: unknown[],
+    ): Promise<{ ok: boolean; status?: string }> => {
+      const firstSession = new Client({ connectionString: connectionString! });
+      const secondSession = new Client({ connectionString: connectionString! });
+      await firstSession.connect();
+      await secondSession.connect();
+      try {
+        await firstSession.query("begin");
+        await secondSession.query("begin");
+
+        const firstDelivery = await firstSession.query<{ r: { ok: boolean } }>(
+          subscriptionSql,
+          first,
+        );
+        expect(firstDelivery.rows[0].r.ok).toBe(true);
+
+        const secondDelivery = secondSession.query<{ r: { ok: boolean; status?: string } }>(
+          subscriptionSql,
+          second,
+        );
+
+        // Prove the second delivery is genuinely in flight and blocked behind
+        // the uncommitted first one before letting that commit.
+        let blocked = false;
+        for (let attempt = 0; attempt < 100 && !blocked; attempt += 1) {
+          const waiting = await client.query<{ count: string }>(
+            `select count(*)::text as count
+               from pg_stat_activity
+              where datname = current_database()
+                and pid <> pg_backend_pid()
+                and state = 'active'
+                and wait_event_type = 'Lock'
+                and query like '%billing_handle_subscription_event%'`,
+          );
+          blocked = Number(waiting.rows[0].count) > 0;
+          if (!blocked) await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        expect(blocked).toBe(true);
+
+        await firstSession.query("commit");
+        const secondResult = await secondDelivery;
+        await secondSession.query("commit");
+        return secondResult.rows[0].r;
+      } finally {
+        await firstSession.end().catch(() => {});
+        await secondSession.end().catch(() => {});
+      }
+    };
+
+    const expectCanceled = async (subscriptionId: string) => {
+      const state = await readSubscriptionState(subscriptionId);
+      expect(state).toMatchObject({ status: "canceled", entitlement_status: "revoked" });
+      expect(new Date(state.current_period_end).toISOString()).toBe(
+        deletedAt.toISOString(),
+      );
+      expect(new Date(state.entitlement_expires_at).toISOString()).toBe(
+        deletedAt.toISOString(),
+      );
+    };
+
+    // The deleted event commits first; the stale active update arrives while it
+    // is open and runs against the canceled row.
+    const deletedFirst = await startSubscription();
+    const staleAfterCancel = await race(
+      deletedFirst.args("customer.subscription.deleted", "canceled", deletedAt),
+      deletedFirst.args("customer.subscription.updated", "active", periodEnd),
+    );
+    // The database, not the event payload, decides the terminal state.
+    expect(staleAfterCancel).toMatchObject({ ok: true, status: "canceled" });
+    await expectCanceled(deletedFirst.subscriptionId);
+
+    // Reverse order: the stale active update commits first while the deleted
+    // event waits, then the cancellation lands and must still win.
+    const staleFirst = await startSubscription();
+    const deletedAfterActive = await race(
+      staleFirst.args("customer.subscription.updated", "active", periodEnd),
+      staleFirst.args("customer.subscription.deleted", "canceled", deletedAt),
+    );
+    expect(deletedAfterActive).toMatchObject({ ok: true, status: "canceled" });
+    await expectCanceled(staleFirst.subscriptionId);
+  });
+
+  it("does not extend access when a renewal invoice fails", async () => {
+    const { token, purchaseId } = await seedPaidProPurchase();
+    const subscriptionId = `sub_${randomUUID()}`;
+    const paidStart = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const paidThrough = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
+    const unpaidStart = paidThrough;
+    const unpaidEnd = new Date(paidThrough.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+    const send = async (type: string, status: string, start: Date, end: Date) => {
+      const result = await client.query<{ r: { ok: boolean; status?: string } }>(
+        `select public.billing_handle_subscription_event(
+           $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13
+         ) as r`,
+        [
+          token,
+          `evt_${type}_${randomUUID()}`,
+          type,
+          subscriptionId,
+          `cus_${randomUUID()}`,
+          status,
+          "price_test_subscription",
+          1,
+          start.toISOString(),
+          end.toISOString(),
+          false,
+          purchaseId,
+          null,
+        ],
+      );
+      expect(result.rows[0].r.ok).toBe(true);
+    };
+
+    const readState = async () => {
+      const result = await client.query<{
+        status: string;
+        current_period_start: string;
+        current_period_end: string;
+        entitlement_status: string;
+        entitlement_expires_at: string;
+      }>(
+        `select s.status, s.current_period_start, s.current_period_end,
+                e.status as entitlement_status, e.expires_at as entitlement_expires_at
+           from public.billing_subscriptions s
+           join public.billing_entitlements e on e.purchase_id = s.purchase_id
+          where s.provider_subscription_id = $1`,
+        [subscriptionId],
+      );
+      return result.rows[0];
+    };
+
+    await send("customer.subscription.created", "active", paidStart, paidThrough);
+    const paid = await readState();
+    expect(paid.status).toBe("active");
+    expect(paid.entitlement_status).toBe("active");
+    expect(new Date(paid.current_period_end).toISOString()).toBe(paidThrough.toISOString());
+    expect(new Date(paid.entitlement_expires_at).toISOString()).toBe(
+      paidThrough.toISOString(),
+    );
+
+    // The failed invoice bills the *next* period, so blindly recording its period
+    // end would grant another month of access for money that never arrived.
+    await send("invoice.payment_failed", "past_due", unpaidStart, unpaidEnd);
+    const afterFailure = await readState();
+    expect(afterFailure.status).toBe("past_due");
+    expect(afterFailure.entitlement_status).toBe("active");
+    expect(new Date(afterFailure.current_period_start).toISOString()).toBe(
+      paidStart.toISOString(),
+    );
+    expect(new Date(afterFailure.current_period_end).toISOString()).toBe(
+      paidThrough.toISOString(),
+    );
+    expect(new Date(afterFailure.entitlement_expires_at).toISOString()).toBe(
+      paidThrough.toISOString(),
+    );
+
+    // `unpaid` and `paused` are no more paid than `past_due`.
+    await send("customer.subscription.updated", "unpaid", unpaidStart, unpaidEnd);
+    const afterUnpaid = await readState();
+    expect(afterUnpaid.status).toBe("unpaid");
+    expect(new Date(afterUnpaid.current_period_end).toISOString()).toBe(
+      paidThrough.toISOString(),
+    );
+    expect(new Date(afterUnpaid.entitlement_expires_at).toISOString()).toBe(
+      paidThrough.toISOString(),
+    );
+
+    await send("customer.subscription.updated", "paused", unpaidStart, unpaidEnd);
+    const afterPaused = await readState();
+    expect(afterPaused.status).toBe("paused");
+    expect(new Date(afterPaused.current_period_end).toISOString()).toBe(
+      paidThrough.toISOString(),
+    );
+
+    // Paying the renewal does extend access to the new period.
+    await send("invoice.paid", "active", unpaidStart, unpaidEnd);
+    const recovered = await readState();
+    expect(recovered.status).toBe("active");
+    expect(recovered.entitlement_status).toBe("active");
+    expect(new Date(recovered.current_period_end).toISOString()).toBe(
+      unpaidEnd.toISOString(),
+    );
+    expect(new Date(recovered.entitlement_expires_at).toISOString()).toBe(
+      unpaidEnd.toISOString(),
+    );
+  });
+
+  it("ignores a delayed event created before the state already recorded", async () => {
+    const { token, purchaseId } = await seedPaidProPurchase();
+    const subscriptionId = `sub_${randomUUID()}`;
+    const paidStart = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const paidThrough = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const createdBase = new Date(Date.now() - 10 * 60 * 1000);
+
+    const send = async (
+      type: string,
+      status: string,
+      end: Date,
+      createdAt: Date | null,
+    ) => {
+      const result = await client.query<{
+        r: { ok: boolean; ignored?: boolean; reason?: string; status?: string };
+      }>(
+        `select public.billing_handle_subscription_event(
+           $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13
+         ) as r`,
+        [
+          token,
+          `evt_${type}_${randomUUID()}`,
+          type,
+          subscriptionId,
+          `cus_${randomUUID()}`,
+          status,
+          "price_test_subscription",
+          1,
+          paidStart.toISOString(),
+          end.toISOString(),
+          false,
+          purchaseId,
+          createdAt ? createdAt.toISOString() : null,
+        ],
+      );
+      return result.rows[0].r;
+    };
+
+    expect(
+      (await send("customer.subscription.created", "active", paidThrough, createdBase)).ok,
+    ).toBe(true);
+
+    // This update was created an hour before the state already recorded, so it
+    // cannot describe the current period. Applying it would expire a paid month
+    // early; the watermark has to ignore it.
+    const stale = await send(
+      "customer.subscription.updated",
+      "active",
+      new Date(Date.now() - 60 * 60 * 1000),
+      new Date(createdBase.getTime() - 60 * 60 * 1000),
+    );
+    expect(stale).toMatchObject({ ok: true, ignored: true, reason: "stale-event" });
+
+    const unchanged = await readSubscriptionState(subscriptionId);
+    expect(unchanged).toMatchObject({ status: "active", entitlement_status: "active" });
+    expect(new Date(unchanged.current_period_end).toISOString()).toBe(
+      paidThrough.toISOString(),
+    );
+    expect(new Date(unchanged.entitlement_expires_at).toISOString()).toBe(
+      paidThrough.toISOString(),
+    );
+
+    // A genuinely newer event still applies and moves the period forward.
+    const extended = new Date(paidThrough.getTime() + 30 * 24 * 60 * 60 * 1000);
+    await send(
+      "invoice.paid",
+      "active",
+      extended,
+      new Date(createdBase.getTime() + 60 * 60 * 1000),
+    );
+    const afterNewer = await readSubscriptionState(subscriptionId);
+    expect(new Date(afterNewer.current_period_end).toISOString()).toBe(
+      extended.toISOString(),
+    );
+  });
+
+  it("still records a subscription event for a caller on the 12-argument signature", async () => {
+    // `0092` dropped the old signature, which made every delivery from `main` or
+    // from a rolled-back build fail at the database. `0093` keeps it as a wrapper
+    // over the same implementation, so a rollback loses the ordering watermark
+    // instead of losing renewals and cancellations.
+    const { token, purchaseId } = await seedPaidProPurchase();
+    const subscriptionId = `sub_${randomUUID()}`;
+    const periodStart = new Date(Date.now() - 60_000);
+    const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+    const legacy = async (type: string, status: string, end: Date) => {
+      const result = await client.query<{ r: { ok: boolean; status?: string } }>(
+        `select public.billing_handle_subscription_event(
+           $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12
+         ) as r`,
+        [
+          token,
+          `evt_legacy_${randomUUID()}`,
+          type,
+          subscriptionId,
+          `cus_${randomUUID()}`,
+          status,
+          "price_test_subscription",
+          1,
+          periodStart.toISOString(),
+          end.toISOString(),
+          false,
+          purchaseId,
+        ],
+      );
+      expect(result.rows[0].r.ok).toBe(true);
+      return result.rows[0].r;
+    };
+
+    expect(
+      await legacy("customer.subscription.created", "active", periodEnd),
+    ).toMatchObject({ status: "active" });
+    expect(await readSubscriptionState(subscriptionId)).toMatchObject({
+      status: "active",
+      entitlement_status: "active",
+    });
+
+    const canceledAt = new Date();
+    await legacy("customer.subscription.deleted", "canceled", canceledAt);
+    expect(await readSubscriptionState(subscriptionId)).toMatchObject({
+      status: "canceled",
+      entitlement_status: "revoked",
+    });
+
+    // The wrapper forwards no event time, so it never advances the watermark...
+    const watermark = await client.query<{ last_event_at: string | null }>(
+      "select last_event_at from public.billing_subscriptions where provider_subscription_id = $1",
+      [subscriptionId],
+    );
+    expect(watermark.rows[0].last_event_at).toBeNull();
+
+    // ...and a late active update still cannot resurrect the subscription,
+    // because `canceled` is terminal in the shared implementation.
+    await legacy("customer.subscription.updated", "active", periodEnd);
+    expect(await readSubscriptionState(subscriptionId)).toMatchObject({
+      status: "canceled",
+      entitlement_status: "revoked",
+    });
+  });
+
+  it("stops a refunded subscription through its invoice payment intent", async () => {
+    const { token, purchaseId } = await seedPaidProPurchase();
+    const subscriptionId = `sub_${randomUUID()}`;
+    const invoicePaymentId = `pi_invoice_${randomUUID()}`;
+    const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+    // A subscription Checkout session is not guaranteed to leave a payment id on
+    // the purchase, so clear it: everything below has to work from the invoice.
+    await client.query(
+      "update public.billing_purchases set provider_payment_id = null where id = $1",
+      [purchaseId],
+    );
+
+    const created = await client.query<{ r: { ok: boolean } }>(
+      `select public.billing_handle_subscription_event(
+         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13
+       ) as r`,
+      [
+        token,
+        `evt_created_${randomUUID()}`,
+        "customer.subscription.created",
+        subscriptionId,
+        `cus_${randomUUID()}`,
+        "active",
+        "price_test_subscription",
+        1,
+        new Date().toISOString(),
+        periodEnd.toISOString(),
+        false,
+        purchaseId,
+        new Date().toISOString(),
+      ],
+    );
+    expect(created.rows[0].r.ok).toBe(true);
+
+    // `invoice.paid` records the invoice's payment intent on the subscription.
+    const record = (paymentId: string) =>
+      client.query<{ r: { ok: boolean; recorded?: boolean; reason?: string } }>(
+        "select public.billing_record_invoice_payment($1,$2,$3) as r",
+        [token, subscriptionId, paymentId],
+      );
+
+    expect((await record(invoicePaymentId)).rows[0].r).toMatchObject({
+      ok: true,
+      recorded: true,
+    });
+    // A redelivered invoice rewrites the same id instead of failing.
+    expect((await record(invoicePaymentId)).rows[0].r).toMatchObject({
+      ok: true,
+      recorded: true,
+    });
+
+    // The refunded charge carries the invoice's payment intent, and the purchase
+    // has no payment id at all: without the invoice id nothing would match.
+    const refunded = await client.query<{ r: { ok: boolean; refunded?: boolean } }>(
+      "select public.billing_handle_event($1,$2,$3,$4,$5,null) as r",
+      [token, `evt_refund_${randomUUID()}`, "charge.refunded", null, invoicePaymentId],
+    );
+    expect(refunded.rows[0].r).toMatchObject({ ok: true, refunded: true });
+
+    const purchaseStatus = await client.query<{ status: string }>(
+      "select status from public.billing_purchases where id = $1",
+      [purchaseId],
+    );
+    expect(purchaseStatus.rows[0].status).toBe("refunded");
+
+    // Access is revoked immediately by the refund, not whenever Stripe's deleted
+    // event happens to arrive.
+    const state = await readSubscriptionState(subscriptionId);
+    expect(state).toMatchObject({ entitlement_status: "revoked" });
+
+    // The cancellation lookup finds the same subscription from the same id.
+    const lookup = await client.query<{
+      r: { ok: boolean; found?: boolean; provider_subscription_id?: string };
+    }>("select public.billing_subscription_for_payment($1,$2) as r", [
+      token,
+      invoicePaymentId,
+    ]);
+    expect(lookup.rows[0].r).toMatchObject({
+      ok: true,
+      found: true,
+      provider_subscription_id: subscriptionId,
+    });
+
+    // An id belonging to neither a purchase nor a subscription still matches
+    // nothing, and a wrong token is still rejected.
+    const unknown = await client.query<{ r: { found?: boolean } }>(
+      "select public.billing_subscription_for_payment($1,$2) as r",
+      [token, `pi_unknown_${randomUUID()}`],
+    );
+    expect(unknown.rows[0].r.found).toBe(false);
+
+    const rejected = await client.query<{ r: { ok: boolean; code?: string } }>(
+      "select public.billing_record_invoice_payment($1,$2,$3) as r",
+      [`wrong-token-${randomUUID()}-${randomUUID()}`, subscriptionId, invoicePaymentId],
+    );
+    expect(rejected.rows[0].r).toMatchObject({ ok: false, code: "unauthorized" });
+  });
+
+  it("finds the subscription behind a refunded payment so it can be stopped", async () => {
+    const { token, purchaseId } = await seedPaidProPurchase();
+    const subscriptionId = `sub_${randomUUID()}`;
+    const paymentId = `pi_refund_${randomUUID()}`;
+
+    await client.query(
+      "update public.billing_purchases set provider_payment_id = $2 where id = $1",
+      [purchaseId, paymentId],
+    );
+
+    const event = await client.query<{ r: { ok: boolean } }>(
+      `select public.billing_handle_subscription_event(
+         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13
+       ) as r`,
+      [
+        token,
+        `evt_created_${randomUUID()}`,
+        "customer.subscription.created",
+        subscriptionId,
+        `cus_${randomUUID()}`,
+        "active",
+        "price_test_subscription",
+        1,
+        new Date().toISOString(),
+        new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        false,
+        purchaseId,
+        new Date().toISOString(),
+      ],
+    );
+    expect(event.rows[0].r.ok).toBe(true);
+
+    const refunded = await client.query<{ r: { ok: boolean; refunded?: boolean } }>(
+      "select public.billing_handle_event($1,$2,$3,$4,$5,null) as r",
+      [token, `evt_refund_${randomUUID()}`, "charge.refunded", null, paymentId],
+    );
+    expect(refunded.rows[0].r).toMatchObject({ ok: true, refunded: true });
+
+    // The webhook needs the Stripe id to cancel a refunded subscription; without
+    // it the customer keeps being billed for a refunded purchase.
+    const lookup = await client.query<{
+      r: { ok: boolean; found?: boolean; provider_subscription_id?: string };
+    }>("select public.billing_subscription_for_payment($1,$2) as r", [token, paymentId]);
+    expect(lookup.rows[0].r).toMatchObject({
+      ok: true,
+      found: true,
+      provider_subscription_id: subscriptionId,
+    });
+
+    // A refunded credit pack has no billing purchase, so nothing is canceled.
+    const unknown = await client.query<{ r: { found?: boolean } }>(
+      "select public.billing_subscription_for_payment($1,$2) as r",
+      [token, `pi_not_a_purchase_${randomUUID()}`],
+    );
+    expect(unknown.rows[0].r.found).toBe(false);
+
+    const rejected = await client.query<{ r: { ok: boolean; code?: string } }>(
+      "select public.billing_subscription_for_payment($1,$2) as r",
+      [`wrong-token-${randomUUID()}-${randomUUID()}`, paymentId],
+    );
+    expect(rejected.rows[0].r).toMatchObject({ ok: false, code: "unauthorized" });
   });
 
   it("enforces team-seat limits for pending invitations, cancellation, active members, and direct inserts", async () => {

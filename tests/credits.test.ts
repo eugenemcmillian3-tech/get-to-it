@@ -33,7 +33,10 @@ import {
 } from "@/lib/credits/pricing";
 import {
   createCheckoutSession,
+  eventCreatedAt,
   factsFromEvent,
+  invoicePaymentId,
+  isFullRefund,
   getStripeKey,
   hasStripeKey,
   liveKeyConfigured,
@@ -401,11 +404,12 @@ describe("stripe signature verification", () => {
 });
 
 describe("stripe event parsing", () => {
-  it("keeps only the id, type and object", () => {
+  it("keeps only the id, type, creation time and object", () => {
     const event = parseStripeEvent(
       JSON.stringify({
         id: "evt_1",
         type: "checkout.session.completed",
+        created: 1_700_000_000,
         data: { object: { id: "cs_1" } },
         extra: "ignored",
       }),
@@ -413,8 +417,14 @@ describe("stripe event parsing", () => {
     expect(event).toEqual({
       id: "evt_1",
       type: "checkout.session.completed",
+      created: 1_700_000_000,
       data: { object: { id: "cs_1" } },
     });
+    expect(eventCreatedAt(event!)).toBe("2023-11-14T22:13:20.000Z");
+    // An event with no usable creation time must not be given a made-up one.
+    expect(
+      eventCreatedAt(parseStripeEvent(JSON.stringify({ id: "evt_2", type: "x", data: { object: {} } }))!),
+    ).toBeNull();
   });
 
   it("rejects unreadable or incomplete bodies", () => {
@@ -454,6 +464,52 @@ describe("stripe event parsing", () => {
       providerPaymentId: "pi_2",
       receiptUrl: "https://pay.example/receipt",
     });
+  });
+
+  it("reads the invoice payment intent the refund lookup matches on", () => {
+    const invoice = (object: Record<string, unknown>) =>
+      parseStripeEvent(
+        JSON.stringify({
+          id: "evt_invoice",
+          type: "invoice.paid",
+          data: { object },
+        }),
+      )!;
+
+    // Older API versions carry it directly; newer ones only list it per payment.
+    expect(invoicePaymentId(invoice({ id: "in_1", payment_intent: "pi_1" }))).toBe("pi_1");
+    expect(invoicePaymentId(invoice({ id: "in_2", payment_intent: { id: "pi_2" } }))).toBe(
+      "pi_2",
+    );
+    expect(
+      invoicePaymentId(
+        invoice({
+          id: "in_3",
+          payments: { data: [{ payment: { payment_intent: "pi_3" } }] },
+        }),
+      ),
+    ).toBe("pi_3");
+    expect(invoicePaymentId(invoice({ id: "in_4" }))).toBeNull();
+  });
+
+  it("only treats a fully refunded charge as a refund", () => {
+    const refund = (object: Record<string, unknown>) =>
+      parseStripeEvent(
+        JSON.stringify({
+          id: "evt_refund",
+          type: "charge.refunded",
+          data: { object: { id: "pi_1", ...object } },
+        }),
+      )!;
+
+    expect(isFullRefund(refund({ refunded: true }))).toBe(true);
+    expect(isFullRefund(refund({ amount: 500, amount_refunded: 500 }))).toBe(true);
+    // A part-refund is not the purchase being undone.
+    expect(isFullRefund(refund({ refunded: false, amount: 500, amount_refunded: 100 }))).toBe(
+      false,
+    );
+    // An older payload that says neither way keeps the previous behaviour.
+    expect(isFullRefund(refund({}))).toBe(true);
   });
 
   it("reads an expanded payment_intent object", () => {

@@ -10,11 +10,11 @@ GET TO IT deploys from the `main` branch of `eugenemcmillian3-tech/get-to-it` to
 - Supabase project: `qhlzjhdcnlokbsdsrqqy` (created through the Vercel Supabase integration)
 - Supabase migration history: reconciled on 2026-11-07. The original 13 rows ended at version `20261104051652` (recorded name `0033_composio_connections_part2`); the missing rows are recorded as `0034_credit_pricing` (`20261107000000`), `0035_operation_budgets` (`20261107000001`) and `0036_error_events` (`20261107035600`). The first two were added after schema verification without re-running the migrations; `0036` was applied directly. Production has 137 public tables, five active packs, `per_user_daily = 0`, and the four-argument `reserve_ai_request`.
 - Production migrations: `0037_composio_toolkit_catalog.sql` and `0038_billing_offers.sql` were applied on 2026-11-07 in one transaction. Verified after apply: 7 active billing offers, 45 Composio toolkit catalog rows, four toolkit foreign keys, both migration-history entries, and the billing purchase/entitlement tables.
-- Paid offers are implemented in Stripe test mode only. `STRIPE_ALLOW_LIVE` must remain off; the seven offers do not grant AI credits. The 0034/0035 rollout record is retained below as history.
+- Paid offers run in live Stripe mode as of 2026-11-18: `STRIPE_ALLOW_LIVE` is exactly `true` with a live `sk_live_` key and live prices (see `LIVE_BILLING.md`). The seven offers do not grant AI credits. The 0034/0035 rollout record below is retained as history; its "keep live off" steps applied to that rollout only.
 - Auth callback: `https://get-to-it-wvpy.vercel.app/auth/callback`
 - Vercel environment names: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `DEPLOYMENT_VAULT_KEY`, `CRON_SECRET`, `CREDIT_RPC_TOKEN`, `SUPABASE_OAUTH_REDIRECT_URI`
 
-Optional credentials configured in production as of 2026-11-07: `SUPABASE_OAUTH_CLIENT_ID`, `SUPABASE_OAUTH_CLIENT_SECRET`, `COMPOSIO_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PUBLISHABLE_KEY` and `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`. The Stripe key is test mode only; `STRIPE_ALLOW_LIVE=true` is ready, but no live key is installed.
+Optional credentials configured in production as of 2026-11-07: `SUPABASE_OAUTH_CLIENT_ID`, `SUPABASE_OAUTH_CLIENT_SECRET`, `COMPOSIO_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PUBLISHABLE_KEY` and `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`. The Stripe key is live mode as of 2026-11-18; `STRIPE_ALLOW_LIVE` is `true` and the ten `STRIPE_PRICE_ID_*` values are live-mode prices.
 
 Optional credentials not configured in production: `OLLAMA_API_KEY`, `PREVIEW_RUNNER_URL`, `PREVIEW_RUNNER_TOKEN` and `PREVIEW_SIGNING_SECRET`. The app stays in setup mode for those features rather than pretending they work. The Vercel Supabase integration also supplies server-only `POSTGRES_*` connection values and `SUPABASE_SERVICE_ROLE_KEY`; the service-role key is used only for the sanitized `error_events` sink and is never browser-exposed.
 
@@ -411,11 +411,29 @@ handwritten inverse of `0034` or `0035`, and never edit `credit_ledger` by hand.
 - Conditions or open risks: `No backup or snapshot is available (Free plan, PITR disabled; scoped CLI token lacks database_write); complete and restore-test the Backup remediation path with an owner-run direct connection; owner approval not granted; Stripe live configuration not verifiable through the Vercel integration.`
 - Next review: `After a fresh backup/snapshot, owner approval and Stripe-off confirmation.`
 
+### Billing hardening deploy, 2026-11-18
+
+Production serves the head of branch `fix/canceled-subscription-terminal` (PR
+#200) because migrations `0090`–`0093` are applied there. `0092` replaced the
+12-argument `billing_handle_subscription_event` with the 13-argument version, and
+`0093` restored the old signature as a thin wrapper over the same function, so a
+deploy from `main` or an application rollback records subscription events again —
+it just passes no event time, so its deliveries have no ordering watermark.
+`main` still lags the branch: it lacks the terminal cancel, failed-renewal,
+watermark and refund logic. PR #200 cannot merge while the required `checks` job
+fails on GHSA-fc5q-39xc-vjpf (`picomatch`, no patched release). Once that advisory
+has a fix the PR merges and `main` becomes the source again; until then, redeploy
+the branch head rather than `main` after any billing change.
+
 ## Live Stripe gate
 
-This rollout must **not** turn on real money. The current production configuration
-has a Stripe test key only; live payments require the owner's onboarding and
-explicit approval.
+**Closed 2026-11-18:** the owner activated live payments. Verified in the
+production Vercel environment: `STRIPE_ALLOW_LIVE` present, all ten mode-scoped
+`STRIPE_PRICE_ID_*` values present, and `POST /api/stripe/webhook` returning `400`
+(not `503`) for unsigned and bogus-signature bodies, which means the signing
+secret is installed and enforced. Not recorded here: the `LIVE_BILLING.md` §6
+rehearsal of one real purchase and one real refund — confirm it before trusting
+the live path. The checklist below is kept as the gate that had to be met.
 
 Before any future live billing decision:
 

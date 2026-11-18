@@ -140,6 +140,61 @@ export async function createBillingCheckoutSession(
   return { ok: true, sessionId: record.id, url: record.url };
 }
 
+/**
+ * Ends a subscription now. Used when a refund already revoked access: leaving
+ * the Stripe subscription alive would keep charging for something the customer
+ * has been refunded for, and a later paid invoice would buy the period back.
+ * Cancelling twice is not an error — Stripe reports an unknown or already
+ * canceled subscription, and both mean the outcome we wanted already holds.
+ */
+export async function cancelSubscriptionNow(
+  subscriptionId: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const key = getStripeKey();
+  if (!key) {
+    return {
+      ok: false,
+      message: liveKeyConfigured() ? STRIPE_LIVE_KEY_MESSAGE : STRIPE_SETUP_MESSAGE,
+    };
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(
+      `${apiBase()}/v1/subscriptions/${encodeURIComponent(subscriptionId)}`,
+      {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${key}`,
+          "Stripe-Version": "2024-06-20",
+        },
+        signal: AbortSignal.timeout(15_000),
+      },
+    );
+  } catch (error) {
+    console.error(
+      "Stripe immediate cancellation failed:",
+      error instanceof Error ? error.message : "unknown error",
+    );
+    return { ok: false, message: "We couldn't reach the payment provider. Nothing changed." };
+  }
+
+  if (response.ok || response.status === 404) {
+    return { ok: true };
+  }
+
+  const body = await response.text().catch(() => "");
+  if (/already been canceled|resource_missing/i.test(body)) {
+    return { ok: true };
+  }
+
+  console.error("Stripe immediate cancellation returned", response.status);
+  return {
+    ok: false,
+    message: "The payment provider refused to cancel that subscription. Nothing changed.",
+  };
+}
+
 export async function cancelSubscriptionAtPeriodEnd(
   subscriptionId: string,
 ): Promise<{ ok: true } | { ok: false; message: string }> {
