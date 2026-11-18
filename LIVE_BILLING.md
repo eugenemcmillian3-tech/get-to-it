@@ -152,6 +152,14 @@ subscription canceled. It reads either `DATABASE_URL`/`POSTGRES_URL` or
 specific refund and `--json` makes it machine-readable. The script only reads —
 nothing is revoked, refunded or cancelled by running it.
 
+A `charge.refunded` that neither the credit handler nor the billing handler
+recognises is **not** acknowledged silently. The webhook opens one GitHub issue
+per payment id (`src/lib/billing/refund-alert.ts`, through `GITHUB_ALERT_TOKEN`
+and `GITHUB_ALERT_REPO`), because money went back and nothing here revoked access
+or stopped a subscription; a redelivery reuses the same issue. When the issue
+cannot be created the route returns `500` so Stripe retries, and without an alert
+token it logs the event id and still acknowledges the delivery.
+
 Only a **fully** refunded charge does this. Stripe also sends `charge.refunded`
 for a partial refund; that event is acknowledged as `ignored` / `partial-refund`
 without revoking access or cancelling anything, because the published policy is

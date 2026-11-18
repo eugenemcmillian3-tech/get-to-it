@@ -13,11 +13,56 @@ import {
   verifyStripeSignature,
 } from "@/lib/credits/stripe";
 import { cancelSubscriptionNow } from "@/lib/billing/stripe";
+import { publishUnmatchedRefundAlert } from "@/lib/billing/refund-alert";
 import { sendPurchaseReceipt } from "@/lib/credits/receipt";
 import { getSupabaseSettings } from "@/lib/supabase/config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+type HandlerResult = {
+  ok?: boolean;
+  code?: string;
+  ignored?: boolean;
+  reason?: string;
+};
+
+/** True when a handler did not recognise the payment at all. */
+function reportsUnknownPayment(result: unknown): boolean {
+  const value = (result ?? {}) as HandlerResult;
+  return value.ignored === true && value.reason === "unknown-payment";
+}
+
+/**
+ * A refunded charge that neither the credit handler nor the billing handler
+ * recognised. Nothing was revoked and nothing was cancelled, and Stripe will not
+ * mention it again, so it goes to a person instead of being acknowledged
+ * silently. The alert is idempotent per payment id, which matters because Stripe
+ * retries this delivery when the alert itself fails.
+ */
+async function raiseUnmatchedRefund(input: {
+  eventId: string;
+  paymentId: string | null;
+  amountCents: number | null;
+  currency: string | null;
+}): Promise<{ ok: true; state: string } | { ok: false }> {
+  try {
+    const state = await publishUnmatchedRefundAlert(input);
+    if (state === "unconfigured") {
+      console.error(
+        "Unmatched Stripe refund could not be raised: add GITHUB_ALERT_TOKEN and GITHUB_ALERT_REPO.",
+        input.eventId,
+      );
+    }
+    return { ok: true, state };
+  } catch (error) {
+    console.error(
+      "Unmatched Stripe refund alert failed:",
+      error instanceof Error ? error.message : "unknown error",
+    );
+    return { ok: false };
+  }
+}
 
 type RefundLookup = {
   ok?: boolean;
@@ -263,6 +308,36 @@ export async function POST(request: Request) {
         { ok: false, error: "That webhook token is not accepted." },
         { status: 401 },
       );
+    }
+
+    // Both handlers disclaiming the payment means this refund belongs to nobody
+    // we know: a person has to look at it.
+    if (
+      event.type === "charge.refunded" &&
+      reportsUnknownPayment(billingData) &&
+      reportsUnknownPayment(data)
+    ) {
+      const details = paymentDetailsFromEvent(event);
+      const alerted = await raiseUnmatchedRefund({
+        eventId: event.id,
+        paymentId: facts.providerPaymentId,
+        amountCents: details.amountTotal,
+        currency: details.currency,
+      });
+
+      if (!alerted.ok) {
+        // 500 so Stripe retries. Nothing was granted or revoked, so the retry is
+        // safe, and the alert is idempotent per payment id.
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "The refund could not be raised for a person yet.",
+          },
+          { status: 500 },
+        );
+      }
+
+      return NextResponse.json({ ok: true, ignored: "unmatched-refund", alerted: alerted.state });
     }
 
     if (event.type === "charge.refunded") {
