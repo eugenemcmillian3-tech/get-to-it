@@ -122,10 +122,15 @@ revoked in `billing_handle_event`, and the webhook then looks the purchase up by
 payment id (`billing_subscription_for_payment`) and cancels the Stripe
 subscription immediately with `DELETE /v1/subscriptions/{id}` (migration `0092`).
 Revoking access without ending the subscription would keep charging a customer
-who has been refunded, and the next `invoice.paid` would buy the period back. A
-cancel that Stripe reports as unknown or already canceled counts as success, and
+who has been refunded, and the next `invoice.paid` would buy the period back. A cancel that Stripe reports as unknown or already canceled counts as success, and
 a genuine failure returns `500` so Stripe retries the delivery — the lookup is
 idempotent, so the retry is harmless.
+
+Only a **fully** refunded charge does this. Stripe also sends `charge.refunded`
+for a partial refund; that event is acknowledged as `ignored` / `partial-refund`
+without revoking access or cancelling anything, because the published policy is
+full refunds of unused credits and a goodwill part-refund has not undone the
+purchase.
 
 ## 6a. What a failed renewal does
 

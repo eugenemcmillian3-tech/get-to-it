@@ -468,6 +468,29 @@ export function subscriptionFactsFromEvent(event: StripeEvent): SubscriptionFact
   };
 }
 
+/**
+ * Stripe sends `charge.refunded` for partial refunds too. The published policy is
+ * full refunds of unused credits, so a part-refund is a goodwill adjustment, not
+ * the purchase being undone: it must not revoke an entitlement or cancel a
+ * subscription. A payload that does not say either way keeps the previous
+ * behaviour, because ignoring a real refund would leave paid access in place
+ * after the money went back.
+ */
+export function isFullRefund(event: StripeEvent): boolean {
+  const object = event.data.object;
+  if (object.refunded === true) return true;
+
+  const amount = typeof object.amount === "number" ? object.amount : null;
+  const amountRefunded =
+    typeof object.amount_refunded === "number" ? object.amount_refunded : null;
+
+  if (amount !== null && amountRefunded !== null && amount > 0) {
+    return amountRefunded >= amount;
+  }
+
+  return true;
+}
+
 export type PaymentDetails = {
   customerEmail: string | null;
   amountTotal: number | null;

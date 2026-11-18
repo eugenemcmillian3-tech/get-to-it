@@ -3,6 +3,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
   eventCreatedAt,
   factsFromEvent,
+  isFullRefund,
   getStripeKey,
   getWebhookSecret,
   parseStripeEvent,
@@ -120,6 +121,14 @@ export async function POST(request: Request) {
   }
 
   const facts = factsFromEvent(event);
+
+  // `charge.refunded` also fires for a partial refund. Only a fully refunded
+  // charge undoes a purchase: revoking access or cancelling a subscription over
+  // a goodwill part-refund would take away what the customer kept.
+  if (event.type === "charge.refunded" && !isFullRefund(event)) {
+    console.info("Partial refund acknowledged without revoking access:", event.id);
+    return NextResponse.json({ ok: true, ignored: "partial-refund" });
+  }
 
   const supabase = createClient(settings.url, settings.anonKey, {
     auth: { persistSession: false, autoRefreshToken: false },

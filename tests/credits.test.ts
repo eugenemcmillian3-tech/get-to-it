@@ -35,6 +35,7 @@ import {
   createCheckoutSession,
   eventCreatedAt,
   factsFromEvent,
+  isFullRefund,
   getStripeKey,
   hasStripeKey,
   liveKeyConfigured,
@@ -462,6 +463,26 @@ describe("stripe event parsing", () => {
       providerPaymentId: "pi_2",
       receiptUrl: "https://pay.example/receipt",
     });
+  });
+
+  it("only treats a fully refunded charge as a refund", () => {
+    const refund = (object: Record<string, unknown>) =>
+      parseStripeEvent(
+        JSON.stringify({
+          id: "evt_refund",
+          type: "charge.refunded",
+          data: { object: { id: "pi_1", ...object } },
+        }),
+      )!;
+
+    expect(isFullRefund(refund({ refunded: true }))).toBe(true);
+    expect(isFullRefund(refund({ amount: 500, amount_refunded: 500 }))).toBe(true);
+    // A part-refund is not the purchase being undone.
+    expect(isFullRefund(refund({ refunded: false, amount: 500, amount_refunded: 100 }))).toBe(
+      false,
+    );
+    // An older payload that says neither way keeps the previous behaviour.
+    expect(isFullRefund(refund({}))).toBe(true);
   });
 
   it("reads an expanded payment_intent object", () => {
